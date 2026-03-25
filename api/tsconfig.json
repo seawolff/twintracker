@@ -7,5 +7,6 @@
     "moduleResolution": "node",
     "jsx": "preserve"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
