@@ -375,18 +375,17 @@ describe('getBabyInsight', () => {
   });
 
   it('awake, nap overdue: urgency overdue', () => {
-    const napEndedAt = msAgo(AWAKE_DURATION_MS + 10 * 60_000);
+    // Pin to noon UTC so isBedtimeStretch never activates regardless of when CI runs.
+    const noon = new Date('2024-01-15T12:00:00.000Z');
+    const noonMs = noon.getTime();
+    const napEndedAt = new Date(noonMs - (AWAKE_DURATION_MS + 10 * 60_000)).toISOString();
+    const napStartedAt = new Date(
+      noonMs - (NAP_DURATION_MS + AWAKE_DURATION_MS + 10 * 60_000),
+    ).toISOString();
     const latest: LatestEventMap = {
-      [`${BABY_ID}:nap`]: makeEvent(
-        BABY_ID,
-        'nap',
-        msAgo(NAP_DURATION_MS + AWAKE_DURATION_MS + 10 * 60_000),
-        napEndedAt,
-      ),
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt, napEndedAt),
     };
-    // bedtimeHour=23 prevents isBedtimeStretch from masking the overdue result
-    // regardless of what time of day the test runs.
-    const insight = getBabyInsight(baby, latest, [], NOW, 0, undefined, 23, 6);
+    const insight = getBabyInsight(baby, latest, [], noon, 0, undefined, 23, 6);
     expect(insight.urgency).toBe('overdue');
     expect(insight.narrative).toContain('time for a nap');
   });
