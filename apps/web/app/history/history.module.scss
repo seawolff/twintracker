@@ -1,0 +1,147 @@
+@use '../../styles/variables' as *;
+
+.page {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-bg);
+
+  @media (min-width: $bp-md) {
+    padding-left: $sidebar-w;
+  }
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: calc(56px + #{$space-md});
+
+  @media (min-width: $bp-md) {
+    padding-bottom: $space-md;
+  }
+}
+
+// ── Quick-add panel ────────────────────────────────────────────────────────
+.quickPanel {
+  position: fixed;
+  bottom: 56px; // above tab bar
+  left: 0;
+  right: 0;
+  background: var(--tt-surface);
+  border-top: 1px solid var(--tt-border);
+  padding: $space-md;
+  z-index: 100;
+
+  @media (min-width: $bp-md) {
+    left: $sidebar-w;
+    bottom: 0;
+  }
+}
+
+.quickLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: $space-sm;
+}
+
+.quickPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  margin-bottom: $space-sm;
+}
+
+.quickPill {
+  height: 52px;
+  padding: 0 $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 14px;
+  cursor: pointer;
+  min-width: 80px;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.quickCancel {
+  background: none;
+  border: none;
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 12px;
+  cursor: pointer;
+  padding: $space-sm 0;
+  display: block;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+// ── Skeleton loading ──────────────────────────────────────────────────────────
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.skeletonScroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: calc(56px + #{$space-md});
+
+  @media (min-width: $bp-md) {
+    padding-bottom: $space-md;
+  }
+}
+
+.skeletonGroup {
+  margin-top: $space-sm;
+}
+
+.skeletonSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px $space-md;
+  border-bottom: 1px solid var(--tt-border);
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  padding: 12px $space-md;
+  min-height: 58px;
+  border-bottom: 1px solid var(--tt-border);
+}
+
+.skeletonPill {
+  background: var(--tt-surface);
+  border-radius: 4px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.heading {
+  font-family: $font-display;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--tt-text);
+  margin-bottom: $space-md;
+  letter-spacing: -0.5px;
+}

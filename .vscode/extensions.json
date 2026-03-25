@@ -1,0 +1,25 @@
+{
+  "recommendations": [
+    // Formatting & linting
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "editorconfig.editorconfig",
+
+    // TypeScript & React
+    "ms-vscode.vscode-typescript-next",
+    "dsznajder.es7-react-js-snippets",
+
+    // Expo / React Native
+    "expo.vscode-expo-tools",
+
+    // Docker
+    "ms-azuretools.vscode-docker",
+
+    // Developer experience
+    "usernamehw.errorlens",
+    "streetsidesoftware.code-spell-checker",
+    "christian-kohler.path-intellisense",
+    "aaron-bond.better-comments",
+    "PKief.material-icon-theme"
+  ]
+}

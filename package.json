@@ -1,0 +1,35 @@
+{
+  "name": "twintracker",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "api"
+  ],
+  "scripts": {
+    "dev": "docker compose up",
+    "dev:native": "npm run dev -w @tt/native",
+    "build": "npm run build -w @tt/core && npm run build -w @tt/ui && npm run build -w @tt/web",
+    "test": "npm run test --workspaces --if-present",
+    "type-check": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "type-check:native": "tsc -p apps/native/tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --ext .ts,.tsx,.js"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.0",
+    "@typescript-eslint/eslint-plugin": "7.18.0",
+    "@typescript-eslint/parser": "7.18.0",
+    "eslint": "8.57.1",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "4.6.2",
+    "prettier": "3.5.3",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@types/react": "19.1.10"
+  }
+}

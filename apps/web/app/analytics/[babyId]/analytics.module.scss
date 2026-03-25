@@ -1,0 +1,218 @@
+@use '../../../styles/variables' as *;
+
+.page {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-bg);
+
+  @media (min-width: $bp-md) {
+    padding-left: $sidebar-w;
+  }
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: $space-md;
+  padding-bottom: calc(56px + #{$space-md});
+
+  @media (min-width: $bp-md) {
+    padding: $space-lg;
+    padding-bottom: $space-lg;
+    max-width: 680px;
+  }
+}
+
+.loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tt-bg);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--tt-border);
+  border-top-color: var(--tt-text);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.header {
+  margin-bottom: $space-lg;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--tt-accent);
+  font-family: $font-mono;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 0 $space-sm;
+  min-height: $tap-min;
+  display: flex;
+  align-items: center;
+
+  &:hover {
+    opacity: 0.75;
+  }
+}
+
+.heading {
+  font-family: $font-display;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--tt-text);
+  margin: 0 0 $space-xs;
+  letter-spacing: -0.5px;
+}
+
+.subheading {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  margin: 0;
+}
+
+// ── Narrative blocks — MD3-inspired surface cards ─────────────────────────────
+
+.block {
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  padding: $space-md;
+  margin-bottom: $space-sm;
+}
+
+// Icon + uppercase label row at the top of each card
+.blockHeader {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin-bottom: $space-sm;
+}
+
+// Icon wrapper — inherits the muted label color so no extra prop needed
+.blockIcon {
+  display: flex;
+  align-items: center;
+  color: var(--tt-text-muted);
+  flex-shrink: 0;
+}
+
+.blockTitle {
+  font-family: $font-mono;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: 0;
+}
+
+.blockBody {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+}
+
+.stat {
+  font-family: $font-mono;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--tt-text);
+  margin: 0;
+}
+
+.detail {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  margin: 0;
+}
+
+.empty {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  margin: 0;
+  font-style: italic;
+}
+
+.milestone {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  margin: 0;
+}
+
+// ── Period tabs — MD3 Segmented button ────────────────────────────────────────
+
+.periodTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  overflow: hidden;
+}
+
+.periodTab {
+  flex: 1;
+  height: 36px;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--tt-border);
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background $transition-fast,
+    color $transition-fast;
+
+  &:last-child {
+    border-right: none;
+  }
+
+  &:hover:not(.periodTabActive) {
+    background: var(--tt-surface);
+    color: var(--tt-text);
+  }
+}
+
+.periodTabActive {
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+}
+
+// ── Benchmark rows ─────────────────────────────────────────────────────────────
+.benchmark {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  margin: 0;
+}
+
+// ── Insufficient data notice ───────────────────────────────────────────────────
+.dataNotice {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  padding: $space-xs $space-sm;
+  margin-bottom: $space-sm;
+  margin: 0 0 $space-sm;
+}

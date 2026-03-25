@@ -1,0 +1,85 @@
+@use '../../styles/variables' as *;
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tt-bg);
+  padding: $space-md;
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $space-md;
+}
+
+.heading {
+  font-family: $font-display;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--tt-text);
+  letter-spacing: -0.5px;
+  text-align: center;
+}
+
+.body {
+  font-family: $font-mono;
+  font-size: 14px;
+  color: var(--tt-text-muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  height: 52px;
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+  border: none;
+  border-radius: $radius-md;
+  font-size: 15px;
+  font-family: $font-mono;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.btnSecondary {
+  background: none;
+  border: none;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--tt-border);
+  border-top-color: var(--tt-text);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}

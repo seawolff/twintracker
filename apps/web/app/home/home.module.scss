@@ -1,0 +1,458 @@
+@use '../../styles/variables' as *;
+
+.page {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-bg);
+
+  @media (min-width: $bp-md) {
+    padding-left: $sidebar-w;
+  }
+}
+
+.scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: $space-md;
+  // 56px = BottomTabBar height on mobile
+  padding-bottom: calc(56px + #{$space-md});
+  overflow-y: auto;
+  // Container queries let child rules respond to scroll-area width independently
+  container-type: inline-size;
+  container-name: scroll;
+
+  // Tablet portrait: sidebar replaces bottom bar
+  @media (min-width: $bp-md) {
+    padding: $space-lg;
+    padding-bottom: $space-lg;
+  }
+
+  // Tablet landscape: more breathing room
+  @media (min-width: $bp-lg) {
+    padding: $space-xl $space-xl $space-xl;
+  }
+
+  // Desktop: cards sit inside a centered column
+  @media (min-width: $bp-xl) {
+    padding: $space-xl;
+  }
+}
+
+// Full-height flex container for baby cards
+.babyList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: $space-md;
+  min-height: 0; // allows flex children to shrink below content size
+
+  // Tablet portrait+: side-by-side cards via media query
+  @media (min-width: $bp-md) {
+    flex-direction: row;
+    gap: $space-lg;
+  }
+
+  // Tablet landscape: wider gap
+  @media (min-width: $bp-lg) {
+    gap: $space-xl;
+  }
+
+  // Desktop: centered pair with max combined width
+  @media (min-width: $bp-xl) {
+    max-width: 1200px;
+    width: 100%;
+    margin-inline: auto;
+  }
+
+  // Large desktop: allow the pair to breathe wider
+  @media (min-width: $bp-2xl) {
+    max-width: 1440px;
+  }
+}
+
+// ── Skeleton loading ──────────────────────────────────────────────────────────
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.skeletonCard {
+  flex: 1;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  padding: $space-md;
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+}
+
+.skeletonLine {
+  background: var(--tt-surface);
+  border-radius: 4px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeletonActions {
+  display: flex;
+  gap: $space-sm;
+  margin-top: $space-sm;
+}
+
+.skeletonBtn {
+  height: 52px;
+  flex: 1;
+  background: var(--tt-surface);
+  border-radius: $radius-full;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+// ── Onboarding ────────────────────────────────────────────────────────────────
+.onboardHeading {
+  font-family: $font-display;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--tt-text);
+  margin-bottom: $space-sm;
+  letter-spacing: -0.5px;
+}
+
+.onboardSub {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  margin-bottom: $space-xl;
+}
+
+.babyEntry {
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  padding: $space-md;
+  margin-bottom: $space-md;
+}
+
+.babyEntryHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $space-sm;
+}
+
+.entryLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--tt-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  min-height: $tap-min;
+  display: flex;
+  align-items: center;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+.input {
+  display: block;
+  width: 100%;
+  padding: 12px $space-md;
+  margin-bottom: $space-sm;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  background: var(--tt-surface);
+  color: var(--tt-text);
+  font-size: 15px;
+  font-family: $font-mono;
+  outline: none;
+  transition: border-color $transition-fast;
+
+  &::placeholder {
+    color: var(--tt-text-muted);
+  }
+
+  &:focus {
+    border-color: var(--tt-accent);
+  }
+
+  // date inputs look nicer with this
+  color-scheme: light dark;
+}
+
+.label {
+  display: block;
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.addAnotherBtn {
+  display: block;
+  width: 100%;
+  height: $tap-min;
+  background: none;
+  border: 1px dashed var(--tt-border);
+  border-radius: $radius-sm;
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: $space-md;
+
+  &:hover {
+    border-color: var(--tt-accent);
+    color: var(--tt-text);
+  }
+}
+
+.submitBtn {
+  display: block;
+  width: 100%;
+  height: 52px;
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+  border: none;
+  border-radius: $radius-md;
+  font-size: 15px;
+  font-family: $font-mono;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+// ── Onboarding step 2: schedule setup ─────────────────────────────────────────
+.onboardSection {
+  margin-bottom: $space-lg;
+}
+
+.onboardSectionTitle {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.onboardSectionHint {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  margin-bottom: $space-sm;
+}
+
+.onboardPillGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-xs;
+}
+
+.onboardPill {
+  height: $tap-min;
+  padding: 0 $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color $transition-fast,
+    background $transition-fast,
+    color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.onboardPillActive {
+  background: var(--tt-accent);
+  border-color: var(--tt-accent);
+  color: var(--tt-bg);
+}
+
+.onboardPillFull {
+  width: 100%;
+}
+
+// ── Invite code banner ────────────────────────────────────────────────────────
+.inviteBanner {
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  padding: $space-md;
+  margin-bottom: $space-md;
+}
+
+.inviteLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: $space-xs;
+}
+
+.inviteCode {
+  font-family: $font-mono;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--tt-text);
+  letter-spacing: 6px;
+  margin-bottom: $space-xs;
+}
+
+.inviteHint {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+}
+
+.dismissBtn {
+  background: none;
+  border: none;
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 12px;
+  cursor: pointer;
+  padding: $space-sm 0 0;
+  display: block;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+// ── Twin sync suggestion banner ────────────────────────────────────────────────
+.syncBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  padding: $space-xs $space-sm;
+  margin-bottom: $space-sm;
+}
+
+.syncBannerText {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  flex: 1;
+}
+
+// ── Baby slot (wrapper for banner + card) ─────────────────────────────────────
+.babySlot {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+
+  // Desktop: cap individual card width so they stay proportional
+  @media (min-width: $bp-xl) {
+    max-width: 680px;
+  }
+}
+
+// ── Container queries — respond to scroll-area width, not viewport ─────────────
+// Complements the media queries above: handles edge cases where the scroll
+// container width diverges from viewport (e.g. embedded panels, split views).
+
+// Narrow container (<640px): stack cards vertically even if viewport is wide
+// (no rule needed — column is the default)
+
+// Mid container (640–1023px): side-by-side, balanced gap
+@container scroll (min-width: 640px) {
+  .babyList {
+    flex-direction: row;
+    gap: $space-lg;
+  }
+}
+
+// Wide container (1024px+): increase gap between cards
+@container scroll (min-width: 1024px) {
+  .babyList {
+    gap: $space-xl;
+  }
+}
+
+// ── Nap check banner (slim strip above baby card) ──────────────────────────────
+.napBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-accent);
+  border-radius: $radius-sm;
+  padding: $space-xs $space-sm;
+  margin-bottom: $space-xs;
+}
+
+.napBannerText {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  flex: 1;
+}
+
+.napBannerActions {
+  display: flex;
+  gap: $space-xs;
+}
+
+.napBannerBtn {
+  font-family: $font-mono;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  height: $tap-min;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  border: 1px solid var(--tt-accent);
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.napBannerBtnCancel {
+  background: var(--tt-bg);
+  color: var(--tt-text);
+  border-color: var(--tt-border);
+
+  &:hover {
+    border-color: var(--tt-accent);
+    opacity: 1;
+  }
+}

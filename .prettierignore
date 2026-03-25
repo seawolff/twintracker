@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Native generated folders (managed by expo prebuild / xcodebuild)
+apps/native/ios/
+apps/native/android/
+
+# Env files
+.env
+.env.*
+
+# Lock file
+package-lock.json

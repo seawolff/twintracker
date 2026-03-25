@@ -1,0 +1,110 @@
+@use '../../styles/variables' as *;
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tt-bg);
+  padding: $space-md;
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+}
+
+.wordmark {
+  font-family: $font-display;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--tt-text);
+  margin-bottom: $space-sm;
+  letter-spacing: -1px;
+}
+
+.tagline {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  margin-bottom: $space-xl;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  padding: 14px $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  background: var(--tt-surface);
+  color: var(--tt-text);
+  font-size: 15px;
+  font-family: $font-mono;
+  outline: none;
+  transition: border-color $transition-fast;
+
+  &::placeholder {
+    color: var(--tt-text-muted);
+  }
+
+  &:focus {
+    border-color: var(--tt-accent);
+  }
+}
+
+.inviteInput {
+  @extend .input;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+.error {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-urgency-overdue);
+}
+
+.submitBtn {
+  display: block;
+  width: 100%;
+  height: 52px;
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+  border: none;
+  border-radius: $radius-md;
+  font-size: 15px;
+  font-family: $font-mono;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: $space-xs;
+  transition: opacity $transition-fast;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.switchLink {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  margin-top: $space-md;
+  color: var(--tt-text-muted);
+  font-size: 13px;
+  font-family: $font-mono;
+  cursor: pointer;
+  text-align: center;
+  padding: $space-sm 0;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}

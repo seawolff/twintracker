@@ -1,0 +1,150 @@
+name: Deploy to Railway
+
+# Triggered by a release tag push (git tag release/v1.2.3 && git push --tags)
+# or manually via workflow_dispatch to deploy/redeploy a single service.
+on:
+  push:
+    tags:
+      - 'release/v*'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Which service to deploy'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - api
+          - web
+
+jobs:
+  # ── Gate ──────────────────────────────────────────────────────────────────
+  ci:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  # ── API: deploy → migrate → health-check ──────────────────────────────────
+  deploy-api:
+    name: Deploy API
+    needs: ci
+    if: >
+      github.event_name == 'push' ||
+      inputs.service == 'both' ||
+      inputs.service == 'api'
+    runs-on: ubuntu-latest
+    outputs:
+      # SHA of the commit that was live before this deploy — used for rollback
+      prev_sha: ${{ steps.snapshot.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need parent commit for rollback
+
+      - name: Record previous commit SHA
+        id: snapshot
+        run: echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      # Deploy and wait for Railway to finish (no --detach).
+      # Migrations run automatically inside the container at startup
+      # (Dockerfile CMD: migrate.js && node dist/index.js).
+      - name: Deploy API service
+        run: railway up --service api
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      # Poll /health until the new deployment is accepting traffic (up to 90 s).
+      # Uses a deep health check that queries the DB — if the DB is unreachable
+      # or migrations failed the server will return 503.
+      - name: Health check
+        id: health
+        run: |
+          echo "Polling ${{ secrets.API_URL }}/health …"
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+              "${{ secrets.API_URL }}/health" 2>/dev/null || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Health check failed after 6 attempts — triggering rollback"
+          exit 1
+
+  # ── Auto-rollback if health check fails ───────────────────────────────────
+  rollback-api:
+    name: Rollback API
+    needs: deploy-api
+    # Run only when deploy-api itself failed (health check step exited non-zero)
+    if: always() && needs.deploy-api.result == 'failure' && needs.deploy-api.outputs.prev_sha != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.deploy-api.outputs.prev_sha }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Redeploy previous version (${{ needs.deploy-api.outputs.prev_sha }})
+        run: railway up --service api
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      # Notify via GitHub summary and (optionally) a Slack webhook
+      - name: Notify rollback
+        if: always()
+        run: |
+          SHA="${{ needs.deploy-api.outputs.prev_sha }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "## ⚠️ API rollback triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The API health check failed after deployment. The API has been" >> "$GITHUB_STEP_SUMMARY"
+          echo "automatically rolled back to **\`${SHA:0:7}\`**." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed run:** $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Web was **not** deployed. Investigate and redeploy when fixed." >> "$GITHUB_STEP_SUMMARY"
+
+          # Optional Slack notification — set SLACK_WEBHOOK_URL secret to enable
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"text\": \"⚠️ *TwinTracker API rollback* — health check failed after deploy. Rolled back to \`${SHA:0:7}\`. Web not deployed. <$RUN_URL|View run>\"
+              }"
+          fi
+
+  # ── Web: only deploys if API health check passed ───────────────────────────
+  deploy-web:
+    name: Deploy Web
+    needs: [ci, deploy-api]
+    # deploy-api may be 'skipped' (web-only dispatch) — that's fine.
+    # deploy-api 'failure' means health check failed — do NOT deploy web.
+    if: >
+      always() &&
+      needs.ci.result == 'success' &&
+      needs.deploy-api.result != 'failure' &&
+      (
+        github.event_name == 'push' ||
+        inputs.service == 'both' ||
+        inputs.service == 'web'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy Web service
+        run: railway up --service web
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

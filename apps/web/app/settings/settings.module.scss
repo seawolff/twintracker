@@ -1,0 +1,145 @@
+@use '../../styles/variables' as *;
+
+.page {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-bg);
+
+  @media (min-width: $bp-md) {
+    padding-left: $sidebar-w;
+  }
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: $space-md;
+  padding-bottom: calc(56px + #{$space-md});
+
+  @media (min-width: $bp-md) {
+    padding: $space-lg;
+    padding-bottom: $space-lg;
+  }
+}
+
+.heading {
+  font-family: $font-display;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--tt-text);
+  margin-bottom: $space-xl;
+  letter-spacing: -0.5px;
+}
+
+.section {
+  margin-bottom: $space-xl;
+}
+
+.sectionTitle {
+  font-family: $font-mono;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--tt-text-muted);
+  margin-bottom: $space-sm;
+}
+
+.sectionHint {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  margin-bottom: $space-md;
+  line-height: 1.5;
+}
+
+.pillGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: $space-sm;
+}
+
+.pill {
+  height: 52px;
+  min-width: 0;
+  padding: 0 $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color $transition-fast,
+    background $transition-fast,
+    color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.pillFull {
+  width: 100%;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.copyBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color $transition-fast;
+
+  &:hover {
+    color: var(--tt-accent);
+  }
+}
+
+.pillActive {
+  background: var(--tt-accent);
+  border-color: var(--tt-accent);
+  color: var(--tt-bg);
+}
+
+.pillDanger {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+  &:hover {
+    background: #222;
+    border-color: #222;
+  }
+}
+
+.codeRow {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  margin-top: $space-sm;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  padding: 0 $space-md;
+  height: 52px;
+}
+
+.codeText {
+  flex: 1;
+  font-family: $font-mono;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--tt-text);
+}

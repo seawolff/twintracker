@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    // ── Next.js ───────────────────────────────────────────────────────────────
+    {
+      "name": "Next.js: debug server-side",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev -w @tt/web",
+      "serverReadyAction": {
+        "pattern": "- Local:.+(https?://.+)",
+        "uriFormat": "%s",
+        "action": "debugWithChrome"
+      }
+    },
+    {
+      "name": "Next.js: attach to running dev server",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3001",
+      "webRoot": "${workspaceFolder}/apps/web"
+    },
+
+    // ── Jest ──────────────────────────────────────────────────────────────────
+    {
+      "name": "Jest: packages/core (current file)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--experimental-vm-modules",
+        "${workspaceFolder}/node_modules/.bin/jest",
+        "--testPathPattern=${relativeFile}",
+        "--no-coverage"
+      ],
+      "cwd": "${workspaceFolder}/packages/core",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Jest: packages/ui (current file)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/jest",
+      "runtimeArgs": ["--testPathPattern=${relativeFile}", "--no-coverage"],
+      "cwd": "${workspaceFolder}/packages/ui",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "Jest: all workspaces",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["test"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

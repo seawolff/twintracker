@@ -1,0 +1,29 @@
+{
+  "name": "@tt/web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tt/core": "*",
+    "@tt/ui": "*",
+    "i18next": "25.8.18",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-i18next": "16.5.8",
+    "react-native": "0.74.2",
+    "react-native-svg": "15.15.3",
+    "react-native-web": "0.19.13"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.0",
+    "sass": "1.98.0",
+    "typescript": "5.9.3"
+  }
+}

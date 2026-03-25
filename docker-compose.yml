@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: twintracker
+      POSTGRES_PASSWORD: twintracker
+      POSTGRES_DB: twintracker
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U twintracker']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      target: dev
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgres://twintracker:twintracker@db:5432/twintracker
+      JWT_SECRET: dev-secret-change-in-prod
+      PORT: 3000
+      NODE_ENV: development
+      # Email verification — leave blank in dev to log links to console instead of sending.
+      # Set all five in production to send real emails via any SMTP provider.
+      APP_URL: http://10.0.0.101:3001
+      SMTP_HOST: ''
+      SMTP_PORT: '587'
+      SMTP_SECURE: 'false'
+      SMTP_USER: ''
+      SMTP_PASS: ''
+      SMTP_FROM: 'noreply@twintracker.app'
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./api/src:/app/src
+    command: sh -c "node src/db/migrate.js && npm run dev"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    ports:
+      - '3001:3001'
+    environment:
+      API_URL: http://api:3000
+      PORT: 3001
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages:/app/packages
+
+volumes:
+  pgdata:

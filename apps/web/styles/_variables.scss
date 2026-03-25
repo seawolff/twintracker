@@ -1,0 +1,32 @@
+// ── Fonts ────────────────────────────────────────────────────────────────────
+$font-display: var(--font-nunito), sans-serif;
+$font-mono: var(--font-dm-mono), monospace;
+
+// ── Spacing ──────────────────────────────────────────────────────────────────
+$space-xs: 4px;
+$space-sm: 8px;
+$space-md: 16px;
+$space-lg: 24px;
+$space-xl: 32px;
+$space-xxl: 48px;
+
+// ── Radius ───────────────────────────────────────────────────────────────────
+$radius-sm: 8px;
+$radius-md: 12px;
+$radius-lg: 20px;
+$radius-full: 9999px;
+
+// ── Tap target minimum ───────────────────────────────────────────────────────
+$tap-min: 44px;
+
+// ── Transitions ──────────────────────────────────────────────────────────────
+$transition-fast: 120ms ease;
+
+// ── Breakpoints ───────────────────────────────────────────────────────────────
+$bp-md: 768px; // tablet portrait  — sidebar replaces bottom tab bar
+$bp-lg: 1024px; // tablet landscape — wider padding, more breathing room
+$bp-xl: 1280px; // desktop          — constrained max-width, centered
+$bp-2xl: 1536px; // large desktop    — wider max-width
+
+// ── Desktop sidebar nav width ─────────────────────────────────────────────────
+$sidebar-w: 60px;

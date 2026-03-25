@@ -1,0 +1,42 @@
+@use '../styles/variables' as *;
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  padding: 10px $space-md;
+  background: var(--tt-surface);
+  border-bottom: 1px solid var(--tt-border);
+  flex-shrink: 0;
+}
+
+.text {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  line-height: 1.4;
+}
+
+.btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    border-color: var(--tt-accent);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

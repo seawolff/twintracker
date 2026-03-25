@@ -1,0 +1,100 @@
+@use 'variables' as *;
+
+// ── CSS custom properties — day mode (default) ────────────────────────────────
+:root {
+  --tt-bg: #ffffff;
+  --tt-surface: #f5f5f5;
+  --tt-border: #e0e0e0;
+  --tt-text: #000000;
+  --tt-text-dim: #555555;
+  --tt-text-muted: #aaaaaa;
+  --tt-accent: #000000;
+  --tt-accent-faint: rgba(0, 0, 0, 0.15);
+  --tt-urgency-ok: #888888;
+  --tt-urgency-soon: #222222;
+  --tt-urgency-overdue: #000000;
+}
+
+// ── Night mode override ───────────────────────────────────────────────────────
+[data-theme='night'] {
+  --tt-bg: #000000;
+  --tt-surface: #1a1a1a;
+  --tt-border: #2a2a2a;
+  --tt-text: #ffffff;
+  --tt-text-dim: #aaaaaa;
+  --tt-text-muted: #555555;
+  --tt-accent: #ffffff;
+  --tt-accent-faint: rgba(255, 255, 255, 0.15);
+  --tt-urgency-ok: #888888;
+  --tt-urgency-soon: #dddddd;
+  --tt-urgency-overdue: #ffffff;
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+// Smooth day↔night theme transitions across all elements.
+// Scoped to background-color / color / border-color so transform and
+// opacity animations elsewhere are not affected.
+*,
+*::before,
+*::after {
+  transition:
+    background-color $transition-fast,
+    color $transition-fast,
+    border-color $transition-fast;
+}
+
+body {
+  background: var(--tt-bg);
+  color: var(--tt-text);
+  font-family: $font-mono;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+// ── Orientation lock — mobile portrait only ───────────────────────────────────
+// On phones in landscape, nudge the user to rotate back.
+// Tablets (≥$bp-md) and desktop get the full responsive experience instead.
+@media screen and (orientation: landscape) and (max-width: #{$bp-md - 1}) {
+  body > * {
+    display: none !important;
+  }
+
+  body::after {
+    content: 'Rotate your device to portrait';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    inset: 0;
+    background: var(--tt-bg);
+    color: var(--tt-text-muted);
+    font-family: $font-mono;
+    font-size: 14px;
+    text-align: center;
+    padding: $space-xl;
+  }
+}

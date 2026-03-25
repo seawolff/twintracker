@@ -1,0 +1,21 @@
+services:
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: twintracker
+      POSTGRES_PASSWORD: twintracker
+      POSTGRES_DB: twintracker_test
+    ports:
+      - '5433:5432'
+
+  api:
+    build:
+      context: ./api
+      target: dev
+    environment:
+      DATABASE_URL: postgres://twintracker:twintracker@db-test:5432/twintracker_test
+      JWT_SECRET: test-secret
+      NODE_ENV: test
+    depends_on:
+      - db-test
+    command: sh -c "node src/db/migrate.js && npm test"
