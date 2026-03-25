@@ -4,8 +4,10 @@ WORKDIR /app
 # Install dependencies
 COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
+COPY apps/native/package*.json ./apps/native/
 COPY packages/core/package*.json ./packages/core/
 COPY packages/ui/package*.json ./packages/ui/
+COPY api/package*.json ./api/
 RUN npm install --legacy-peer-deps
 
 # Build
