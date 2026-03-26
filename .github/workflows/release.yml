@@ -1,6 +1,8 @@
 name: Release
 
-# Creates a GitHub Release with changelog, which triggers deploy.yml.
+# Creates a GitHub Release with changelog, then explicitly triggers deploy.yml.
+# (GITHUB_TOKEN-created releases don't fire the release: published event, so we
+# trigger the deploy workflow directly via gh workflow run after creating the release.)
 # Tag format:
 #   v1.2.3       → deploys both API and web
 #   api/v1.2.3   → deploys API only
@@ -38,12 +40,15 @@ jobs:
       - name: Determine tag name
         id: tag
         run: |
+          # Strip leading 'v' from version input so entering "1.0.0" or "v1.0.0" both work
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
           if [ "${{ inputs.service }}" = "both" ]; then
-            echo "name=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "title=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "title=v${VERSION}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=${{ inputs.service }}/v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "title=${{ inputs.service }} v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "name=${{ inputs.service }}/v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "title=${{ inputs.service }} v${VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
@@ -56,3 +61,11 @@ jobs:
             --title "${{ steps.tag.outputs.title }}" \
             --notes-file /tmp/release-notes.md \
             --latest
+
+      - name: Trigger deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run deploy.yml \
+            --ref main \
+            --field service=${{ inputs.service }}

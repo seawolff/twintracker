@@ -1,6 +1,6 @@
 name: Deploy to Railway
 
-# Triggered by a published GitHub Release (created via release.yml)
+# Triggered automatically by release.yml after a GitHub Release is created,
 # or manually via workflow_dispatch to deploy/redeploy a single service.
 on:
   release:
