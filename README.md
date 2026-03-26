@@ -184,6 +184,4 @@ Schema migrations live in `api/src/db/migrate.js` and are idempotent (`IF NOT EX
 
 ## License
 
-Licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
-
-You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. If you run a modified version as a network service, you must make the source code of your modified version available under the same license.
+Licensed under the [MIT License](LICENSE).
