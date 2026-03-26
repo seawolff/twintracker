@@ -65,12 +65,16 @@ function VerifyEmailContent() {
           <button
             className={styles.btn}
             onClick={() => {
-              window.location.href = 'twintracker://';
+              window.location.href =
+                process.env.NEXT_PUBLIC_APP_DEEP_LINK ?? 'twintracker://';
             }}
             type="button"
           >
             {t('auth.verify_open_native_app')}
           </button>
+          {!process.env.NEXT_PUBLIC_APP_DEEP_LINK && (
+            <p className={styles.hint}>{t('auth.verify_expo_go_hint')}</p>
+          )}
           <button
             className={styles.btnSecondary}
             onClick={() => router.replace('/home')}

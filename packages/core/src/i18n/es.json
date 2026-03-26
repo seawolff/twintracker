@@ -198,6 +198,7 @@
     "verify_success_body": "Tu cuenta está confirmada. Todo listo.",
     "verify_success_cta": "Ir a la app →",
     "verify_open_native_app": "Abrir TwinTracker",
+    "verify_expo_go_hint": "Using Expo Go? Switch back to the app manually — it will unlock automatically.",
     "verify_continue_browser": "Continuar en el navegador →",
     "verify_error_heading": "Enlace expirado o inválido",
     "verify_error_body": "Este enlace de verificación ha expirado o ya fue usado. Solicita uno nuevo desde la app.",

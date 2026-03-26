@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "dev:local": "EXPO_PUBLIC_API_URL=http://$(ipconfig getifaddr en0):3000 expo start",
-    "dev:prod": "EXPO_PUBLIC_API_URL=https://your-api.up.railway.app expo start",
+    "dev:prod": "EXPO_PUBLIC_API_URL=https://twintracker-production.up.railway.app expo start",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },

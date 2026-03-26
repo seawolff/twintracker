@@ -2544,6 +2544,11 @@ function AppContent() {
                   : t('auth.check_email_resend')}
             </Text>
           </Pressable>
+          <Pressable onPress={logout} style={{ marginTop: 16 }}>
+            <Text style={{ color: theme.textMuted, fontFamily: 'DM Mono', fontSize: 13 }}>
+              {t('auth.back_to_sign_in')}
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <>

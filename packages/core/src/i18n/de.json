@@ -198,6 +198,7 @@
     "verify_success_body": "Dein Konto ist bestätigt. Alles bereit.",
     "verify_success_cta": "Zur App →",
     "verify_open_native_app": "TwinTracker öffnen",
+    "verify_expo_go_hint": "Using Expo Go? Switch back to the app manually — it will unlock automatically.",
     "verify_continue_browser": "Im Browser fortfahren →",
     "verify_error_heading": "Link abgelaufen oder ungültig",
     "verify_error_body": "Dieser Bestätigungslink ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen in der App an.",
