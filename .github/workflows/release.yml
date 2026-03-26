@@ -1,13 +1,25 @@
 name: Release
 
-# Creates a GitHub Release (with changelog), which triggers deploy.yml.
-# For partial re-deploys (api-only, web-only) use deploy.yml workflow_dispatch directly.
+# Creates a GitHub Release with changelog, which triggers deploy.yml.
+# Tag format:
+#   v1.2.3       → deploys both API and web
+#   api/v1.2.3   → deploys API only
+#   web/v1.2.3   → deploys web only
 on:
   workflow_dispatch:
     inputs:
       version:
         description: 'Version number (e.g. 1.2.3)'
         required: true
+      service:
+        description: 'Which service to release'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - api
+          - web
       changelog:
         description: 'Changelog / release notes (markdown supported)'
         required: true
@@ -18,10 +30,21 @@ permissions:
 
 jobs:
   release:
-    name: Create release v${{ inputs.version }}
+    name: Release ${{ inputs.service }} v${{ inputs.version }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [ "${{ inputs.service }}" = "both" ]; then
+            echo "name=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "title=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ inputs.service }}/v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "title=${{ inputs.service }} v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         env:
@@ -29,7 +52,7 @@ jobs:
           CHANGELOG: ${{ inputs.changelog }}
         run: |
           echo "$CHANGELOG" > /tmp/release-notes.md
-          gh release create "v${{ inputs.version }}" \
-            --title "v${{ inputs.version }}" \
+          gh release create "${{ steps.tag.outputs.name }}" \
+            --title "${{ steps.tag.outputs.title }}" \
             --notes-file /tmp/release-notes.md \
             --latest

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to roll back to (e.g. 1.2.3)'
+        description: 'Full tag to roll back to (e.g. v1.2.3, api/v1.2.3, web/v1.2.3)'
         required: true
       service:
         description: 'Which service to roll back'
@@ -21,18 +21,18 @@ on:
 
 jobs:
   rollback-api:
-    name: Rollback API to v${{ inputs.version }}
+    name: Rollback API to ${{ inputs.version }}
     if: inputs.service == 'both' || inputs.service == 'api'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.version }}
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy API at v${{ inputs.version }}
+      - name: Deploy API at ${{ inputs.version }}
         run: railway up --service api
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -42,30 +42,30 @@ jobs:
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "## ⚠️ Manual API rollback" >> "$GITHUB_STEP_SUMMARY"
-          echo "API rolled back to **v${{ inputs.version }}** by @${{ github.actor }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "API rolled back to **${{ inputs.version }}** by @${{ github.actor }}." >> "$GITHUB_STEP_SUMMARY"
           echo "**Run:** $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
 
           if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
             curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
               -H "Content-Type: application/json" \
               -d "{
-                \"text\": \"⚠️ *TwinTracker API manual rollback* to \`v${{ inputs.version }}\` by @${{ github.actor }}. <$RUN_URL|View run>\"
+                \"text\": \"⚠️ *TwinTracker API manual rollback* to \`${{ inputs.version }}\` by @${{ github.actor }}. <$RUN_URL|View run>\"
               }"
           fi
 
   rollback-web:
-    name: Rollback Web to v${{ inputs.version }}
+    name: Rollback Web to ${{ inputs.version }}
     if: inputs.service == 'both' || inputs.service == 'web'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.version }}
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Web at v${{ inputs.version }}
+      - name: Deploy Web at ${{ inputs.version }}
         run: railway up --service web
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
