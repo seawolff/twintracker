@@ -151,7 +151,7 @@
     "clear_logs": "Borrar todos los registros",
     "clearing": "Borrando…",
     "invite_share": "Compartir código de invitación",
-    "invite_share_message": "Únete a mi familia en TwinTracker con el código: {{code}}",
+    "invite_share_message": "¡Únete a mi familia en TwinTracker! Usa el código {{code}} o toca: https://www.twintracker.app/join?code={{code}}",
     "diaper_notifications_title": "Recordatorios de pañal",
     "diaper_notifications_hint": "Recibe un recordatorio ~3 horas después del último cambio de pañal.",
     "diaper_notifications_enable": "Activar recordatorios de pañal",

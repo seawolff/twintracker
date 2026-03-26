@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { configure, useAuth, useTranslation } from '@tt/core';
 import styles from './login.module.scss';
 
@@ -10,12 +10,16 @@ type Mode = 'login' | 'register' | 'join';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, register, join } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(() => searchParams.get('code') ?? '');
   const [name, setName] = useState('');
-  const [mode, setMode] = useState<Mode>('login');
+  const [mode, setMode] = useState<Mode>(() => {
+    const m = searchParams.get('mode');
+    return m === 'join' || m === 'register' ? m : 'login';
+  });
   const [error, setError] = useState('');
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);

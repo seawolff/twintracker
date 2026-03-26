@@ -151,7 +151,7 @@
     "clear_logs": "Clear all logs",
     "clearing": "Clearing…",
     "invite_share": "Share invite code",
-    "invite_share_message": "Join my TwinTracker household with code: {{code}}",
+    "invite_share_message": "Join my TwinTracker household! Use code {{code}} or tap: https://www.twintracker.app/join?code={{code}}",
     "diaper_notifications_title": "Diaper reminders",
     "diaper_notifications_hint": "Get a reminder ~3 hours after the last diaper change.",
     "diaper_notifications_enable": "Enable diaper reminders",

@@ -151,7 +151,7 @@
     "clear_logs": "Effacer tous les enregistrements",
     "clearing": "Effacement…",
     "invite_share": "Partager le code d'invitation",
-    "invite_share_message": "Rejoins mon foyer TwinTracker avec le code : {{code}}",
+    "invite_share_message": "Rejoins mon foyer TwinTracker ! Utilise le code {{code}} ou appuie sur : https://www.twintracker.app/join?code={{code}}",
     "diaper_notifications_title": "Rappels de couche",
     "diaper_notifications_hint": "Recevez un rappel ~3 heures après le dernier change.",
     "diaper_notifications_enable": "Activer les rappels de couche",

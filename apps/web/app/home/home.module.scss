@@ -334,6 +334,23 @@
   color: var(--tt-text-muted);
 }
 
+.copyBtn {
+  background: none;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 12px;
+  cursor: pointer;
+  padding: $space-xs $space-sm;
+  margin-top: $space-sm;
+  display: block;
+
+  &:hover {
+    border-color: var(--tt-text);
+  }
+}
+
 .dismissBtn {
   background: none;
   border: none;
@@ -341,7 +358,7 @@
   font-family: $font-mono;
   font-size: 12px;
   cursor: pointer;
-  padding: $space-sm 0 0;
+  padding: $space-xs 0 0;
   display: block;
 
   &:hover {

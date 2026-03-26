@@ -151,7 +151,7 @@
     "clear_logs": "Alle Einträge löschen",
     "clearing": "Wird gelöscht…",
     "invite_share": "Einladungscode teilen",
-    "invite_share_message": "Tritt meinem TwinTracker-Haushalt mit dem Code bei: {{code}}",
+    "invite_share_message": "Tritt meinem TwinTracker-Haushalt bei! Verwende den Code {{code}} oder tippe auf: https://www.twintracker.app/join?code={{code}}",
     "diaper_notifications_title": "Windelerinnerungen",
     "diaper_notifications_hint": "Erhalte ~3 Stunden nach dem letzten Wickeln eine Erinnerung.",
     "diaper_notifications_enable": "Windelerinnerungen aktivieren",

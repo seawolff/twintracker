@@ -101,6 +101,7 @@ export default function HomePage() {
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [showPrefsStep, setShowPrefsStep] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [showTwinSyncPrompt, setShowTwinSyncPrompt] = useState(false);
   // Single atomic state — eliminates the split-update race that caused 15s render delay
   const [sheet, setSheet] = useState<SheetState | null>(null);
@@ -714,6 +715,29 @@ export default function HomePage() {
                 <p className={styles.inviteLabel}>{t('home.invite_label')}</p>
                 <p className={styles.inviteCode}>{inviteCode}</p>
                 <p className={styles.inviteHint}>{t('home.invite_hint')}</p>
+                <button
+                  className={styles.copyBtn}
+                  onClick={() => {
+                    const text = t('settings.invite_share_message', { code: inviteCode });
+                    const confirm = () => {
+                      setInviteCopied(true);
+                      setTimeout(() => setInviteCopied(false), 2000);
+                    };
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(text).then(confirm);
+                    } else {
+                      const el = document.createElement('textarea');
+                      el.value = text;
+                      document.body.appendChild(el);
+                      el.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(el);
+                      confirm();
+                    }
+                  }}
+                >
+                  {inviteCopied ? t('settings.invite_copied') : t('settings.invite_copy')}
+                </button>
                 <button className={styles.dismissBtn} onClick={() => setShowInvite(false)}>
                   {t('common.dismiss')}
                 </button>

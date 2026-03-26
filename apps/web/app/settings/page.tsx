@@ -74,10 +74,22 @@ export default function SettingsPage() {
     if (!inviteCode) {
       return;
     }
-    navigator.clipboard.writeText(inviteCode).then(() => {
+    const text = t('settings.invite_share_message', { code: inviteCode });
+    const confirm = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(confirm);
+    } else {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      confirm();
+    }
   }
 
   async function handleToggleMockData() {
