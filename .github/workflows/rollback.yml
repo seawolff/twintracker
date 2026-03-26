@@ -33,9 +33,10 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy API at ${{ inputs.version }}
-        run: railway up --service api
+        run: railway up --service TwinTracker-API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
 
       - name: Notify rollback
         if: always()
@@ -66,6 +67,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy Web at ${{ inputs.version }}
-        run: railway up --service web
+        run: railway up --service TwinTracker-Web
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}

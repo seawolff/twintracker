@@ -52,9 +52,10 @@ jobs:
       # Migrations run automatically inside the container at startup
       # (Dockerfile CMD: migrate.js && node dist/index.js).
       - name: Deploy API service
-        run: railway up --service api
+        run: railway up --service TwinTracker-API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
 
       # Poll /health until the new deployment is accepting traffic (up to 90 s).
       # Uses a deep health check that queries the DB — if the DB is unreachable
@@ -93,7 +94,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Redeploy previous version (${{ needs.deploy-api.outputs.prev_sha }})
-        run: railway up --service api
+        run: railway up --service TwinTracker-API
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
@@ -144,6 +145,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy Web service
-        run: railway up --service web
+        run: railway up --service TwinTracker-Web
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
