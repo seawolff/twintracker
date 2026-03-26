@@ -1,11 +1,10 @@
 name: Deploy to Railway
 
-# Triggered by a release tag push (git tag release/v1.2.3 && git push --tags)
+# Triggered by a published GitHub Release (created via release.yml)
 # or manually via workflow_dispatch to deploy/redeploy a single service.
 on:
-  push:
-    tags:
-      - 'release/v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       service:
@@ -29,7 +28,7 @@ jobs:
     name: Deploy API
     needs: ci
     if: >
-      github.event_name == 'push' ||
+      github.event_name == 'release' ||
       inputs.service == 'both' ||
       inputs.service == 'api'
     runs-on: ubuntu-latest
@@ -133,7 +132,7 @@ jobs:
       needs.ci.result == 'success' &&
       needs.deploy-api.result != 'failure' &&
       (
-        github.event_name == 'push' ||
+        github.event_name == 'release' ||
         inputs.service == 'both' ||
         inputs.service == 'web'
       )

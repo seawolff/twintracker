@@ -15,6 +15,7 @@ Thumbs.db
 # Build artifacts
 ios/
 android/
+*.tsbuildinfo
 
 # Test coverage reports
 coverage/
