@@ -17,6 +17,7 @@ Thumbs.db
 ios/
 android/
 *.tsbuildinfo
+.expo/
 
 # Test coverage reports
 coverage/
