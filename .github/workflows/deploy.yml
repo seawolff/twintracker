@@ -65,8 +65,8 @@ jobs:
         run: |
           echo "Polling ${{ secrets.API_URL }}/health …"
           for i in 1 2 3 4 5 6; do
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
-              "${{ secrets.API_URL }}/health" 2>/dev/null || echo "000")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${{ secrets.API_URL }}/health" 2>/dev/null)
             echo "Attempt $i: HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
               echo "Health check passed"
