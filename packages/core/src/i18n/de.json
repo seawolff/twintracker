@@ -8,21 +8,34 @@
     "save": "Speichern",
     "back": "← Zurück",
     "dismiss": "Schließen",
-    "delete": "Löschen"
+    "delete": "Löschen",
+    "undo": "Rückgängig"
   },
   "onboarding": {
     "welcome": "Willkommen",
     "subtitle": "Füge deine Kleinen hinzu, um zu beginnen.",
     "baby_n": "Baby {{n}}",
     "name_placeholder": "Name",
-    "dob_label": "Geburtsdatum (optional)",
+    "dob_label": "Geburtsdatum",
     "dob_placeholder": "Name von Baby {{n}}",
     "add_another": "+ Weiteres Baby hinzufügen",
     "get_started": "Loslegen",
     "adding": "Wird hinzugefügt…",
     "prefs_heading": "Fast fertig",
     "prefs_subtitle": "Zeitplan festlegen. Jederzeit in den Einstellungen änderbar.",
-    "done": "Fertig"
+    "done": "Fertig",
+    "bedtime_question": "Was ist die Ziel-Schlafenszeit für {{names}}?",
+    "newborn_bedtime_rec": "Für Neugeborene empfehlen wir {{time}}.",
+    "wake_question": "Was ist die Ziel-Aufwachzeit für {{names}}?",
+    "step_next": "Weiter →",
+    "finished": "Fertig",
+    "prefs_step2_sub": "Noch ein paar Einstellungen. Jederzeit in den Einstellungen änderbar.",
+    "sleep_training_question": "Schlaftraining für {{names}} aktivieren?",
+    "sleep_training_onboard_desc": "Zeigt Wartezeiten während des Schlafs. Hilft Ihrem Baby, die Nacht durchzuschlafen.",
+    "diaper_question": "Windelerinnerungen für {{names}}?",
+    "diaper_onboard_desc": "Erhalten Sie eine Benachrichtigung ~3 Stunden nach dem letzten Windelwechsel.",
+    "feed_question": "Fütterungserinnerungen für {{names}}?",
+    "feed_onboard_desc": "Werden Sie benachrichtigt, wenn die nächste Fütterung wahrscheinlich fällig ist."
   },
   "home": {
     "invite_label": "Mitbetreuenden einladen",
@@ -30,8 +43,11 @@
     "twin_sync_prompt": "Zwillings-Zeitplan-Synchronisation aktivieren? Die App schlägt vor, beide Babys auf übereinstimmenden Schlaf- und Flaschenplänen zu halten.",
     "twin_sync_enable": "Aktivieren",
     "nap_banner_still_sleeping": "Schläft noch?",
+    "nap_banner_still_sleeping_body": "Schläft {{name}} noch?",
     "nap_banner_yes": "Ja",
     "nap_banner_cancel_nap": "Nein — Schläfchen abbrechen",
+    "alarm_fired_title": "TwinTracker",
+    "alarm_fired_body": "Dein Wecker für {{name}} ist abgelaufen.",
     "sync_put_down": "{{name}} auch hinlegen?",
     "sync_feed": "{{name}} jetzt auch füttern?",
     "sync_diaper": "{{name}} auch wechseln?",
@@ -54,12 +70,28 @@
     "min": "Min."
   },
   "history": {
-    "no_events": "Noch keine Einträge"
+    "no_events": "Noch keine Einträge",
+    "log_first_event": "Ersten Eintrag erfassen +",
+    "add_event_for": "Eintrag für {{day}} hinzufügen",
+    "delete_event": "{{label}} löschen",
+    "confirm_delete": "Löschen bestätigen",
+    "edit_event": "{{label}} für {{baby}} bearbeiten",
+    "event_deleted": "Gelöscht",
+    "filter_open": "Ereignisse filtern",
+    "filter_clear": "Löschen",
+    "filter_clear_all": "Alle Filter löschen",
+    "filter_babies": "BABY",
+    "filter_types": "PROTOKOLLTYP",
+    "filter_authors": "PROTOKOLLIERT VON",
+    "quick_add_select_baby": "Baby auswählen",
+    "quick_add_select_type": "Typ auswählen"
   },
   "log_sheet": {
     "edit_label": "Bearbeiten",
     "logged_by": "Eingetragen von {{name}}",
     "start_time": "Startzeit",
+    "edit_start_time": "Startzeit bearbeiten",
+    "edit_end_time": "Endzeit bearbeiten",
     "amount_oz": "Menge (oz)",
     "duration_min": "Dauer (Min.)",
     "what_did_they_eat": "Was hat er/sie gegessen?",
@@ -108,10 +140,13 @@
     "night_sleep": "NACHTSCHLAF",
     "night_sleep_total": "{{total}} gesamt · {{count}} Nacht {{period}}",
     "night_sleep_total_plural": "{{total}} gesamt · {{count}} Nächte {{period}}",
+    "night_sleep_total_day": "{{total}} gesamt",
     "night_sleep_avg": "Ø {{avg}} pro Nacht",
     "night_sleep_empty": "Kein Nachtschlaf {{period}}.",
-    "sleep_more": "Mehr Schlaf als letzte Woche (+{{delta}})",
-    "sleep_less": "Weniger Schlaf als letzte Woche (−{{delta}})",
+    "sleep_more": "Mehr Schlaf als letztwöchiger Durchschnitt (+{{delta}})",
+    "sleep_less": "Weniger Schlaf als letztwöchiger Durchschnitt (−{{delta}})",
+    "naps_delta_more": "+{{delta}} Ø Nickerchen vs. letzte Woche",
+    "naps_delta_less": "−{{delta}} Ø Nickerchen vs. letzte Woche",
     "diapers": "WINDELN",
     "diapers_count": "{{count}} Wechsel {{period}}",
     "diapers_per_day": "Ca. {{avg}} pro Tag",
@@ -164,6 +199,7 @@
     "sleep_training_hint": "Zeigt Selbstberuhigungszeiten im Bettchen. Stufe 1: 5–10 Min. Stufe 2: 20–45 Min.",
     "sleep_training_enable": "Schlaftraining aktivieren",
     "sleep_training_enabled": "Aktiviert — tippen zum Deaktivieren",
+    "sleep_training_wait": "Schlaftraining · {{minutes}} Min. warten bei Weinen",
     "bedtime_title": "Schlafenszeit",
     "bedtime_hint": "Ziel-Schlafenszeit. Wird als Countdown angezeigt, wenn das letzte Schläfchen endet.",
     "wake_title": "Aufwachzeit",
@@ -204,9 +240,17 @@
     "verify_error_body": "Dieser Bestätigungslink ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen in der App an.",
     "verify_error_cta": "Zur App →"
   },
+  "notifications": {
+    "diaper_body": "Es ist etwa {{interval}} her. Zeit, {{name}} zu wickeln?",
+    "feed_body": "Es ist etwa {{interval}} her. Zeit, {{name}} zu füttern?",
+    "alarm_timer": "Dein {{minutes}}-Minuten-Timer ist abgelaufen.",
+    "alarm_nap_check": "Dein {{minutes}}-Minuten-Timer ist abgelaufen. Musst du nach {{name}} sehen?",
+    "alarm_wake": "Zeit, {{name}} aufzuwecken"
+  },
   "nav": {
     "home": "Start",
     "history": "Verlauf",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "tab_label": "Tab {{name}}"
   }
 }

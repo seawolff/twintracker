@@ -12,6 +12,7 @@ const nextConfig = {
       'react-native-gesture-handler': false, // native-only — HistoryFeed.web.tsx must be used instead
       '@react-native/assets-registry': false, // native asset pipeline — not needed on web
       'expo-font': false, // native font loading — web uses next/font/google instead
+      '@react-native-community/datetimepicker': false, // native-only — LogSheet.web.tsx used instead
     };
     // Prefer .web.tsx/.web.ts files over native equivalents
     config.resolve.extensions = [

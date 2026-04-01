@@ -16,7 +16,7 @@
 .scroll {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: calc(56px + #{$space-md});
+  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
 
   @media (min-width: $bp-md) {
     padding-bottom: $space-md;
@@ -26,7 +26,7 @@
 // ── Quick-add panel ────────────────────────────────────────────────────────
 .quickPanel {
   position: fixed;
-  bottom: 56px; // above tab bar
+  bottom: $tab-bar-h; // above tab bar
   left: 0;
   right: 0;
   background: var(--tt-surface);
@@ -102,7 +102,7 @@
 .skeletonScroll {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: calc(56px + #{$space-md});
+  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
 
   @media (min-width: $bp-md) {
     padding-bottom: $space-md;
@@ -135,6 +135,107 @@
   border-radius: 4px;
   animation: skeletonPulse 1.4s ease-in-out infinite;
   flex-shrink: 0;
+}
+
+// ── Filter backdrop ───────────────────────────────────────────────────────────
+// Transparent full-screen overlay that captures clicks outside the filter panel
+// so they dismiss the panel instead of hitting history rows beneath it.
+.filterBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99; // below filterPanelAnchor (100) but above scroll content
+}
+
+// ── Filter FAB + panel anchor ──────────────────────────────────────────────────
+// The anchor is fixed to the bottom. The FAB hangs above it via negative top.
+// When the panel opens it grows the anchor upward, carrying the FAB with it.
+.filterPanelAnchor {
+  position: fixed;
+  bottom: $tab-bar-h;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  overflow: visible; // allow FAB to hang above anchor top edge
+  pointer-events: none; // pass clicks through to content behind
+
+  @media (min-width: $bp-md) {
+    left: $sidebar-w;
+    bottom: 0;
+  }
+}
+
+.filterFab {
+  position: absolute;
+  top: calc(-52px - 0.75rem); // hangs above anchor's top edge
+  right: 1rem;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--tt-border);
+  background: var(--tt-bg);
+  color: var(--tt-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+
+  @media (min-width: $bp-md) {
+    right: 1.5rem;
+  }
+}
+
+.filterBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tt-accent);
+  pointer-events: none;
+}
+
+// ── Filter panel ──────────────────────────────────────────────────────────────
+// Fixed-bottom panel, same anchor as .quickPanel. Filter and quick-add
+// panels are mutually exclusive — quick-add closing filter on open.
+.filterPanel {
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--tt-surface);
+  border-top: 1px solid var(--tt-border);
+  padding: $space-md;
+  pointer-events: all;
+}
+
+.filterPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  margin-bottom: $space-md;
+}
+
+.filterPill {
+  height: $tap-min;
+  padding: 0 $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.filterPillActive {
+  border-color: var(--tt-accent);
+  background: var(--tt-accent);
+  color: var(--tt-bg);
 }
 
 .heading {

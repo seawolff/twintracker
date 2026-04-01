@@ -10,6 +10,7 @@ import {
   computeAnalytics,
   useTranslation,
   formatMs,
+  MIN_DAYS_FOR_MONTH_VIEW,
 } from '@tt/core';
 import type { Baby, BabyAnalytics } from '@tt/core';
 import { BottleIcon, MoonIcon, HotelIcon, DiaperIcon, FoodIcon, MilestoneIcon } from '@tt/ui';
@@ -23,7 +24,7 @@ function formatInterval(ms: number): string {
   const h = Math.floor(totalMins / 60);
   const m = totalMins % 60;
   if (h === 0) {
-    return `${m} min`;
+    return `${m}m`;
   }
   if (m === 0) {
     return `${h}h`;
@@ -72,7 +73,7 @@ export default function AnalyticsPage() {
   const { prefs } = usePreferences();
   const { t } = useTranslation();
   const [baby, setBaby] = useState<Baby | null>(null);
-  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('day');
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -110,6 +111,11 @@ export default function AnalyticsPage() {
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
   const periodLabel = period === 'day' ? 'today' : period === 'month' ? 'this month' : 'this week';
+
+  // Total data span — used to disable period tabs if not enough data.
+  const allTimes = babyEvents.map(e => new Date(e.startedAt).getTime());
+  const totalDataSpanDays =
+    allTimes.length > 0 ? (Date.now() - Math.min(...allTimes)) / (24 * 60 * 60 * 1000) : 0;
   const subheading =
     period === 'day' ? 'Today' : `Last ${periodDays} days · ${rangeLabel(now, periodDays)}`;
 
@@ -125,16 +131,20 @@ export default function AnalyticsPage() {
         </div>
 
         <div className={styles.periodTabs}>
-          {(['day', 'week', 'month'] as const).map(p => (
-            <button
-              key={p}
-              className={`${styles.periodTab} ${period === p ? styles.periodTabActive : ''}`}
-              onClick={() => setPeriod(p)}
-              type="button"
-            >
-              {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
-            </button>
-          ))}
+          {(['day', 'week', 'month'] as const).map(p => {
+            const disabled = p === 'month' && totalDataSpanDays < MIN_DAYS_FOR_MONTH_VIEW;
+            return (
+              <button
+                key={p}
+                className={`${styles.periodTab} ${period === p ? styles.periodTabActive : ''} ${disabled ? styles.periodTabDisabled : ''}`}
+                onClick={() => !disabled && setPeriod(p)}
+                type="button"
+                disabled={disabled}
+              >
+                {p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month'}
+              </button>
+            );
+          })}
         </div>
 
         {a.dataSpanDays < periodDays - 1 && (
@@ -203,6 +213,17 @@ export default function AnalyticsPage() {
                   {t('analytics.naps_longest', { longest: formatMs(a.longestNapMs) })}
                 </p>
               )}
+              {a.napDeltaVsLastWeek != null && (
+                <p className={styles.detail}>
+                  {a.napDeltaVsLastWeek >= 0
+                    ? t('analytics.naps_delta_more', {
+                        delta: formatMs(Math.abs(a.napDeltaVsLastWeek)),
+                      })
+                    : t('analytics.naps_delta_less', {
+                        delta: formatMs(Math.abs(a.napDeltaVsLastWeek)),
+                      })}
+                </p>
+              )}
               <p className={styles.benchmark}>{`Target nap: ${formatMs(a.targetNapDurationMs)}`}</p>
             </>
           ) : (
@@ -214,17 +235,21 @@ export default function AnalyticsPage() {
           {a.nightSleepCountThisWeek > 0 ? (
             <>
               <p className={styles.stat}>
-                {a.nightSleepCountThisWeek === 1
-                  ? t('analytics.night_sleep_total', {
+                {period === 'day'
+                  ? t('analytics.night_sleep_total_day', {
                       total: formatMs(a.totalNightSleepMsThisWeek),
-                      count: a.nightSleepCountThisWeek,
-                      period: periodLabel,
                     })
-                  : t('analytics.night_sleep_total_plural', {
-                      total: formatMs(a.totalNightSleepMsThisWeek),
-                      count: a.nightSleepCountThisWeek,
-                      period: periodLabel,
-                    })}
+                  : a.nightSleepCountThisWeek === 1
+                    ? t('analytics.night_sleep_total', {
+                        total: formatMs(a.totalNightSleepMsThisWeek),
+                        count: a.nightSleepCountThisWeek,
+                        period: periodLabel,
+                      })
+                    : t('analytics.night_sleep_total_plural', {
+                        total: formatMs(a.totalNightSleepMsThisWeek),
+                        count: a.nightSleepCountThisWeek,
+                        period: periodLabel,
+                      })}
               </p>
               {a.avgNightSleepDurationMs != null && (
                 <p className={styles.detail}>

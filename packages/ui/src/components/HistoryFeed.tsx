@@ -1,3 +1,4 @@
+/** Native history feed: scroll-windowed grouped event list with swipe-to-delete rows. */
 import PropTypes from 'prop-types';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -6,8 +7,8 @@ import type { Baby, TrackerEvent } from '@tt/core';
 import {
   groupEventsByDay,
   eventLabel,
-  formatTime,
-  formatTimeAgo,
+  formatDuration,
+  formatEventTime,
   useTranslation,
   i18n,
   authorColor,
@@ -15,10 +16,18 @@ import {
 import { useThemeContext } from '@tt/core';
 import { spacing, fonts } from '../theme/tokens';
 import { CloseIcon } from './icons/BabyIcons';
+import { rowBgHex } from '../rowTextColor';
 
-// Four graduated row shades (Clear List aesthetic) — white alpha overlaid on bg.
-// Row index cycles through these so the list feels textured and interactive.
-const ROW_ALPHAS = [0, 0.06, 0.1, 0.07];
+/**
+ * Alpha increment per row within a group — produces a smooth, infinite greyscale gradient (Clear app style).
+ * Kept low so typical twin-tracker day groups (20-30 rows) stay in the pure-color zone where
+ * black/white text has strong contrast; the text transition only kicks in for unusually long groups.
+ */
+const SHADE_PER_ROW = 0.015;
+/** Initial number of day-groups rendered before the user scrolls (~2-3 days of twin logs). */
+const INITIAL_VISIBLE_GROUPS = 5;
+/** Load more groups when scroll position is within this many px of the bottom. */
+const SCROLL_LOAD_THRESHOLD_PX = 400;
 
 interface HistoryFeedProps {
   events: TrackerEvent[];
@@ -39,8 +48,9 @@ interface SwipeRowProps {
   event: TrackerEvent;
   babyName: string;
   label: string;
-  time: string;
-  timeAgo: string;
+  /** Parenthetical duration for nap/sleep rows, rendered smaller so long values don't truncate. */
+  durationDetail?: string;
+  displayTime: string;
   rowIndex: number;
   onDelete: (id: string) => void;
   onEdit: (event: TrackerEvent) => void;
@@ -51,8 +61,8 @@ function SwipeRow({
   event,
   babyName,
   label,
-  time,
-  timeAgo,
+  durationDetail,
+  displayTime,
   rowIndex,
   onDelete,
   onEdit,
@@ -62,11 +72,12 @@ function SwipeRow({
   const { t } = useTranslation();
   const swipeRef = useRef<Swipeable>(null);
 
-  // Graduated shade: overlay direction inverts with theme.
-  // Night (black bg) → lighten with white alpha. Day (white bg) → darken with black alpha.
-  const alpha = ROW_ALPHAS[rowIndex % ROW_ALPHAS.length];
-  const overlayRgb = theme.mode === 'night' ? '255,255,255' : '0,0,0';
-  const rowOverlay = alpha > 0 ? `rgba(${overlayRgb},${alpha})` : 'transparent';
+  // Infinite smooth greyscale gradient: alpha grows with row index per group.
+  // Solid hex background (not rgba) so contrast is unambiguous for both modes.
+  const alpha = rowIndex * SHADE_PER_ROW;
+  const rowBg = rowBgHex(alpha, theme.mode);
+
+  const textColor = theme.text;
 
   // Delete zone: needs enough contrast against both day (#fff) and night (#000) bg.
   const deleteBg = theme.mode === 'night' ? '#2a2a2a' : '#111111';
@@ -83,7 +94,7 @@ function SwipeRow({
             swipeRef.current?.close();
             onDelete(event.id);
           }}
-          accessibilityLabel={`Delete ${label}`}
+          accessibilityLabel={t('history.delete_event', { label })}
           style={({ pressed }) => [
             styles.deleteActionInner,
             pressed && { backgroundColor: deleteBgPressed },
@@ -105,17 +116,12 @@ function SwipeRow({
     >
       <Pressable
         onPress={() => onEdit(event)}
-        accessibilityLabel={`Edit ${label} for ${babyName}`}
+        accessibilityLabel={t('history.edit_event', { label, baby: babyName })}
         style={({ pressed }) => [
           styles.row,
-          { borderBottomColor: theme.border, backgroundColor: pressed ? theme.surface : theme.bg },
+          { borderBottomColor: theme.border, backgroundColor: pressed ? theme.surface : rowBg },
         ]}
       >
-        {/* Tinted overlay for graduated shade */}
-        <View
-          style={[StyleSheet.absoluteFill, { backgroundColor: rowOverlay }]}
-          pointerEvents="none"
-        />
         {/* Author avatar — always rendered so columns stay aligned */}
         {loggedByName ? (
           <View style={[styles.authorAvatar, { backgroundColor: authorColor(loggedByName) }]}>
@@ -124,20 +130,21 @@ function SwipeRow({
         ) : (
           <View style={styles.authorAvatar} />
         )}
-        <Text style={[styles.babyName, { color: theme.text, fontFamily: fonts.mono }]}>
+        <Text style={[styles.babyName, { color: textColor, fontFamily: fonts.mono }]}>
           {babyName}
         </Text>
-        <Text style={[styles.eventLabel, { color: theme.textDim, fontFamily: fonts.mono }]}>
+        <Text
+          style={[styles.eventLabel, { color: textColor, fontFamily: fonts.mono }]}
+          numberOfLines={1}
+        >
           {label}
+          {durationDetail ? <Text style={styles.durationDetail}>{durationDetail}</Text> : null}
         </Text>
-        <Text style={[styles.time, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-          {time}
-        </Text>
-        <Text style={[styles.timeAgo, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-          {timeAgo}
+        <Text style={[styles.time, { color: textColor, fontFamily: fonts.mono }]}>
+          {displayTime}
         </Text>
         {/* Swipe hint chevron */}
-        <Text style={[styles.swipeHint, { color: theme.textMuted }]}>›</Text>
+        <Text style={[styles.swipeHint, { color: textColor }]}>›</Text>
       </Pressable>
     </Swipeable>
   );
@@ -156,8 +163,7 @@ export function HistoryFeed({
   const theme = useThemeContext();
   const [now, setNow] = useState(() => nowProp ?? new Date());
   const [refreshing, setRefreshing] = useState(false);
-  // Render 5 day-groups initially (~2-3 days of twin logs); auto-expands as user scrolls.
-  const [visibleGroups, setVisibleGroups] = useState(5);
+  const [visibleGroups, setVisibleGroups] = useState(INITIAL_VISIBLE_GROUPS);
 
   function handleRefresh() {
     if (!onRefresh) {
@@ -184,14 +190,14 @@ export function HistoryFeed({
         </Text>
         <Pressable
           onPress={() => onAddForDay(now)}
-          accessibilityLabel="Log first event"
+          accessibilityLabel={i18n.t('history.log_first_event')}
           style={({ pressed }) => [
             styles.emptyAddBtn,
             { borderColor: theme.border, opacity: pressed ? 0.6 : 1 },
           ]}
         >
           <Text style={[styles.emptyAddText, { color: theme.text, fontFamily: fonts.mono }]}>
-            Log first event +
+            {i18n.t('history.log_first_event')}
           </Text>
         </Pressable>
       </View>
@@ -212,8 +218,8 @@ export function HistoryFeed({
       return;
     }
     const remaining = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    if (remaining < 400) {
-      setVisibleGroups(v => (v < groups.length ? v + 5 : v));
+    if (remaining < SCROLL_LOAD_THRESHOLD_PX) {
+      setVisibleGroups(v => (v < groups.length ? v + INITIAL_VISIBLE_GROUPS : v));
     }
   }
 
@@ -232,53 +238,65 @@ export function HistoryFeed({
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor={theme.accent}
+              colors={[theme.accent]}
+              progressBackgroundColor={theme.bg}
             />
           ) : undefined
         }
       >
-        {visibleSlice.map((group: { date: Date; label: string; events: TrackerEvent[] }) => (
-          <View key={group.date.getTime()}>
-            {/* Section header */}
-            <View
-              style={[
-                styles.sectionHeader,
-                { backgroundColor: theme.bg, borderBottomColor: theme.border },
-              ]}
-            >
-              <Text style={[styles.sectionLabel, { color: theme.text, fontFamily: fonts.mono }]}>
-                {group.label.toUpperCase()}
-              </Text>
-              <Pressable
-                onPress={() => onAddForDay(group.date)}
-                accessibilityLabel={`Add event for ${group.label}`}
-                style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.6 }]}
+        {visibleSlice.map(
+          (group: { date: Date; label: string; events: TrackerEvent[] }, groupIdx) => (
+            <View key={group.date.getTime()}>
+              {/* Section header — top shadow on all but the first group creates a layered look */}
+              <View
+                style={[
+                  styles.sectionHeader,
+                  { backgroundColor: theme.bg, borderBottomColor: theme.border },
+                  groupIdx > 0 && styles.sectionHeaderShadow,
+                ]}
               >
-                <Text style={[styles.addBtnText, { color: theme.text, fontFamily: fonts.mono }]}>
-                  +
+                <Text style={[styles.sectionLabel, { color: theme.text, fontFamily: fonts.mono }]}>
+                  {group.label.toUpperCase()}
                 </Text>
-              </Pressable>
-            </View>
+                <Pressable
+                  onPress={() => onAddForDay(group.date)}
+                  accessibilityLabel={i18n.t('history.add_event_for', { day: group.label })}
+                  style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={[styles.addBtnText, { color: theme.text, fontFamily: fonts.mono }]}>
+                    +
+                  </Text>
+                </Pressable>
+              </View>
 
-            {/* Event rows */}
-            {group.events.map((event, idx) => {
-              const baby = getBaby(babies, event.babyId);
-              return (
-                <SwipeRow
-                  key={event.id}
-                  event={event}
-                  babyName={baby?.name ?? '—'}
-                  label={eventLabel(event)}
-                  time={formatTime(event.startedAt)}
-                  timeAgo={formatTimeAgo(event.startedAt, now)}
-                  rowIndex={idx}
-                  onDelete={onDelete}
-                  onEdit={onEdit}
-                  loggedByName={event.loggedByName}
-                />
-              );
-            })}
-          </View>
-        ))}
+              {/* Event rows */}
+              {group.events.map((event, idx) => {
+                const baby = getBaby(babies, event.babyId);
+                const label = eventLabel(event);
+                // Render duration in smaller text so long values like "(11h 35m)" don't truncate.
+                const durationDetail =
+                  (event.type === 'nap' || event.type === 'sleep') && event.endedAt
+                    ? ` (${formatDuration(event.startedAt, event.endedAt)})`
+                    : undefined;
+                const labelBase = durationDetail ? label.replace(durationDetail, '') : label;
+                return (
+                  <SwipeRow
+                    key={event.id}
+                    event={event}
+                    babyName={baby?.name ?? '—'}
+                    label={labelBase}
+                    durationDetail={durationDetail}
+                    displayTime={formatEventTime(event.startedAt, now)}
+                    rowIndex={idx}
+                    onDelete={onDelete}
+                    onEdit={onEdit}
+                    loggedByName={event.loggedByName}
+                  />
+                );
+              })}
+            </View>
+          ),
+        )}
       </ScrollView>
     </View>
   );
@@ -345,6 +363,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     marginTop: spacing.sm,
   },
+  sectionHeaderShadow: {
+    marginTop: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.09,
+    shadowRadius: 4,
+  },
   sectionLabel: {
     fontSize: 15,
     fontWeight: '700',
@@ -379,13 +404,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     flex: 1,
   },
+  durationDetail: {
+    fontSize: 12,
+  },
   time: {
     fontSize: 14,
-  },
-  timeAgo: {
-    fontSize: 13,
-    minWidth: 64,
-    textAlign: 'right',
+    flexShrink: 0,
   },
   authorAvatar: {
     width: 20,

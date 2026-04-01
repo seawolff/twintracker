@@ -53,3 +53,6 @@ export const Dimensions = { get: (_dim: string) => ({ width: 390, height: 844 })
 export const PanResponder = {
   create: (_config: any) => ({ panHandlers: {} }),
 };
+
+// Returns desktop dimensions by default; override per-test with .mockReturnValueOnce()
+export const useWindowDimensions = jest.fn(() => ({ width: 1024, height: 768 }));

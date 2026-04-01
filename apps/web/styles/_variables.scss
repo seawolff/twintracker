@@ -30,3 +30,7 @@ $bp-2xl: 1536px; // large desktop    — wider max-width
 
 // ── Desktop sidebar nav width ─────────────────────────────────────────────────
 $sidebar-w: 60px;
+
+// ── Bottom tab bar height (mobile) ───────────────────────────────────────────
+// Used in padding-bottom calculations so content clears the fixed nav bar.
+$tab-bar-h: 56px;

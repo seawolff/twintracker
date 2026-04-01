@@ -13,7 +13,19 @@ export interface LearnedStats {
   avgAwakeWindowMs: number | null;
 }
 
-const WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+import { MAX_BOTTLE_OZ } from '../config';
+
+/** Rolling window for computing learned schedule stats. */
+const LEARNED_STATS_WINDOW_DAYS = 14;
+const WINDOW_MS = LEARNED_STATS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+/** Feed gaps longer than this are overnight pauses, not normal feed intervals. */
+const MAX_FEED_GAP_MS = 8 * 60 * 60 * 1000;
+/** Sanity bounds for completed nap durations. */
+const MIN_NAP_DURATION_MS = 5 * 60_000;
+const MAX_NAP_DURATION_MS = 4 * 60 * 60_000;
+/** Sanity bounds for awake windows between consecutive naps. */
+const MIN_AWAKE_WINDOW_MS = 10 * 60_000;
+const MAX_AWAKE_WINDOW_MS = 8 * 60 * 60_000;
 
 export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedStats {
   const cutoff = now.getTime() - WINDOW_MS;
@@ -30,21 +42,23 @@ export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedS
   for (let i = 1; i < feeds.length; i++) {
     const gap = feeds[i] - feeds[i - 1];
     // Skip overnight gaps > 8h — not a normal feed interval
-    if (gap < 8 * 60 * 60 * 1000) {
+    if (gap < MAX_FEED_GAP_MS) {
       feedIntervals.push(gap);
     }
   }
 
   // ── Bottle oz ────────────────────────────────────────────────────────────────
+  // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
   const bottleOzValues = recent
-    .filter(e => e.type === 'bottle' && e.value != null && e.value > 0 && e.value <= 16)
-    .map(e => e.value as number);
+    .filter(e => e.type === 'bottle' && e.value != null)
+    .map(e => Number(e.value))
+    .filter(v => v > 0 && v <= MAX_BOTTLE_OZ);
 
   // ── Nap duration (completed naps only) ───────────────────────────────────────
   const napDurations = recent
     .filter(e => e.type === 'nap' && e.endedAt != null)
     .map(e => new Date(e.endedAt!).getTime() - new Date(e.startedAt).getTime())
-    .filter(d => d > 5 * 60_000 && d < 4 * 60 * 60_000); // 5m–4h sanity bounds
+    .filter(d => d > MIN_NAP_DURATION_MS && d < MAX_NAP_DURATION_MS);
 
   // ── Awake window (nap.endedAt → next nap.startedAt) ─────────────────────────
   const completedNaps = recent
@@ -56,8 +70,7 @@ export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedS
     const gap =
       new Date(completedNaps[i + 1].startedAt).getTime() -
       new Date(completedNaps[i].endedAt!).getTime();
-    // Sanity: awake window 10m–8h
-    if (gap >= 10 * 60_000 && gap <= 8 * 60 * 60_000) {
+    if (gap >= MIN_AWAKE_WINDOW_MS && gap <= MAX_AWAKE_WINDOW_MS) {
       awakeWindows.push(gap);
     }
   }

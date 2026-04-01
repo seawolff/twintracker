@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 import {
   usePreferences,
   useAuth,
@@ -62,6 +63,19 @@ export default function SettingsPage() {
   const [mockError, setMockError] = useState<string | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const isAuthLoading = useDelayedLoading(authLoading);
+
+  // Prevent preferences-based hydration mismatch: server renders with DEFAULT
+  // prefs (no localStorage), client reads real localStorage. Guard all pref-
+  // dependent rendering until after first client paint.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [authLoading, isAuthenticated, router]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated) {
@@ -156,6 +170,14 @@ export default function SettingsPage() {
       setClearError('Failed to clear logs');
       setClearing(false);
     }
+  }
+
+  if (!mounted || isAuthLoading) {
+    return (
+      <div className={styles.page}>
+        <BottomTabBar />
+      </div>
+    );
   }
 
   return (
@@ -380,7 +402,7 @@ export default function SettingsPage() {
                   className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
                   onClick={handleClearConfirmed}
                 >
-                  Delete all logs
+                  {t('settings.clear_logs')}
                 </button>
                 <button
                   className={`${styles.pill} ${styles.pillFull}`}

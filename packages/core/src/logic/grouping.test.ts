@@ -160,6 +160,23 @@ describe('groupEventsByDay', () => {
     expect(groups[0].label).toBe('Today');
   });
 
+  it('sleep ending before resetHour on its calendar day still lands in that day (real-world bug)', () => {
+    // resetHour=7. Sleep started March 31 9:59 PM, ended April 1 6:39 AM (before 7 AM reset).
+    // User expects this to appear under "Today" (April 1), not "Yesterday" (March 31).
+    const NOW_APRIL1 = new Date(2026, 3, 1, 15, 0, 0); // 3 PM April 1
+    const sleepEvent: TrackerEvent = {
+      id: 's3',
+      babyId: 'b1',
+      type: 'sleep',
+      startedAt: '2026-03-31T21:59:00', // 9:59 PM March 31
+      endedAt: '2026-04-01T06:39:00', // 6:39 AM April 1 (before 7 AM reset)
+      createdAt: '2026-03-31T21:59:00',
+    } as TrackerEvent;
+    const groups = groupEventsByDay([sleepEvent], NOW_APRIL1, 7);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('Today');
+  });
+
   it('sleep without endedAt is bucketed by startedAt (still active)', () => {
     const sleepEvent: TrackerEvent = {
       id: 's2',

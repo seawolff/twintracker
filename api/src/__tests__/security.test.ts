@@ -524,13 +524,27 @@ describe('Email verification', () => {
     expect(res.body.message).toMatch(/invalid or expired/i);
   });
 
-  it('GET /api/auth/verify-email with a valid token → 200 { verified: true }', async () => {
-    // UPDATE marks email_verified = true and returns the user row
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-v' }], rowCount: 1 });
+  it('GET /api/auth/verify-email with a valid token → 200 { verified: true } + tokens', async () => {
+    // UPDATE marks email_verified = true and returns the user row with token fields
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'user-v',
+          householdId: 'hh-v',
+          isAdmin: false,
+          inviteCode: 'ABC12345',
+          displayName: null,
+        },
+      ],
+      rowCount: 1,
+    });
 
     const res = await request(app).get('/api/auth/verify-email?token=validtoken123');
     expect(res.status).toBe(200);
     expect(res.body.verified).toBe(true);
+    expect(res.body.accessToken).toBeDefined();
+    expect(res.body.refreshToken).toBeDefined();
+    expect(res.body.inviteCode).toBe('ABC12345');
 
     // Confirm the UPDATE query used the token as a bound param, not interpolated
     const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
@@ -706,7 +720,7 @@ describe('POST /api/auth/refresh', () => {
 });
 
 describe('POST /api/auth/register — duplicate email', () => {
-  it('returns 409 when email is already registered', async () => {
+  it('returns 409 with a generic message when email is already registered', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 'hh-dup' }] }) // householdId
       .mockResolvedValueOnce({ rows: [{ code: 'ABCD1234' }] }) // inviteCode
@@ -717,7 +731,9 @@ describe('POST /api/auth/register — duplicate email', () => {
       .send({ email: 'dupe@test.com', password: 'password123' });
 
     expect(res.status).toBe(409);
-    expect(res.body.message).toMatch(/already registered/i);
+    // Generic message — must not reveal whether the email is registered (user enumeration)
+    expect(res.body.message).not.toMatch(/already registered/i);
+    expect(res.body.message).not.toMatch(/email/i);
   });
 });
 
@@ -784,7 +800,9 @@ describe('POST /api/auth/join', () => {
       .send({ email: 'dupe@test.com', password: 'password123', inviteCode: 'EXISTING' });
 
     expect(res.status).toBe(409);
-    expect(res.body.message).toMatch(/already registered/i);
+    // Generic message — must not reveal whether the email is registered (user enumeration)
+    expect(res.body.message).not.toMatch(/already registered/i);
+    expect(res.body.message).not.toMatch(/email/i);
   });
 });
 

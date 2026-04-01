@@ -431,7 +431,6 @@ export function getBabyInsight(
   learnedStats?: LearnedStats,
   bedtimeHour = 19,
   wakeHour = 7,
-  sleepTraining = false,
 ): BabyInsight {
   const nowMs = now.getTime();
   const nowHour = now.getHours();
@@ -462,7 +461,8 @@ export function getBabyInsight(
       e =>
         e.babyId === baby.id && e.type === 'bottle' && new Date(e.startedAt).getTime() >= resetMs,
     )
-    .reduce((sum, e) => sum + (e.value ?? 0), 0);
+    // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
+    .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
 
   // Last feed
   const bottleEvent = latest[`${baby.id}:bottle`];
@@ -559,22 +559,17 @@ export function getBabyInsight(
     isBedtimeStretch,
   };
 
-  // Sleep training hint appended to narratives when active event is in progress.
-  // Source: research Tip #6 — timer resets if crying stops; respond only with food after wait.
-  const stHint = sleepTraining && activeEvent ? ` If crying, wait ${selfSoothingMinutes}m.` : '';
-
   // ── Active nap or night sleep ──────────────────────────────────────────────
   if (activeEvent) {
     const eventStartMs = new Date(activeEvent.startedAt).getTime();
     const elapsedMs = nowMs - eventStartMs;
     const elapsedStr = formatMs(elapsedMs);
-    const elapsedProse = formatMsProse(elapsedMs);
 
     if (activeEventIsNight) {
       // Night sleep: no alarm (let them sleep); show elapsed time
       return {
         headline: `Sleeping · ${elapsedStr}`,
-        narrative: `${baby.name} is sleeping for the night.${stHint}`,
+        narrative: `${baby.name} is sleeping for the night.`,
         alarmMs: null,
         urgency: 'ok',
         ...stats,
@@ -589,7 +584,7 @@ export function getBabyInsight(
       const remainingStr = formatMsProse(remainingMs);
       return {
         headline: `Sleeping · ${elapsedStr}`,
-        narrative: `${baby.name} has been asleep for ${elapsedProse}. Likely awake around ${wakeTimeStr}, in about ${remainingStr}.${stHint}`,
+        narrative: `Likely awake around ${wakeTimeStr}, in about ${remainingStr}.`,
         alarmMs: remainingMs,
         urgency: remainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
@@ -597,7 +592,7 @@ export function getBabyInsight(
     } else {
       return {
         headline: `Sleeping · ${elapsedStr}`,
-        narrative: `${baby.name} has been asleep for ${elapsedProse}, a bit longer than usual. Could be awake any minute.${stHint}`,
+        narrative: `Sleeping a bit longer than usual. Could be awake any minute.`,
         alarmMs: null,
         urgency: 'overdue',
         ...stats,

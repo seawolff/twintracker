@@ -16,12 +16,18 @@
   flex: 1;
   overflow-y: auto;
   padding: $space-md;
-  padding-bottom: calc(56px + #{$space-md});
+  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
 
   @media (min-width: $bp-md) {
     padding: $space-lg;
     padding-bottom: $space-lg;
     max-width: 680px;
+  }
+
+  // Desktop: give analytics more horizontal room
+  @media (min-width: $bp-xl) {
+    max-width: 900px;
+    margin-inline: auto;
   }
 }
 
@@ -85,7 +91,7 @@
   margin: 0;
 }
 
-// ── Narrative blocks — MD3-inspired surface cards ─────────────────────────────
+// ── Narrative blocks — surface cards ─────────────────────────────
 
 .block {
   background: var(--tt-surface);
@@ -157,7 +163,7 @@
   margin: 0;
 }
 
-// ── Period tabs — MD3 Segmented button ────────────────────────────────────────
+// ── Period tabs — Segmented button ────────────────────────────────────────
 
 .periodTabs {
   display: flex;
@@ -195,6 +201,12 @@
 .periodTabActive {
   background: var(--tt-accent);
   color: var(--tt-bg);
+}
+
+.periodTabDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 // ── Benchmark rows ─────────────────────────────────────────────────────────────

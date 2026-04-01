@@ -16,3 +16,4 @@ export { useTranslation, initI18n, default as i18n } from './i18n';
 export * from './config';
 export * from './logic/twinSync';
 export * from './logic/authorUtils';
+export * from './logic/filterEvents';

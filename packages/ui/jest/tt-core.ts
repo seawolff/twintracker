@@ -1,8 +1,10 @@
 // Real logic functions imported directly from core source (pure TS, no side-effects)
 export {
   eventLabel,
+  eventLabelShort,
   formatTime,
   formatTimeAgo,
+  formatEventTime,
   formatDuration,
 } from '../../core/src/logic/historyHelpers';
 export { groupEventsByDay } from '../../core/src/logic/grouping';

@@ -106,19 +106,8 @@ export function BabyCard({
   const babyEvents = useMemo(() => events.filter(e => e.babyId === baby.id), [events, baby.id]);
   const learnedStats = useMemo(() => computeLearnedStats(babyEvents, now), [babyEvents, now]);
   const insight = useMemo(
-    () =>
-      getBabyInsight(
-        baby,
-        latest,
-        events,
-        now,
-        resetHour,
-        learnedStats,
-        bedtimeHour,
-        wakeHour,
-        sleepTraining,
-      ),
-    [baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour, sleepTraining],
+    () => getBabyInsight(baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour),
+    [baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour],
   );
 
   const napEvent = latest[`${baby.id}:nap`];
@@ -254,10 +243,25 @@ export function BabyCard({
         </Pressable>
       )}
 
-      {/* ── Predictions ── */}
+      {/* ── Sleep training badge — shown while nap/sleep is active ── */}
+      {sleepTraining && napWaking && (
+        <View style={[styles.sleepTrainingBadge, { borderColor: theme.border }]}>
+          <Text
+            style={[styles.sleepTrainingText, { color: theme.textDim, fontFamily: fonts.mono }]}
+          >
+            {i18n.t('settings.sleep_training_wait', { minutes: insight.selfSoothingMinutes })}
+          </Text>
+        </View>
+      )}
+
+      {/* ── Predictions — bottle and diaper hidden during sleep ── */}
       {insight.predictions.length > 0 && (
         <View style={styles.predictionsRow}>
           {insight.predictions.map(p => {
+            // Hide bottle and diaper predictions entirely while baby is sleeping
+            if (napWaking && (p.type === 'bottle' || p.type === 'diaper')) {
+              return null;
+            }
             const color: string =
               p.urgency === 'overdue'
                 ? theme.urgencyOverdue
@@ -277,13 +281,8 @@ export function BabyCard({
                   : due
                     ? i18n.t('home.pred_nap_due')
                     : i18n.t('home.pred_nap_in', { time: formatMs(p.remainingMs) });
-            // Bottle and diaper predictions are irrelevant while baby is sleeping — dim them.
-            const chipDimmed = napWaking && (p.type === 'bottle' || p.type === 'diaper');
             return (
-              <View
-                key={p.type}
-                style={[styles.chip, { borderColor: color }, chipDimmed && styles.dimmed]}
-              >
+              <View key={p.type} style={[styles.chip, { borderColor: color }]}>
                 <Text
                   style={[styles.chipText, { color, fontFamily: fonts.mono }]}
                   numberOfLines={1}
@@ -547,5 +546,17 @@ const styles = StyleSheet.create({
   },
   dimmed: {
     opacity: 0.35,
+  },
+  sleepTrainingBadge: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+  },
+  sleepTrainingText: {
+    fontSize: 11,
   },
 });

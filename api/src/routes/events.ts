@@ -84,6 +84,10 @@ router.post('/', async (req: AuthRequest, res) => {
     res.status(400).json({ message: `type must be one of: ${[...VALID_EVENT_TYPES].join(', ')}` });
     return;
   }
+  if (type === 'bottle' && value != null && value > 16) {
+    res.status(400).json({ message: 'Bottle value cannot exceed 16 oz' });
+    return;
+  }
   const { rowCount } = await pool.query('SELECT 1 FROM babies WHERE id=$1 AND household_id=$2', [
     babyId,
     req.householdId,

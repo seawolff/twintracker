@@ -1,12 +1,24 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { configure, useAuth, useEventStore, usePreferences, api } from '@tt/core';
-import type { Baby, EventType, LogEventPayload, TrackerEvent } from '@tt/core';
-import { HistoryFeed, LogSheet } from '@tt/ui';
+import {
+  configure,
+  useAuth,
+  useEventStore,
+  usePreferences,
+  api,
+  applyHistoryFilters,
+  emptyFilters,
+  isFilterActive,
+  i18n,
+  EVENT_TYPES,
+} from '@tt/core';
+import type { Baby, EventType, HistoryFilters, LogEventPayload, TrackerEvent } from '@tt/core';
+import { FilterIcon, HistoryFeed, LogSheet } from '@tt/ui';
 import { BottomTabBar } from '../../components/BottomTabBar';
 import { EmailVerificationBanner } from '../../components/EmailVerificationBanner';
 import styles from './history.module.scss';
+import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 
 configure('');
 
@@ -28,9 +40,12 @@ export default function HistoryPage() {
     poll,
   } = useEventStore(!authLoading && isAuthenticated);
   const { prefs } = usePreferences();
+  const showSkeleton = useDelayedLoading(authLoading || eventsLoading);
   const [babies, setBabies] = useState<Baby[]>([]);
   const [editingEvent, setEditingEvent] = useState<TrackerEvent | null>(null);
   const [quickAdd, setQuickAdd] = useState<QuickAdd | null>(null);
+  const [filters, setFilters] = useState<HistoryFilters>(emptyFilters());
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -45,7 +60,41 @@ export default function HistoryPage() {
     api.babies.list().then(setBabies).catch(console.error);
   }, [authLoading, isAuthenticated]);
 
-  if (authLoading || eventsLoading) {
+  // Derive unique authors from full unfiltered list so pills don't disappear mid-filter
+  const availableAuthors = useMemo(
+    () => [...new Set(events.map(e => e.loggedByName).filter((n): n is string => Boolean(n)))],
+    [events],
+  );
+
+  const filteredEvents = useMemo(() => applyHistoryFilters(events, filters), [events, filters]);
+
+  const filterActive = isFilterActive(filters);
+
+  function toggleBaby(id: string) {
+    setFilters(f => {
+      const next = new Set(f.babyIds);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return { ...f, babyIds: next };
+    });
+  }
+
+  function toggleType(type: EventType) {
+    setFilters(f => {
+      const next = new Set(f.types);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return { ...f, types: next };
+    });
+  }
+
+  function toggleAuthor(author: string) {
+    setFilters(f => {
+      const next = new Set(f.authors);
+      next.has(author) ? next.delete(author) : next.add(author);
+      return { ...f, authors: next };
+    });
+  }
+
+  if (showSkeleton) {
     return (
       <div className={styles.page}>
         <div className={styles.skeletonScroll}>
@@ -74,6 +123,7 @@ export default function HistoryPage() {
   }
 
   function handleAddForDay(date: Date) {
+    setFilterPanelOpen(false);
     setQuickAdd({ date, baby: null, type: null });
   }
 
@@ -98,16 +148,112 @@ export default function HistoryPage() {
   return (
     <div className={styles.page}>
       <EmailVerificationBanner />
+
       <div className={styles.scroll}>
         <HistoryFeed
-          events={events}
+          events={filteredEvents}
           babies={babies}
           resetHour={prefs.wakeHour}
           onDelete={id => deleteEvent(id).catch(console.error)}
+          onRestore={event =>
+            logEvent({
+              babyId: event.babyId,
+              type: event.type,
+              startedAt: event.startedAt,
+              endedAt: event.endedAt ?? undefined,
+              value: event.value ?? undefined,
+              unit: event.unit ?? undefined,
+              notes: event.notes ?? undefined,
+            }).catch(console.error)
+          }
           onEdit={setEditingEvent}
           onAddForDay={handleAddForDay}
           onRefresh={poll}
         />
+      </div>
+
+      {/* Backdrop: captures outside clicks so they dismiss the panel instead of hitting rows */}
+      {filterPanelOpen && (
+        <div className={styles.filterBackdrop} onClick={() => setFilterPanelOpen(false)} />
+      )}
+
+      {/* Filter anchor: FAB always hangs above it; panel grows anchor upward when open */}
+      <div className={styles.filterPanelAnchor}>
+        <button
+          className={styles.filterFab}
+          onClick={() => setFilterPanelOpen(v => !v)}
+          type="button"
+          aria-label={i18n.t('history.filter_open')}
+          aria-expanded={filterPanelOpen}
+        >
+          <FilterIcon size={20} color="currentColor" />
+          {filterActive && <span className={styles.filterBadge} />}
+        </button>
+
+        {filterPanelOpen && (
+          <div className={styles.filterPanel}>
+            {babies.length > 1 && (
+              <>
+                <p className={styles.quickLabel}>{i18n.t('history.filter_babies')}</p>
+                <div className={styles.filterPills}>
+                  {babies.map(b => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className={`${styles.filterPill}${filters.babyIds.has(b.id) ? ` ${styles.filterPillActive}` : ''}`}
+                      onClick={() => toggleBaby(b.id)}
+                    >
+                      {b.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <p className={styles.quickLabel}>{i18n.t('history.filter_types')}</p>
+            <div className={styles.filterPills}>
+              {EVENT_TYPES.map(type => (
+                <button
+                  key={type}
+                  type="button"
+                  className={`${styles.filterPill}${filters.types.has(type) ? ` ${styles.filterPillActive}` : ''}`}
+                  onClick={() => toggleType(type)}
+                >
+                  {i18n.t(`log_sheet.types.${type}`)}
+                </button>
+              ))}
+            </div>
+
+            {availableAuthors.length > 1 && (
+              <>
+                <p className={styles.quickLabel}>{i18n.t('history.filter_authors')}</p>
+                <div className={styles.filterPills}>
+                  {availableAuthors.map(author => (
+                    <button
+                      key={author}
+                      type="button"
+                      className={`${styles.filterPill}${filters.authors.has(author) ? ` ${styles.filterPillActive}` : ''}`}
+                      onClick={() => toggleAuthor(author)}
+                    >
+                      {author}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <button
+              type="button"
+              className={styles.quickCancel}
+              onClick={() => {
+                setFilters(emptyFilters());
+                setFilterPanelOpen(false);
+              }}
+            >
+              {i18n.t('history.filter_clear_all')}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Edit existing event */}
@@ -127,7 +273,7 @@ export default function HistoryPage() {
       {/* Quick-add: baby selector → type selector → LogSheet */}
       {quickAdd !== null && quickAdd.baby === null && (
         <div className={styles.quickPanel}>
-          <p className={styles.quickLabel}>Select baby</p>
+          <p className={styles.quickLabel}>{i18n.t('history.quick_add_select_baby')}</p>
           <div className={styles.quickPills}>
             {babies.map(b => (
               <button
@@ -140,26 +286,15 @@ export default function HistoryPage() {
             ))}
           </div>
           <button className={styles.quickCancel} onClick={() => setQuickAdd(null)}>
-            Cancel
+            {i18n.t('common.cancel')}
           </button>
         </div>
       )}
       {quickAdd !== null && quickAdd.baby !== null && quickAdd.type === null && (
         <div className={styles.quickPanel}>
-          <p className={styles.quickLabel}>Select type</p>
+          <p className={styles.quickLabel}>{i18n.t('history.quick_add_select_type')}</p>
           <div className={styles.quickPills}>
-            {(
-              [
-                'bottle',
-                'nap',
-                'sleep',
-                'diaper',
-                'nursing',
-                'medicine',
-                'food',
-                'milestone',
-              ] as EventType[]
-            ).map(t => (
+            {EVENT_TYPES.map(t => (
               <button
                 key={t}
                 className={styles.quickPill}
@@ -173,7 +308,7 @@ export default function HistoryPage() {
             className={styles.quickCancel}
             onClick={() => setQuickAdd(q => (q ? { ...q, baby: null } : null))}
           >
-            Back
+            {i18n.t('common.back')}
           </button>
         </div>
       )}

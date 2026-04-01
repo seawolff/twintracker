@@ -1,4 +1,11 @@
-import { formatTime, formatDuration, formatTimeAgo, eventLabel } from './historyHelpers';
+import {
+  formatTime,
+  formatDuration,
+  formatTimeAgo,
+  formatEventTime,
+  eventLabel,
+  eventLabelShort,
+} from './historyHelpers';
 import type { TrackerEvent } from '../types';
 
 // ── formatTime ────────────────────────────────────────────────────────────────
@@ -100,7 +107,7 @@ describe('eventLabel', () => {
     expect(eventLabel(makeEvent({ type: 'nap' }))).toBe('Nap');
   });
 
-  it('nap with endedAt shows duration', () => {
+  it('nap with endedAt shows duration in parens', () => {
     expect(
       eventLabel(
         makeEvent({
@@ -109,14 +116,14 @@ describe('eventLabel', () => {
           endedAt: '2026-03-14T10:05:00.000Z',
         }),
       ),
-    ).toBe('Nap 1h 5m');
+    ).toBe('Nap (1h 5m)');
   });
 
   it('sleep without endedAt', () => {
     expect(eventLabel(makeEvent({ type: 'sleep' }))).toBe('Sleep');
   });
 
-  it('sleep with endedAt shows duration', () => {
+  it('sleep with endedAt shows duration in parens', () => {
     expect(
       eventLabel(
         makeEvent({
@@ -125,7 +132,7 @@ describe('eventLabel', () => {
           endedAt: '2026-03-14T08:30:00.000Z',
         }),
       ),
-    ).toBe('Sleep 8h 30m');
+    ).toBe('Sleep (8h 30m)');
   });
 
   it('diaper with notes', () => {
@@ -162,5 +169,98 @@ describe('eventLabel', () => {
 
   it('unknown type falls through to type string', () => {
     expect(eventLabel(makeEvent({ type: 'unknown' as TrackerEvent['type'] }))).toBe('unknown');
+  });
+});
+
+// ── eventLabelShort ───────────────────────────────────────────────────────────
+
+describe('eventLabelShort', () => {
+  it('bottle returns "Bottle" regardless of value', () => {
+    expect(eventLabelShort(makeEvent({ type: 'bottle', value: 4 }))).toBe('Bottle');
+  });
+
+  it('nursing returns "Nursing"', () => {
+    expect(eventLabelShort(makeEvent({ type: 'nursing' }))).toBe('Nursing');
+  });
+
+  it('nap without endedAt returns "Nap"', () => {
+    expect(eventLabelShort(makeEvent({ type: 'nap' }))).toBe('Nap');
+  });
+
+  it('nap with endedAt shows duration in parens', () => {
+    expect(
+      eventLabelShort(
+        makeEvent({
+          type: 'nap',
+          startedAt: '2026-03-14T09:00:00.000Z',
+          endedAt: '2026-03-14T09:45:00.000Z',
+        }),
+      ),
+    ).toBe('Nap (45m)');
+  });
+
+  it('nap attempted preserves the qualifier', () => {
+    expect(eventLabelShort(makeEvent({ type: 'nap', notes: 'attempted' }))).toBe('Nap (attempted)');
+  });
+
+  it('sleep without endedAt returns "Sleep"', () => {
+    expect(eventLabelShort(makeEvent({ type: 'sleep' }))).toBe('Sleep');
+  });
+
+  it('sleep with endedAt shows duration in parens', () => {
+    expect(
+      eventLabelShort(
+        makeEvent({
+          type: 'sleep',
+          startedAt: '2026-03-14T00:00:00.000Z',
+          endedAt: '2026-03-14T08:00:00.000Z',
+        }),
+      ),
+    ).toBe('Sleep (8h 0m)');
+  });
+
+  it('diaper returns "Diaper" regardless of notes', () => {
+    expect(eventLabelShort(makeEvent({ type: 'diaper', notes: 'dirty' }))).toBe('Diaper');
+  });
+
+  it('food returns "Food" regardless of notes', () => {
+    expect(eventLabelShort(makeEvent({ type: 'food', notes: 'banana puree' }))).toBe('Food');
+  });
+
+  it('milestone returns "★ Milestone" regardless of notes', () => {
+    expect(eventLabelShort(makeEvent({ type: 'milestone', notes: 'First steps' }))).toBe(
+      '★ Milestone',
+    );
+  });
+
+  it('unknown type falls through to type string', () => {
+    expect(eventLabelShort(makeEvent({ type: 'unknown' as TrackerEvent['type'] }))).toBe('unknown');
+  });
+});
+
+// ── formatEventTime ───────────────────────────────────────────────────────────
+
+describe('formatEventTime', () => {
+  const now = new Date('2026-03-14T10:00:00.000Z');
+
+  it('returns relative time when event is under 2 hours ago', () => {
+    const iso = new Date(now.getTime() - 90 * 60_000).toISOString(); // 1h 30m ago
+    expect(formatEventTime(iso, now)).toBe('1h 30m ago');
+  });
+
+  it('returns relative time for a just-logged event', () => {
+    const iso = new Date(now.getTime() - 5 * 60_000).toISOString(); // 5m ago
+    expect(formatEventTime(iso, now)).toBe('5m ago');
+  });
+
+  it('returns absolute time when event is exactly 2 hours ago', () => {
+    const iso = new Date(now.getTime() - 2 * 60 * 60_000).toISOString();
+    // Exact boundary: 2h ago → absolute time (looks like HH:MM)
+    expect(formatEventTime(iso, now)).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('returns absolute time when event is over 2 hours ago', () => {
+    const iso = new Date(now.getTime() - 3 * 60 * 60_000).toISOString(); // 3h ago
+    expect(formatEventTime(iso, now)).toMatch(/\d{1,2}:\d{2}/);
   });
 });

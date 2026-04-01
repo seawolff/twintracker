@@ -85,7 +85,7 @@ router.post('/register', async (req, res) => {
     });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '23505') {
-      res.status(409).json({ message: 'Email already registered' });
+      res.status(409).json({ message: 'Unable to create account. Please try again.' });
     } else {
       throw err;
     }
@@ -200,7 +200,7 @@ router.post('/join', async (req, res) => {
     });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '23505') {
-      res.status(409).json({ message: 'Email already registered' });
+      res.status(409).json({ message: 'Unable to create account. Please try again.' });
     } else {
       throw err;
     }
@@ -219,14 +219,21 @@ router.get('/verify-email', async (req, res) => {
      SET email_verified = true, email_verification_token = NULL, email_verification_expires_at = NULL
      WHERE email_verification_token = $1
        AND email_verification_expires_at > NOW()
-     RETURNING id`,
+     RETURNING id, household_id AS "householdId", is_admin AS "isAdmin",
+               invite_code AS "inviteCode", display_name AS "displayName"`,
     [token],
   );
   if (!rows.length) {
     res.status(400).json({ message: 'Invalid or expired verification link' });
     return;
   }
-  res.json({ verified: true });
+  const user = rows[0];
+  res.json({
+    verified: true,
+    ...signTokens(user.id, user.householdId, user.isAdmin ?? false),
+    inviteCode: user.inviteCode,
+    displayName: user.displayName ?? null,
+  });
 });
 
 // POST /auth/resend-verification — send a fresh verification email (authenticated)

@@ -20,4 +20,6 @@ export {
   NursingIcon,
   CloseIcon,
   TimerIcon,
+  SettingsIcon,
+  FilterIcon,
 } from './components/icons/BabyIcons';

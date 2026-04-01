@@ -1,3 +1,4 @@
+/** Groups events into day buckets based on a configurable reset hour; sleep attributed by wake-up day. */
 import type { TrackerEvent } from '../types';
 
 export interface DayGroup {
@@ -58,12 +59,37 @@ export function groupEventsByDay(events: TrackerEvent[], now: Date, resetHour = 
   const buckets = new Map<number, TrackerEvent[]>();
 
   for (const event of events) {
-    // Sleep/nap events belong to the day they END in — a sleep started at 9pm
-    // that ends at 6am is attributed to the morning it woke up, not the night it began.
-    const isSleepLike = (event.type === 'nap' || event.type === 'sleep') && event.endedAt != null;
-    const attributionMs = isSleepLike
-      ? new Date(event.endedAt!).getTime()
-      : new Date(event.startedAt).getTime();
+    // Determine the timestamp used to assign this event to a day bucket.
+    //
+    // • sleep (with endedAt): attributed to the calendar day of wake-up, keyed at
+    //   that day's reset-hour boundary + 1 ms. This ensures a sleep ending at 6:39 AM
+    //   with a 7 AM reset still lands in "today" rather than "yesterday", because the
+    //   user mentally associates the sleep with the morning they woke up, not the
+    //   reset-hour period it technically falls inside.
+    //
+    // • nap (with endedAt): attributed by endedAt directly (naps are short and rarely
+    //   cross the reset boundary, so the simpler approach is fine).
+    //
+    // • everything else: attributed by startedAt.
+    let attributionMs: number;
+    if (event.type === 'sleep' && event.endedAt != null) {
+      const endDate = new Date(event.endedAt);
+      // Pin to the reset-hour moment of the calendar day the sleep ended on.
+      // +1 ms avoids the exact-boundary edge case in the floor-based daysDiff formula.
+      attributionMs = new Date(
+        endDate.getFullYear(),
+        endDate.getMonth(),
+        endDate.getDate(),
+        resetHour,
+        0,
+        0,
+        1,
+      ).getTime();
+    } else if (event.type === 'nap' && event.endedAt != null) {
+      attributionMs = new Date(event.endedAt).getTime();
+    } else {
+      attributionMs = new Date(event.startedAt).getTime();
+    }
 
     // Walk back from todayStart to find which period this event belongs to
     const periodMs = todayStart.getTime();

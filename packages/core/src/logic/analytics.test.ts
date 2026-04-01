@@ -151,6 +151,38 @@ describe('computeAnalytics', () => {
     expect(a.sleepDeltaVsLastWeek).toBeNull();
   });
 
+  // ── Nap avg-duration delta ────────────────────────────────────────────────────
+
+  test('napDeltaVsLastWeek is positive when avg nap is longer this week', () => {
+    const events = [
+      makeNap(1, 90), // this week: 90m avg
+      makeNap(8, 60), // last week: 60m avg
+    ];
+    const a = computeAnalytics(events, NOW, 0);
+    expect(a.napDeltaVsLastWeek).toBe(30 * 60_000); // +30m
+  });
+
+  test('napDeltaVsLastWeek is negative when avg nap is shorter this week', () => {
+    const events = [
+      makeNap(1, 45), // this week: 45m avg
+      makeNap(8, 90), // last week: 90m avg
+    ];
+    const a = computeAnalytics(events, NOW, 0);
+    expect(a.napDeltaVsLastWeek).toBe(-45 * 60_000); // −45m
+  });
+
+  test('napDeltaVsLastWeek is null when no last-week nap data', () => {
+    const events = [makeNap(1, 60)];
+    const a = computeAnalytics(events, NOW, 0);
+    expect(a.napDeltaVsLastWeek).toBeNull();
+  });
+
+  test('napDeltaVsLastWeek is null when no this-week nap data', () => {
+    const events = [makeNap(8, 60)];
+    const a = computeAnalytics(events, NOW, 0);
+    expect(a.napDeltaVsLastWeek).toBeNull();
+  });
+
   // ── Sleep attribution by endedAt ──────────────────────────────────────────────
 
   test('sleep starting before the 7-day window but ending inside it counts in this period', () => {

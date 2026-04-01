@@ -8,6 +8,15 @@ import {
   getTargetDailySleepMs,
   getSelfSoothingMinutes,
 } from './schedule';
+import { AAP_MAX_DAILY_OZ } from '../config';
+
+const MS_PER_DAY = 24 * 60 * 60_000;
+/** Naps/sleeps shorter than this are ignored (incomplete or accidental taps). */
+const MIN_TRACKABLE_SLEEP_MS = 5 * 60_000;
+/** Feed gaps longer than this are overnight pauses, not normal feed intervals. */
+const MAX_FEED_GAP_MS = 8 * 60 * 60_000;
+/** After this many weeks, wet diaper count is no longer a standard clinical monitoring metric. */
+const NEWBORN_WET_DIAPER_TRACKING_WEEKS = 13;
 
 export interface BabyAnalytics {
   totalOzThisWeek: number;
@@ -26,6 +35,8 @@ export interface BabyAnalytics {
   totalSleepMsThisWeek: number;
   /** ms delta vs prior week (nap + night) — positive = more sleep this week */
   sleepDeltaVsLastWeek: number | null;
+  /** Nap count delta vs prior period — positive = more naps this period */
+  napDeltaVsLastWeek: number | null;
   diaperCountThisWeek: number;
   avgDiapersPerDay: number;
   foodCountThisWeek: number;
@@ -81,8 +92,10 @@ export function computeAnalytics(
     return d.getTime();
   }
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
-  const thisWeekStart = periodBoundaryMs(periodDays);
-  const lastWeekStart = periodBoundaryMs(periodDays * 2);
+  // For 'day': count since the most recent reset boundary (today's resetHour).
+  // For week/month: count the last N full days back from the reset boundary.
+  const thisWeekStart = period === 'day' ? periodBoundaryMs(0) : periodBoundaryMs(periodDays);
+  const lastWeekStart = period === 'day' ? periodBoundaryMs(1) : periodBoundaryMs(periodDays * 2);
 
   const thisWeek = events.filter(e => {
     // Sleep/nap events count in the period they END — a sleep started before the
@@ -123,12 +136,12 @@ export function computeAnalytics(
       totalFeeds++;
     } else if (e.type === 'nap' && e.endedAt != null) {
       const dur = new Date(e.endedAt).getTime() - t;
-      if (dur > 5 * 60_000) {
+      if (dur > MIN_TRACKABLE_SLEEP_MS) {
         napDurationsThisWeek.push(dur);
       }
     } else if (e.type === 'sleep' && e.endedAt != null) {
       const dur = new Date(e.endedAt).getTime() - t;
-      if (dur > 5 * 60_000) {
+      if (dur > MIN_TRACKABLE_SLEEP_MS) {
         nightSleepDurationsThisWeek.push(dur);
       }
     } else if (e.type === 'diaper') {
@@ -145,7 +158,7 @@ export function computeAnalytics(
   const feedIntervals: number[] = [];
   for (let i = 1; i < feedTimes.length; i++) {
     const gap = feedTimes[i] - feedTimes[i - 1];
-    if (gap < 8 * 60 * 60_000) {
+    if (gap < MAX_FEED_GAP_MS) {
       feedIntervals.push(gap);
     }
   }
@@ -168,15 +181,26 @@ export function computeAnalytics(
   const lastWeekSleepMs = lastWeek
     .filter(e => (e.type === 'nap' || e.type === 'sleep') && e.endedAt != null)
     .map(e => new Date(e.endedAt!).getTime() - new Date(e.startedAt).getTime())
-    .filter(d => d > 5 * 60_000)
+    .filter(d => d > MIN_TRACKABLE_SLEEP_MS)
     .reduce((s, d) => s + d, 0);
   const lastWeekHasSleep = lastWeek.some(
     e => (e.type === 'nap' || e.type === 'sleep') && e.endedAt != null,
   );
   const sleepDeltaVsLastWeek = lastWeekHasSleep ? totalSleepMsThisWeek - lastWeekSleepMs : null;
 
+  // ── Nap avg-duration delta vs last period ────────────────────────────────────
+  const lastWeekNapDurations = lastWeek
+    .filter(e => e.type === 'nap' && e.endedAt != null)
+    .map(e => new Date(e.endedAt!).getTime() - new Date(e.startedAt).getTime())
+    .filter(d => d > MIN_TRACKABLE_SLEEP_MS);
+  const lastWeekAvgNapMs = median(lastWeekNapDurations);
+  const napDeltaVsLastWeek =
+    avgNapDurationMs != null && lastWeekAvgNapMs != null
+      ? avgNapDurationMs - lastWeekAvgNapMs
+      : null;
+
   // ── Diapers ──────────────────────────────────────────────────────────────────
-  const daysInPeriod = Math.max(1, (nowMs - thisWeekStart) / (24 * 60 * 60_000));
+  const daysInPeriod = Math.max(1, (nowMs - thisWeekStart) / MS_PER_DAY);
   const avgDiapersPerDay = diaperCountThisWeek / daysInPeriod;
 
   // ── Food & milestones ────────────────────────────────────────────────────────
@@ -190,7 +214,7 @@ export function computeAnalytics(
   const targetOzPerFeed = getDefaultOzForAge(ageWeeks);
   const targetFeedIntervalMs = ageSchedule.feedMs;
   const targetNapDurationMs = ageSchedule.napMs;
-  const targetDailyOzMax = 32;
+  const targetDailyOzMax = AAP_MAX_DAILY_OZ;
   const avgOzPerDay = daysInPeriod > 0 ? totalOzThisWeek / daysInPeriod : 0;
   const avgFeedsPerDay = daysInPeriod > 0 ? totalFeeds / daysInPeriod : 0;
   const avgDailySleepMs = daysInPeriod > 0 ? totalSleepMsThisWeek / daysInPeriod : 0;
@@ -205,14 +229,14 @@ export function computeAnalytics(
   const msSinceLastDirty = lastDirty ? nowMs - new Date(lastDirty.startedAt).getTime() : null;
   // Clinical threshold: 6+ wet diapers/day is the newborn adequacy marker.
   // After ~3 months (13 weeks) it's no longer a standard monitoring metric.
-  const targetMinWetDiapersPerDay = ageWeeks < 13 ? 6 : null;
+  const targetMinWetDiapersPerDay = ageWeeks < NEWBORN_WET_DIAPER_TRACKING_WEEKS ? 6 : null;
 
   const selfSoothingWaitMs = getSelfSoothingMinutes(ageWeeks) * 60_000;
 
   // Days of actual data in the period — used by UI to detect insufficient data.
   const earliestInPeriod =
     thisWeek.length > 0 ? Math.min(...thisWeek.map(e => new Date(e.startedAt).getTime())) : nowMs;
-  const dataSpanDays = Math.min(periodDays, (nowMs - earliestInPeriod) / (24 * 60 * 60_000));
+  const dataSpanDays = Math.min(periodDays, (nowMs - earliestInPeriod) / MS_PER_DAY);
 
   return {
     totalOzThisWeek,
@@ -227,6 +251,7 @@ export function computeAnalytics(
     avgNightSleepDurationMs,
     totalSleepMsThisWeek,
     sleepDeltaVsLastWeek,
+    napDeltaVsLastWeek,
     diaperCountThisWeek,
     avgDiapersPerDay,
     foodCountThisWeek,

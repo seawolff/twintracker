@@ -1,20 +1,23 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { SettingsIcon } from '@tt/ui';
 import styles from './BottomTabBar.module.scss';
 
-const tabs = [
+const textTabs = [
   { href: '/home', icon: '⌂', label: 'Home' },
   { href: '/history', icon: '◷', label: 'History' },
-  { href: '/settings', icon: '⚙', label: 'Settings' },
 ];
 
 export function BottomTabBar() {
   const pathname = usePathname();
 
+  const isSettingsActive =
+    pathname === '/settings' || pathname.startsWith('/settings/');
+
   return (
     <nav className={styles.bar} aria-label="Main navigation">
-      {tabs.map(tab => {
+      {textTabs.map(tab => {
         const active = pathname === tab.href || pathname.startsWith(tab.href + '/');
         return (
           <Link
@@ -30,6 +33,16 @@ export function BottomTabBar() {
           </Link>
         );
       })}
+      <Link
+        href="/settings"
+        aria-label="Settings"
+        aria-current={isSettingsActive ? 'page' : undefined}
+        className={`${styles.tab} ${isSettingsActive ? styles.tabActive : ''}`}
+      >
+        <span className={styles.icon} aria-hidden="true">
+          <SettingsIcon size={20} />
+        </span>
+      </Link>
     </nav>
   );
 }

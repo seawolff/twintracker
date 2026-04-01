@@ -8,21 +8,34 @@
     "save": "Save",
     "back": "← Back",
     "dismiss": "Dismiss",
-    "delete": "Delete"
+    "delete": "Delete",
+    "undo": "Undo"
   },
   "onboarding": {
     "welcome": "Welcome",
     "subtitle": "Add your little ones to get started.",
     "baby_n": "Baby {{n}}",
     "name_placeholder": "Name",
-    "dob_label": "Date of birth (optional)",
+    "dob_label": "Date of birth",
     "dob_placeholder": "Baby {{n}} name",
     "add_another": "+ Add another baby",
     "get_started": "Get started",
     "adding": "Adding…",
     "prefs_heading": "Almost done",
     "prefs_subtitle": "Set your schedule. Adjust anytime in Settings.",
-    "done": "Done"
+    "done": "Done",
+    "bedtime_question": "What is the target bedtime for {{names}}?",
+    "newborn_bedtime_rec": "For newborns, we recommend {{time}}.",
+    "wake_question": "What is the target wake time for {{names}}?",
+    "step_next": "Next →",
+    "finished": "Finished",
+    "prefs_step2_sub": "A few more preferences. Adjust anytime in Settings.",
+    "sleep_training_question": "Enable sleep training for {{names}}?",
+    "sleep_training_onboard_desc": "Shows self-soothing wait times during naps. Helps your baby learn to sleep through the night. Stage 1: 5–10 min · Stage 2: 20–45 min.",
+    "diaper_question": "Diaper reminders for {{names}}?",
+    "diaper_onboard_desc": "Get a notification ~3 hours after the last diaper change.",
+    "feed_question": "Feed reminders for {{names}}?",
+    "feed_onboard_desc": "Get notified when the next bottle or nursing session is likely due."
   },
   "home": {
     "invite_label": "Invite your co-parent",
@@ -30,8 +43,11 @@
     "twin_sync_prompt": "Enable twin schedule sync? The app will suggest keeping both babies on matching nap and bottle schedules.",
     "twin_sync_enable": "Enable",
     "nap_banner_still_sleeping": "Still sleeping?",
+    "nap_banner_still_sleeping_body": "Is {{name}} still asleep?",
     "nap_banner_yes": "Yes",
     "nap_banner_cancel_nap": "No — cancel nap",
+    "alarm_fired_title": "TwinTracker",
+    "alarm_fired_body": "Your alarm for {{name}} went off.",
     "sync_put_down": "Put {{name}} down too?",
     "sync_feed": "Feed {{name}} now too?",
     "sync_diaper": "Change {{name}} too?",
@@ -54,12 +70,28 @@
     "min": "min"
   },
   "history": {
-    "no_events": "No events yet"
+    "no_events": "No events yet",
+    "filter_open": "Filter events",
+    "filter_clear": "Clear",
+    "filter_clear_all": "Clear all filters",
+    "filter_babies": "BABY",
+    "filter_types": "LOG TYPE",
+    "filter_authors": "LOGGED BY",
+    "log_first_event": "Log first event +",
+    "add_event_for": "Add event for {{day}}",
+    "delete_event": "Delete {{label}}",
+    "confirm_delete": "Confirm delete",
+    "edit_event": "Edit {{label}} for {{baby}}",
+    "event_deleted": "Deleted",
+    "quick_add_select_baby": "Select baby",
+    "quick_add_select_type": "Select type"
   },
   "log_sheet": {
     "edit_label": "Edit",
     "logged_by": "Logged by {{name}}",
     "start_time": "Start time",
+    "edit_start_time": "Edit start time",
+    "edit_end_time": "Edit end time",
     "amount_oz": "Amount (oz)",
     "duration_min": "Duration (min)",
     "what_did_they_eat": "What did they eat?",
@@ -108,10 +140,13 @@
     "night_sleep": "NIGHT SLEEP",
     "night_sleep_total": "{{total}} total · {{count}} night {{period}}",
     "night_sleep_total_plural": "{{total}} total · {{count}} nights {{period}}",
+    "night_sleep_total_day": "{{total}} total",
     "night_sleep_avg": "Avg: {{avg}} per night",
     "night_sleep_empty": "No night sleep logged {{period}}.",
-    "sleep_more": "More sleep than last week (+{{delta}})",
-    "sleep_less": "Less sleep than last week (−{{delta}})",
+    "sleep_more": "More sleep than last week's average (+{{delta}})",
+    "sleep_less": "Less sleep than last week's average (−{{delta}})",
+    "naps_delta_more": "+{{delta}} avg nap vs last week",
+    "naps_delta_less": "−{{delta}} avg nap vs last week",
     "diapers": "DIAPERS",
     "diapers_count": "{{count}} changes {{period}}",
     "diapers_per_day": "About {{avg}} per day",
@@ -164,6 +199,7 @@
     "sleep_training_hint": "Shows self-soothing wait times when baby is in the crib. Stage 1: 5–10 min. Stage 2: 20–45 min.",
     "sleep_training_enable": "Enable sleep training",
     "sleep_training_enabled": "Enabled — tap to disable",
+    "sleep_training_wait": "Sleep training · wait {{minutes}}m if crying",
     "bedtime_title": "Bedtime",
     "bedtime_hint": "Target bedtime. Shown as a countdown when baby's last nap winds down. Stage 1 newborns: set to 10 PM.",
     "wake_title": "Wake time",
@@ -204,9 +240,17 @@
     "verify_error_body": "This verification link has expired or already been used. Request a new one from the app.",
     "verify_error_cta": "Go to app →"
   },
+  "notifications": {
+    "diaper_body": "It's been about {{interval}}. Time to change {{name}}?",
+    "feed_body": "It's been about {{interval}}. Time to feed {{name}}?",
+    "alarm_timer": "Your {{minutes}} min timer is up.",
+    "alarm_nap_check": "Your {{minutes}} min timer is up. Do you need to check on {{name}}?",
+    "alarm_wake": "Time to wake {{name}}"
+  },
   "nav": {
     "home": "Home",
     "history": "History",
-    "settings": "Settings"
+    "settings": "Settings",
+    "tab_label": "{{name}} tab"
   }
 }

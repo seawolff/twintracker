@@ -41,6 +41,7 @@ import { BabyCard, LogSheet } from '@tt/ui';
 import { BottomTabBar } from '../../components/BottomTabBar';
 import { EmailVerificationBanner } from '../../components/EmailVerificationBanner';
 import styles from './home.module.scss';
+import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 
 configure('');
 
@@ -52,6 +53,26 @@ interface SheetState {
   baby: Baby;
   type: EventType;
   suggestedOz?: number;
+}
+
+function formatBabyNames(bs: Baby[]): string {
+  if (bs.length === 0) {
+    return 'your baby';
+  }
+  if (bs.length === 1) {
+    return bs[0].name;
+  }
+  if (bs.length === 2) {
+    return `${bs[0].name} and ${bs[1].name}`;
+  }
+  return (
+    bs
+      .slice(0, -1)
+      .map(b => b.name)
+      .join(', ') +
+    ', and ' +
+    bs[bs.length - 1].name
+  );
 }
 
 export default function HomePage() {
@@ -97,9 +118,11 @@ export default function HomePage() {
   const { t } = useTranslation();
   const [babies, setBabies] = useState<Baby[]>([]);
   const [babiesLoading, setBabiesLoading] = useState(true);
+  const showSkeleton = useDelayedLoading(authLoading || babiesLoading);
   const [entries, setEntries] = useState<BabyEntry[]>([{ name: '', birthDate: '' }]);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [showPrefsStep, setShowPrefsStep] = useState(false);
+  const [prefsSubStep, setPrefsSubStep] = useState<1 | 2>(1);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [showTwinSyncPrompt, setShowTwinSyncPrompt] = useState(false);
@@ -254,14 +277,21 @@ export default function HomePage() {
       for (const en of valid) {
         const baby = await api.babies.create({
           name: en.name.trim(),
-          birthDate: en.birthDate || undefined,
+          birthDate: en.birthDate,
         });
         created.push(baby);
       }
       setBabies(created);
       setShowPrefsStep(true);
+      setPrefsSubStep(1);
+      setSleepTraining(true); // only override needed — diaperNotifications + bottleNotifications default to true
       if (created.length >= 2) {
         setShowTwinSyncPrompt(true);
+        // Auto-enable twin sync when babies share the same birth date (i.e. actual twins)
+        const dates = created.map(b => b.birthDate).filter(Boolean);
+        if (dates.length === created.length && new Set(dates).size === 1) {
+          setTwinSync(true);
+        }
       }
       setShowInvite(true);
     } catch (err) {
@@ -498,7 +528,13 @@ export default function HomePage() {
     deleteEvent(banner.napId).catch(console.error);
   }
 
-  if (authLoading || babiesLoading) {
+  // Auth has resolved but user is not authenticated — redirect is in flight via useEffect.
+  // Return empty page so the home skeleton never flashes on the login page.
+  if (!authLoading && !isAuthenticated) {
+    return <div className={styles.page} />;
+  }
+
+  if (showSkeleton) {
     return (
       <div className={styles.page}>
         <div className={styles.scroll}>
@@ -521,9 +557,52 @@ export default function HomePage() {
     );
   }
 
+  function handleInviteCopy() {
+    if (!inviteCode) {
+      return;
+    }
+    const text = t('settings.invite_share_message', { code: inviteCode });
+    const confirm = () => {
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2000);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(confirm);
+    } else {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      confirm();
+    }
+  }
+
   return (
     <div className={styles.page}>
       <EmailVerificationBanner />
+      {showInvite && inviteCode && !showPrefsStep && babies.length > 0 && (
+        <div className={styles.inviteAppBanner} role="banner">
+          <div className={styles.inviteAppBannerInfo}>
+            <p className={styles.inviteAppBannerLabel}>{t('home.invite_label')}</p>
+            <p className={styles.inviteAppBannerCode}>{inviteCode}</p>
+          </div>
+          <div className={styles.inviteAppBannerActions}>
+            <button className={styles.inviteAppBannerCopy} onClick={handleInviteCopy} type="button">
+              {inviteCopied ? t('settings.invite_copied') : t('settings.invite_copy')}
+            </button>
+            <button
+              className={styles.inviteAppBannerDismiss}
+              onClick={() => setShowInvite(false)}
+              type="button"
+              aria-label={t('common.dismiss')}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <div className={styles.scroll}>
         {emailVerified === false ? (
           /* ── Email gate: must verify before using the app ── */
@@ -593,6 +672,7 @@ export default function HomePage() {
                     type="date"
                     value={en.birthDate}
                     onChange={e => updateEntry(i, 'birthDate', e.target.value)}
+                    required
                   />
                 </div>
               ))}
@@ -609,141 +689,153 @@ export default function HomePage() {
             </form>
           </div>
         ) : showPrefsStep ? (
-          /* ── Onboarding step 2: schedule setup ── */
-          <div>
-            <h1 className={styles.onboardHeading}>{t('onboarding.prefs_heading')}</h1>
-            <p className={styles.onboardSub}>{t('onboarding.prefs_subtitle')}</p>
+          /* ── Onboarding step 2: schedule + preferences ── */
+          prefsSubStep === 1 ? (
+            <div>
+              <h1 className={styles.onboardHeading}>{t('onboarding.prefs_heading')}</h1>
+              <p className={styles.onboardSub}>{t('onboarding.prefs_subtitle')}</p>
 
-            <div className={styles.onboardSection}>
-              <p className={styles.onboardSectionTitle}>{t('settings.bedtime_title')}</p>
-              <p className={styles.onboardSectionHint}>{t('settings.bedtime_hint')}</p>
-              <div className={styles.onboardPillGrid}>
-                {BEDTIME_HOURS.map(h => (
+              <div className={styles.onboardSection}>
+                <p className={styles.onboardSectionTitle}>
+                  {t('onboarding.bedtime_question', { names: formatBabyNames(babies) })}
+                </p>
+                {babies.some(b => {
+                  if (!b.birthDate) {
+                    return false;
+                  }
+                  return (Date.now() - new Date(b.birthDate).getTime()) / 604800000 < 15;
+                }) && (
+                  <p className={styles.onboardSectionHint}>
+                    {t('onboarding.newborn_bedtime_rec', { time: hourLabel(22) })}
+                  </p>
+                )}
+                <div className={styles.onboardPillGrid}>
+                  {BEDTIME_HOURS.map(h => (
+                    <button
+                      key={h}
+                      className={`${styles.onboardPill} ${prefs.bedtimeHour === h ? styles.onboardPillActive : ''}`}
+                      onClick={() => setBedtimeHour(h)}
+                      aria-pressed={prefs.bedtimeHour === h}
+                      type="button"
+                    >
+                      {hourLabel(h)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.onboardSection}>
+                <p className={styles.onboardSectionTitle}>
+                  {t('onboarding.wake_question', { names: formatBabyNames(babies) })}
+                </p>
+                <div className={styles.onboardPillGrid}>
+                  {WAKE_HOURS.map(h => (
+                    <button
+                      key={h}
+                      className={`${styles.onboardPill} ${prefs.wakeHour === h ? styles.onboardPillActive : ''}`}
+                      onClick={() => setWakeHour(h)}
+                      aria-pressed={prefs.wakeHour === h}
+                      type="button"
+                    >
+                      {hourLabel(h)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button className={styles.submitBtn} onClick={() => setPrefsSubStep(2)} type="button">
+                {t('onboarding.step_next')}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <h1 className={styles.onboardHeading}>{t('onboarding.prefs_heading')}</h1>
+              <p className={styles.onboardSub}>{t('onboarding.prefs_step2_sub')}</p>
+
+              <div className={styles.onboardSection}>
+                <p className={styles.onboardSectionTitle}>
+                  {t('onboarding.sleep_training_question', { names: formatBabyNames(babies) })}
+                </p>
+                <p className={styles.onboardSectionHint}>
+                  {t('onboarding.sleep_training_onboard_desc')}
+                </p>
+                <button
+                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.sleepTraining ? styles.onboardPillActive : ''}`}
+                  onClick={() => setSleepTraining(!prefs.sleepTraining)}
+                  aria-pressed={prefs.sleepTraining}
+                  type="button"
+                >
+                  {prefs.sleepTraining
+                    ? t('settings.sleep_training_enabled')
+                    : t('settings.sleep_training_enable')}
+                </button>
+              </div>
+
+              <div className={styles.onboardSection}>
+                <p className={styles.onboardSectionTitle}>
+                  {t('onboarding.diaper_question', { names: formatBabyNames(babies) })}
+                </p>
+                <p className={styles.onboardSectionHint}>{t('onboarding.diaper_onboard_desc')}</p>
+                <button
+                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.diaperNotifications ? styles.onboardPillActive : ''}`}
+                  onClick={() => setDiaperNotifications(!prefs.diaperNotifications)}
+                  aria-pressed={prefs.diaperNotifications}
+                  type="button"
+                >
+                  {prefs.diaperNotifications
+                    ? t('settings.diaper_notifications_enabled')
+                    : t('settings.diaper_notifications_enable')}
+                </button>
+              </div>
+
+              <div className={styles.onboardSection}>
+                <p className={styles.onboardSectionTitle}>
+                  {t('onboarding.feed_question', { names: formatBabyNames(babies) })}
+                </p>
+                <p className={styles.onboardSectionHint}>{t('onboarding.feed_onboard_desc')}</p>
+                <button
+                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.bottleNotifications ? styles.onboardPillActive : ''}`}
+                  onClick={() => setBottleNotifications(!prefs.bottleNotifications)}
+                  aria-pressed={prefs.bottleNotifications}
+                  type="button"
+                >
+                  {prefs.bottleNotifications
+                    ? t('settings.bottle_notifications_enabled')
+                    : t('settings.bottle_notifications_enable')}
+                </button>
+              </div>
+
+              {babies.length >= 2 && (
+                <div className={styles.onboardSection}>
+                  <p className={styles.onboardSectionTitle}>{t('settings.twin_sync_title')}</p>
+                  <p className={styles.onboardSectionHint}>{t('settings.twin_sync_hint')}</p>
                   <button
-                    key={h}
-                    className={`${styles.onboardPill} ${prefs.bedtimeHour === h ? styles.onboardPillActive : ''}`}
-                    onClick={() => setBedtimeHour(h)}
-                    aria-pressed={prefs.bedtimeHour === h}
+                    className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.twinSync ? styles.onboardPillActive : ''}`}
+                    onClick={() => {
+                      setTwinSync(!prefs.twinSync);
+                      setShowTwinSyncPrompt(false);
+                    }}
+                    aria-pressed={prefs.twinSync}
                     type="button"
                   >
-                    {hourLabel(h)}
+                    {prefs.twinSync
+                      ? t('settings.twin_sync_enabled')
+                      : t('settings.twin_sync_enable')}
                   </button>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
 
-            <div className={styles.onboardSection}>
-              <p className={styles.onboardSectionTitle}>{t('settings.wake_title')}</p>
-              <p className={styles.onboardSectionHint}>{t('settings.wake_hint')}</p>
-              <div className={styles.onboardPillGrid}>
-                {WAKE_HOURS.map(h => (
-                  <button
-                    key={h}
-                    className={`${styles.onboardPill} ${prefs.wakeHour === h ? styles.onboardPillActive : ''}`}
-                    onClick={() => setWakeHour(h)}
-                    aria-pressed={prefs.wakeHour === h}
-                    type="button"
-                  >
-                    {hourLabel(h)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className={styles.onboardSection}>
-              <p className={styles.onboardSectionTitle}>{t('settings.sleep_training_title')}</p>
-              <p className={styles.onboardSectionHint}>{t('settings.sleep_training_hint')}</p>
               <button
-                className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.sleepTraining ? styles.onboardPillActive : ''}`}
-                onClick={() => setSleepTraining(!prefs.sleepTraining)}
-                aria-pressed={prefs.sleepTraining}
+                className={styles.submitBtn}
+                onClick={() => setShowPrefsStep(false)}
                 type="button"
               >
-                {prefs.sleepTraining
-                  ? t('settings.sleep_training_enabled')
-                  : t('settings.sleep_training_enable')}
+                {t('onboarding.finished')}
               </button>
             </div>
-
-            <div className={styles.onboardSection}>
-              <p className={styles.onboardSectionTitle}>
-                {t('settings.diaper_notifications_title')}
-              </p>
-              <p className={styles.onboardSectionHint}>{t('settings.diaper_notifications_hint')}</p>
-              <button
-                className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.diaperNotifications ? styles.onboardPillActive : ''}`}
-                onClick={() => setDiaperNotifications(!prefs.diaperNotifications)}
-                aria-pressed={prefs.diaperNotifications}
-                type="button"
-              >
-                {prefs.diaperNotifications
-                  ? t('settings.diaper_notifications_enabled')
-                  : t('settings.diaper_notifications_enable')}
-              </button>
-            </div>
-
-            <div className={styles.onboardSection}>
-              <p className={styles.onboardSectionTitle}>
-                {t('settings.bottle_notifications_title')}
-              </p>
-              <p className={styles.onboardSectionHint}>{t('settings.bottle_notifications_hint')}</p>
-              <button
-                className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.bottleNotifications ? styles.onboardPillActive : ''}`}
-                onClick={() => setBottleNotifications(!prefs.bottleNotifications)}
-                aria-pressed={prefs.bottleNotifications}
-                type="button"
-              >
-                {prefs.bottleNotifications
-                  ? t('settings.bottle_notifications_enabled')
-                  : t('settings.bottle_notifications_enable')}
-              </button>
-            </div>
-
-            <button
-              className={styles.submitBtn}
-              onClick={() => setShowPrefsStep(false)}
-              type="button"
-            >
-              {t('onboarding.done')}
-            </button>
-          </div>
+          )
         ) : (
           <>
-            {/* Invite code banner */}
-            {showInvite && inviteCode && (
-              <div className={styles.inviteBanner}>
-                <p className={styles.inviteLabel}>{t('home.invite_label')}</p>
-                <p className={styles.inviteCode}>{inviteCode}</p>
-                <p className={styles.inviteHint}>{t('home.invite_hint')}</p>
-                <button
-                  className={styles.copyBtn}
-                  onClick={() => {
-                    const text = t('settings.invite_share_message', { code: inviteCode });
-                    const confirm = () => {
-                      setInviteCopied(true);
-                      setTimeout(() => setInviteCopied(false), 2000);
-                    };
-                    if (navigator.clipboard) {
-                      navigator.clipboard.writeText(text).then(confirm);
-                    } else {
-                      const el = document.createElement('textarea');
-                      el.value = text;
-                      document.body.appendChild(el);
-                      el.select();
-                      document.execCommand('copy');
-                      document.body.removeChild(el);
-                      confirm();
-                    }
-                  }}
-                >
-                  {inviteCopied ? t('settings.invite_copied') : t('settings.invite_copy')}
-                </button>
-                <button className={styles.dismissBtn} onClick={() => setShowInvite(false)}>
-                  {t('common.dismiss')}
-                </button>
-              </div>
-            )}
-
             {/* Twin sync onboarding prompt (shown once after 2nd baby is created) */}
             {showTwinSyncPrompt && (
               <div className={styles.syncBanner}>

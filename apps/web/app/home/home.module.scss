@@ -14,11 +14,11 @@
 
 .scroll {
   flex: 1;
+  min-height: 0; // flex children default to min-height: auto, which prevents overflow-y scroll
   display: flex;
   flex-direction: column;
   padding: $space-md;
-  // 56px = BottomTabBar height on mobile
-  padding-bottom: calc(56px + #{$space-md});
+  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
   overflow-y: auto;
   // Container queries let child rules respond to scroll-area width independently
   container-type: inline-size;
@@ -60,11 +60,12 @@
     gap: $space-xl;
   }
 
-  // Desktop: centered pair with max combined width
+  // Desktop: centered pair with max combined width; don't stretch cards to full height
   @media (min-width: $bp-xl) {
     max-width: 1200px;
     width: 100%;
     margin-inline: auto;
+    align-items: flex-start;
   }
 
   // Large desktop: allow the pair to breathe wider
@@ -128,7 +129,7 @@
 .onboardSub {
   font-family: $font-mono;
   font-size: 13px;
-  color: var(--tt-text-muted);
+  color: var(--tt-text-dim);
   margin-bottom: $space-xl;
 }
 
@@ -149,7 +150,7 @@
 .entryLabel {
   font-family: $font-mono;
   font-size: 11px;
-  color: var(--tt-text-muted);
+  color: var(--tt-text-dim);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -174,6 +175,8 @@
 .input {
   display: block;
   width: 100%;
+  max-width: 100%; // iOS Safari date inputs ignore width:100% without this
+  min-width: 0; // prevents intrinsic min-width from overflowing container
   padding: 12px $space-md;
   margin-bottom: $space-sm;
   border: 1px solid var(--tt-border);
@@ -195,13 +198,20 @@
 
   // date inputs look nicer with this
   color-scheme: light dark;
+
+  &[type='date'] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 47px; // iOS ignores padding for height on date inputs with appearance:none
+    color: var(--tt-text);
+  }
 }
 
 .label {
   display: block;
   font-family: $font-mono;
   font-size: 11px;
-  color: var(--tt-text-muted);
+  color: var(--tt-text-dim);
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -251,12 +261,12 @@
 }
 
 .onboardSectionTitle {
-  font-family: $font-mono;
-  font-size: 11px;
-  color: var(--tt-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 4px;
+  font-family: $font-display;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--tt-text);
+  letter-spacing: -0.3px;
+  margin-bottom: $space-sm;
 }
 
 .onboardSectionHint {
@@ -303,63 +313,76 @@
 }
 
 // ── Invite code banner ────────────────────────────────────────────────────────
-.inviteBanner {
-  border: 1px solid var(--tt-border);
-  border-radius: $radius-md;
-  padding: $space-md;
-  margin-bottom: $space-md;
+// ── Invite co-parent app banner ────────────────────────────────────────────────
+.inviteAppBanner {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  padding: 10px $space-md;
+  background: var(--tt-surface);
+  border-bottom: 1px solid var(--tt-border);
+  flex-shrink: 0;
 }
 
-.inviteLabel {
+.inviteAppBannerInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.inviteAppBannerLabel {
   font-family: $font-mono;
   font-size: 11px;
   color: var(--tt-text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: $space-xs;
+  margin-bottom: 2px;
 }
 
-.inviteCode {
+.inviteAppBannerCode {
   font-family: $font-mono;
-  font-size: 24px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--tt-text);
-  letter-spacing: 6px;
-  margin-bottom: $space-xs;
+  letter-spacing: 4px;
 }
 
-.inviteHint {
-  font-family: $font-mono;
-  font-size: 12px;
-  color: var(--tt-text-muted);
+.inviteAppBannerActions {
+  display: flex;
+  align-items: center;
+  gap: $space-lg; // wide gap so Copy and × are clearly separated
+  flex-shrink: 0;
 }
 
-.copyBtn {
+.inviteAppBannerCopy {
+  flex-shrink: 0;
   background: none;
   border: 1px solid var(--tt-border);
-  border-radius: $radius-sm;
+  border-radius: $radius-full;
   color: var(--tt-text);
   font-family: $font-mono;
   font-size: 12px;
+  padding: 4px 14px;
   cursor: pointer;
-  padding: $space-xs $space-sm;
-  margin-top: $space-sm;
-  display: block;
+  white-space: nowrap;
+  min-height: $tap-min;
 
   &:hover {
-    border-color: var(--tt-text);
+    border-color: var(--tt-accent);
   }
 }
 
-.dismissBtn {
+.inviteAppBannerDismiss {
   background: none;
   border: none;
   color: var(--tt-text-muted);
   font-family: $font-mono;
-  font-size: 12px;
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
-  padding: $space-xs 0 0;
-  display: block;
+  padding: 0 4px;
+  min-height: $tap-min;
+  display: flex;
+  align-items: center;
 
   &:hover {
     color: var(--tt-text);
@@ -393,9 +416,10 @@
   flex: 1;
   min-height: 0;
 
-  // Desktop: cap individual card width so they stay proportional
+  // Desktop: cap individual card width and height so cards don't stretch to viewport
   @media (min-width: $bp-xl) {
     max-width: 680px;
+    max-height: 640px;
   }
 }
 

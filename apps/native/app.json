@@ -15,7 +15,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.twintracker.app",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -33,10 +36,16 @@
           "color": "#ffffff",
           "sounds": []
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "autolinkingModuleResolution": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4616dccd-9757-44ad-860f-342768459479"
+      }
     }
   }
 }

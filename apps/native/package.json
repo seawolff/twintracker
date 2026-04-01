@@ -7,12 +7,14 @@
     "dev": "expo start",
     "dev:local": "EXPO_PUBLIC_API_URL=http://$(ipconfig getifaddr en0):3000 expo start",
     "dev:prod": "EXPO_PUBLIC_API_URL=https://twintracker-production.up.railway.app expo start",
+    "dev:tunnel": "EXPO_PUBLIC_API_URL=https://twintracker-production.up.railway.app expo start --tunnel",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo-google-fonts/nunito": "0.3.0",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "8.4.4",
     "@tt/core": "*",
     "@tt/ui": "*",
     "expo": "54.0.33",

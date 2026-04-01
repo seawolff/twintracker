@@ -77,7 +77,7 @@ describe('HistoryFeed — event type labels', () => {
           endedAt: '2026-03-18T09:05:00Z',
         }),
       ]),
-    ).toContain('Nap 1h 5m');
+    ).toContain('Nap (1h 5m)');
   });
 
   it('sleep (in progress): shows Sleep', () => {
@@ -93,7 +93,7 @@ describe('HistoryFeed — event type labels', () => {
           endedAt: '2026-03-18T09:30:00Z',
         }),
       ]),
-    ).toContain('Sleep 7h 30m');
+    ).toContain('Sleep (7h 30m)');
   });
 
   it('diaper (dirty): shows type', () => {
@@ -143,9 +143,16 @@ describe('HistoryFeed — metadata', () => {
     expect(renderFeed([makeEvent({ type: 'bottle', value: 4, unit: 'oz' })])).toContain('John');
   });
 
-  it('shows a formatted time (HH:MM) for each row', () => {
-    const html = renderFeed([makeEvent({ type: 'nap', startedAt: '2026-03-18T09:00:00Z' })]);
+  it('shows absolute time (HH:MM) for events older than 2 hours', () => {
+    // startedAt is 3h before NOW → formatEventTime returns absolute clock time
+    const html = renderFeed([makeEvent({ type: 'nap', startedAt: '2026-03-18T07:00:00Z' })]);
     expect(html).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('shows relative time for events under 2 hours ago', () => {
+    // startedAt is 1h before NOW → formatEventTime returns "1h 0m ago"
+    const html = renderFeed([makeEvent({ type: 'nap', startedAt: '2026-03-18T09:00:00Z' })]);
+    expect(html).toContain('1h 0m ago');
   });
 
   it('shows the TODAY section header', () => {
@@ -209,5 +216,19 @@ describe('HistoryFeed — author attribution', () => {
     ]);
     expect(html).toContain('M');
     expect(html).toContain('D');
+  });
+});
+
+// ── Tests — full labels on all screen sizes ───────────────────────────────────
+
+describe('HistoryFeed — full labels on all screen sizes', () => {
+  it('shows full food label including description', () => {
+    const html = renderFeed([makeEvent({ type: 'food', notes: 'banana puree' })]);
+    expect(html).toContain('Food — banana puree');
+  });
+
+  it('shows full diaper label including subtype', () => {
+    const html = renderFeed([makeEvent({ type: 'diaper', notes: 'dirty' })]);
+    expect(html).toContain('Diaper · dirty');
   });
 });

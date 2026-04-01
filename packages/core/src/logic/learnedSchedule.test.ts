@@ -137,6 +137,21 @@ describe('computeLearnedStats', () => {
     expect(stats.avgBottleOz).toBe(4.5);
   });
 
+  test('bottle values arriving as strings (pg NUMERIC) are coerced to numbers correctly', () => {
+    // The pg library returns NUMERIC columns as strings at runtime.
+    // String concatenation "5" + "5" = "55" → 55/2 = 27.5 was the bug.
+    const events = [
+      makeEvent('b1', 'bottle', hoursAgo(12), { value: '4' as unknown as number }),
+      makeEvent('b1', 'bottle', hoursAgo(9), { value: '5' as unknown as number }),
+      makeEvent('b1', 'bottle', hoursAgo(6), { value: '5' as unknown as number }),
+      makeEvent('b1', 'bottle', hoursAgo(3), { value: '5' as unknown as number }),
+      makeEvent('b1', 'bottle', hoursAgo(0), { value: '6' as unknown as number }),
+    ];
+    const stats = computeLearnedStats(events, NOW);
+    // sorted [4,5,5,5,6] → median index 2 = 5, not some string-concatenation artifact
+    expect(stats.avgBottleOz).toBe(5);
+  });
+
   test('all-outlier bottle values return null (not enough valid data points)', () => {
     const events: TrackerEvent[] = [
       makeEvent('b1', 'bottle', hoursAgo(6), { value: 33 }),

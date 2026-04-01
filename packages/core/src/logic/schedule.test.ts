@@ -343,7 +343,7 @@ describe('getBabyInsight', () => {
     const insight = getBabyInsight(baby, latest, [], NOW);
     expect(insight.headline).toContain('Sleeping');
     expect(insight.alarmMs).toBeGreaterThan(0);
-    expect(insight.narrative).toContain('John');
+    expect(insight.narrative).toContain('awake around');
     expect(insight.urgency).toBe('ok');
   });
 
@@ -606,34 +606,6 @@ describe('getBabyInsight — bedtime awareness', () => {
     const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 23, 6);
     expect(insight.narrative).not.toContain('Bedtime');
     expect(insight.headline).toContain('Awake');
-  });
-});
-
-describe('getBabyInsight — sleep training hint', () => {
-  const baby: Baby = {
-    id: BABY_ID,
-    name: 'John',
-    color: 'sky',
-    createdAt: new Date().toISOString(),
-  };
-
-  it('appends self-soothing hint to narrative when sleep training is on and nap is active', () => {
-    const napStartedAt = msAgo(30 * 60_000);
-    const latest: LatestEventMap = {
-      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
-    };
-    const insight = getBabyInsight(baby, latest, [], NOW, 0, undefined, 19, 7, true);
-    expect(insight.narrative).toContain('wait');
-    expect(insight.narrative).toMatch(/\d+m/); // "Xm" wait time
-  });
-
-  it('does not include self-soothing hint when sleep training is off', () => {
-    const napStartedAt = msAgo(30 * 60_000);
-    const latest: LatestEventMap = {
-      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
-    };
-    const insight = getBabyInsight(baby, latest, [], NOW, 0, undefined, 19, 7, false);
-    expect(insight.narrative).not.toContain('wait');
   });
 });
 

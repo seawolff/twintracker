@@ -15,6 +15,19 @@ export type WakeHour = (typeof WAKE_HOURS)[number];
 export const BOTTLE_OZ = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type BottleOz = (typeof BOTTLE_OZ)[number];
 
+/** Maximum oz allowed in the custom bottle input. Exceeding 16 oz is almost certainly a typo. */
+export const MAX_BOTTLE_OZ = 16;
+
+/** AAP-recommended maximum daily formula intake for infants. */
+export const AAP_MAX_DAILY_OZ = 32;
+
+/**
+ * Minimum days of data required to enable the Month analytics tab.
+ * Week is always enabled (shows a partial-data notice when < 7 days of data).
+ * Month requires at least one full week so the comparison is meaningful.
+ */
+export const MIN_DAYS_FOR_MONTH_VIEW = 7;
+
 export const NURSING_MINUTES = [5, 10, 15, 20, 25, 30, 40] as const;
 export type NursingMinutes = (typeof NURSING_MINUTES)[number];
 

@@ -117,7 +117,13 @@ export const api = {
         body: JSON.stringify(data),
       }),
     verifyEmail: (token: string) =>
-      request<{ verified: boolean }>(`/api/auth/verify-email?token=${encodeURIComponent(token)}`),
+      request<{
+        verified: boolean;
+        accessToken?: string;
+        refreshToken?: string;
+        inviteCode?: string;
+        displayName?: string | null;
+      }>(`/api/auth/verify-email?token=${encodeURIComponent(token)}`),
     resendVerification: () =>
       request<{ message: string }>('/api/auth/resend-verification', { method: 'POST' }),
   },

@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 'use strict';
+
+// Allow self-signed certs for remote DBs (Railway, staging) in non-production Node processes.
+// The actual production API runs on Railway itself (same network, no proxy cert issues).
+const _url = process.env.DATABASE_URL ?? '';
+const _isRemote = !_url.includes('localhost') && !_url.includes('127.0.0.1') && !_url.includes('@db:');
+if (_isRemote) { process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; }
+
 const { Pool } = require('pg');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: _url });
 
 async function migrate() {
   const client = await pool.connect();

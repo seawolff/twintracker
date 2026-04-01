@@ -36,10 +36,24 @@ function VerifyEmailContent() {
     }
     api.auth
       .verifyEmail(token)
-      .then(() => {
+      .then(data => {
         // Persist verified state so the banner disappears immediately on return to app.
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('tt_email_verified', 'true');
+          // Store auth tokens if returned — user won't need to re-login when they
+          // click "Continue in browser" after verifying on the same or a different device.
+          if (data.accessToken) {
+            localStorage.setItem('tt_access_token', data.accessToken);
+          }
+          if (data.refreshToken) {
+            localStorage.setItem('tt_refresh_token', data.refreshToken);
+          }
+          if (data.inviteCode) {
+            localStorage.setItem('tt_invite_code', data.inviteCode);
+          }
+          if (data.displayName) {
+            localStorage.setItem('tt_display_name', data.displayName);
+          }
         }
         setStatus('success');
       })
@@ -65,8 +79,7 @@ function VerifyEmailContent() {
           <button
             className={styles.btn}
             onClick={() => {
-              window.location.href =
-                process.env.NEXT_PUBLIC_APP_DEEP_LINK ?? 'twintracker://';
+              window.location.href = process.env.NEXT_PUBLIC_APP_DEEP_LINK ?? 'twintracker://';
             }}
             type="button"
           >

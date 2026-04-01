@@ -5,6 +5,7 @@ import type { Baby, EventType, LogEventPayload, TrackerEvent } from '@tt/core';
 import {
   useThemeContext,
   BOTTLE_OZ,
+  MAX_BOTTLE_OZ,
   NURSING_MINUTES,
   DIAPER_OPTIONS,
   i18n,
@@ -151,7 +152,7 @@ export function LogSheet({
       startedAt: new Date(startTime).toISOString(),
     };
     if (eventType === 'bottle') {
-      payload.value = parseFloat(ozInput) || selectedOz;
+      payload.value = Math.min(parseFloat(ozInput) || selectedOz, MAX_BOTTLE_OZ);
       payload.unit = 'oz';
     } else if (eventType === 'nursing') {
       payload.value = selectedNursingMinutes;
@@ -334,13 +335,19 @@ export function LogSheet({
                   <input
                     type="number"
                     min="0"
+                    max={MAX_BOTTLE_OZ}
                     step="0.5"
                     value={ozInput}
                     onChange={e => {
-                      setOzInput(e.target.value);
                       const n = parseFloat(e.target.value);
-                      if (!isNaN(n)) {
-                        setSelectedOz(n);
+                      if (!isNaN(n) && n > MAX_BOTTLE_OZ) {
+                        setOzInput(String(MAX_BOTTLE_OZ));
+                        setSelectedOz(MAX_BOTTLE_OZ);
+                      } else {
+                        setOzInput(e.target.value);
+                        if (!isNaN(n) && n > 0) {
+                          setSelectedOz(n);
+                        }
                       }
                     }}
                     style={{ ...timePickerStyle }}

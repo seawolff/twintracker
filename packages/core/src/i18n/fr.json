@@ -8,21 +8,34 @@
     "save": "Enregistrer",
     "back": "← Retour",
     "dismiss": "Fermer",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "undo": "Annuler"
   },
   "onboarding": {
     "welcome": "Bienvenue",
     "subtitle": "Ajoutez vos petits pour commencer.",
     "baby_n": "Bébé {{n}}",
     "name_placeholder": "Prénom",
-    "dob_label": "Date de naissance (optionnel)",
+    "dob_label": "Date de naissance",
     "dob_placeholder": "Prénom du bébé {{n}}",
     "add_another": "+ Ajouter un autre bébé",
     "get_started": "Commencer",
     "adding": "Ajout en cours…",
     "prefs_heading": "Presque terminé",
     "prefs_subtitle": "Définissez votre emploi du temps. Modifiable à tout moment dans Paramètres.",
-    "done": "Terminé"
+    "done": "Terminé",
+    "bedtime_question": "Quelle est l'heure cible du coucher pour {{names}} ?",
+    "newborn_bedtime_rec": "Pour les nouveau-nés, nous recommandons {{time}}.",
+    "wake_question": "Quelle est l'heure cible de réveil pour {{names}} ?",
+    "step_next": "Suivant →",
+    "finished": "Terminer",
+    "prefs_step2_sub": "Quelques préférences supplémentaires. Modifiables dans les Paramètres.",
+    "sleep_training_question": "Activer l'apprentissage du sommeil pour {{names}} ?",
+    "sleep_training_onboard_desc": "Affiche les temps d'attente pendant les siestes. Aide votre bébé à apprendre à dormir toute la nuit.",
+    "diaper_question": "Rappels de couches pour {{names}} ?",
+    "diaper_onboard_desc": "Recevez une notification ~3 heures après le dernier change.",
+    "feed_question": "Rappels de repas pour {{names}} ?",
+    "feed_onboard_desc": "Soyez notifié lorsque la prochaine tétée est probablement due."
   },
   "home": {
     "invite_label": "Inviter votre co-parent",
@@ -30,8 +43,11 @@
     "twin_sync_prompt": "Activer la synchronisation des horaires jumeaux ? L'appli suggérera de maintenir les deux bébés sur des horaires de sieste et de biberon identiques.",
     "twin_sync_enable": "Activer",
     "nap_banner_still_sleeping": "Dort encore ?",
+    "nap_banner_still_sleeping_body": "{{name}} dort-il/elle encore ?",
     "nap_banner_yes": "Oui",
     "nap_banner_cancel_nap": "Non — annuler la sieste",
+    "alarm_fired_title": "TwinTracker",
+    "alarm_fired_body": "Votre alarme pour {{name}} a sonné.",
     "sync_put_down": "Coucher {{name}} aussi ?",
     "sync_feed": "Nourrir {{name}} maintenant aussi ?",
     "sync_diaper": "Changer {{name}} aussi ?",
@@ -54,12 +70,28 @@
     "min": "min"
   },
   "history": {
-    "no_events": "Aucun événement"
+    "no_events": "Aucun événement",
+    "log_first_event": "Enregistrer le premier événement +",
+    "add_event_for": "Ajouter un événement pour {{day}}",
+    "delete_event": "Supprimer {{label}}",
+    "confirm_delete": "Confirmer la suppression",
+    "edit_event": "Modifier {{label}} pour {{baby}}",
+    "event_deleted": "Supprimé",
+    "filter_open": "Filtrer les événements",
+    "filter_clear": "Effacer",
+    "filter_clear_all": "Effacer tous les filtres",
+    "filter_babies": "BÉBÉ",
+    "filter_types": "TYPE DE JOURNAL",
+    "filter_authors": "ENREGISTRÉ PAR",
+    "quick_add_select_baby": "Choisir le bébé",
+    "quick_add_select_type": "Choisir le type"
   },
   "log_sheet": {
     "edit_label": "Modifier",
     "logged_by": "Enregistré par {{name}}",
     "start_time": "Heure de début",
+    "edit_start_time": "Modifier l'heure de début",
+    "edit_end_time": "Modifier l'heure de fin",
     "amount_oz": "Quantité (oz)",
     "duration_min": "Durée (min)",
     "what_did_they_eat": "Qu'a-t-il/elle mangé ?",
@@ -108,10 +140,13 @@
     "night_sleep": "SOMMEIL NOCTURNE",
     "night_sleep_total": "{{total}} au total · {{count}} nuit {{period}}",
     "night_sleep_total_plural": "{{total}} au total · {{count}} nuits {{period}}",
+    "night_sleep_total_day": "{{total}} au total",
     "night_sleep_avg": "Moy. : {{avg}} par nuit",
     "night_sleep_empty": "Aucun sommeil nocturne enregistré {{period}}.",
-    "sleep_more": "Plus de sommeil que la semaine dernière (+{{delta}})",
-    "sleep_less": "Moins de sommeil que la semaine dernière (−{{delta}})",
+    "sleep_more": "Plus de sommeil que la moyenne de la semaine dernière (+{{delta}})",
+    "sleep_less": "Moins de sommeil que la moyenne de la semaine dernière (−{{delta}})",
+    "naps_delta_more": "+{{delta}} sieste moy. vs semaine dernière",
+    "naps_delta_less": "−{{delta}} sieste moy. vs semaine dernière",
     "diapers": "COUCHES",
     "diapers_count": "{{count}} changements {{period}}",
     "diapers_per_day": "Environ {{avg}} par jour",
@@ -164,6 +199,7 @@
     "sleep_training_hint": "Affiche les temps d'auto-apaisement au berceau. Étape 1 : 5–10 min. Étape 2 : 20–45 min.",
     "sleep_training_enable": "Activer l'entraînement au sommeil",
     "sleep_training_enabled": "Activé — appuyez pour désactiver",
+    "sleep_training_wait": "Entr. sommeil · attendre {{minutes}} min si pleure",
     "bedtime_title": "Heure du coucher",
     "bedtime_hint": "Heure cible du coucher. Affichée en compte à rebours après la dernière sieste.",
     "wake_title": "Heure de réveil",
@@ -204,9 +240,17 @@
     "verify_error_body": "Ce lien de vérification a expiré ou a déjà été utilisé. Demandez-en un nouveau depuis l'app.",
     "verify_error_cta": "Aller à l'app →"
   },
+  "notifications": {
+    "diaper_body": "Cela fait environ {{interval}}. Il est temps de changer {{name}} ?",
+    "feed_body": "Cela fait environ {{interval}}. Il est temps de nourrir {{name}} ?",
+    "alarm_timer": "Votre minuterie de {{minutes}} min est terminée.",
+    "alarm_nap_check": "Votre minuterie de {{minutes}} min est terminée. Avez-vous besoin de vérifier {{name}} ?",
+    "alarm_wake": "Il est temps de réveiller {{name}}"
+  },
   "nav": {
     "home": "Accueil",
     "history": "Historique",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "tab_label": "Onglet {{name}}"
   }
 }
