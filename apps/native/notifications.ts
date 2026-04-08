@@ -1,8 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import { Platform } from 'react-native';
-import type { Baby, LatestEventMap } from '@tt/core';
-import { getNextAction } from '@tt/core';
 
 export const ALARM_CHANNEL_ID = 'tt-alarms';
 
@@ -103,42 +101,4 @@ export async function scheduleAlarmAt(
     },
   });
   return identifier;
-}
-
-/**
- * Cancel all scheduled notifications and reschedule based on current state.
- * Fires a reminder 5 minutes before each baby's next action is due.
- */
-export async function scheduleReminders(babies: Baby[], latest: LatestEventMap): Promise<void> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
-  const now = new Date();
-  for (const baby of babies) {
-    const next = getNextAction(latest, baby.id, now);
-
-    // Already overdue — no future notification to schedule
-    if (next.targetMs <= 0) {
-      continue;
-    }
-
-    // Fire 5 minutes before the window closes
-    const fireMs = next.targetMs - 5 * 60_000;
-    if (fireMs < 30_000) {
-      continue;
-    } // too soon to be worth scheduling
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: baby.name,
-        body: next.action,
-        sound: true,
-      },
-      trigger: {
-        type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: Math.floor(fireMs / 1000),
-        repeats: false,
-        ...(Platform.OS === 'android' ? { channelId: ALARM_CHANNEL_ID } : {}),
-      },
-    });
-  }
 }

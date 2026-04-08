@@ -320,15 +320,25 @@ describe('computeAnalytics', () => {
     expect(a.dataSpanDays).toBeLessThanOrEqual(1);
   });
 
-  test('targetMinWetDiapersPerDay is 6 for newborn, null after 13 weeks', () => {
-    // birthDate relative to real clock (getAgeWeeks uses Date.now())
-    const newbornBirthDate = new Date(Date.now()).toISOString().slice(0, 10);
-    const a0 = computeAnalytics([], NOW, 0, 'week', newbornBirthDate);
-    expect(a0.targetMinWetDiapersPerDay).toBe(6);
+  test('targetMinWetDiapersPerDay is 6 for newborn >= 4 days old, null before day 4, null after 13 weeks', () => {
+    // < 4 days old: colostrum phase — threshold not yet applicable (AAP)
+    const day2Ms = Date.now() - 2 * 24 * 60 * 60_000;
+    const day2Date = new Date(day2Ms).toISOString().slice(0, 10);
+    expect(computeAnalytics([], NOW, 0, 'week', day2Date).targetMinWetDiapersPerDay).toBeNull();
 
-    const olderMs = Date.now() - 14 * 7 * 24 * 60 * 60_000;
-    const olderDate = new Date(olderMs).toISOString().slice(0, 10);
-    const a14 = computeAnalytics([], NOW, 0, 'week', olderDate);
-    expect(a14.targetMinWetDiapersPerDay).toBeNull();
+    // Exactly 4 days old: threshold applies
+    const day4Ms = Date.now() - 4 * 24 * 60 * 60_000;
+    const day4Date = new Date(day4Ms).toISOString().slice(0, 10);
+    expect(computeAnalytics([], NOW, 0, 'week', day4Date).targetMinWetDiapersPerDay).toBe(6);
+
+    // 4 weeks old: still a newborn — threshold applies
+    const week4Ms = Date.now() - 4 * 7 * 24 * 60 * 60_000;
+    const week4Date = new Date(week4Ms).toISOString().slice(0, 10);
+    expect(computeAnalytics([], NOW, 0, 'week', week4Date).targetMinWetDiapersPerDay).toBe(6);
+
+    // 14 weeks old: past tracking window — null
+    const week14Ms = Date.now() - 14 * 7 * 24 * 60 * 60_000;
+    const week14Date = new Date(week14Ms).toISOString().slice(0, 10);
+    expect(computeAnalytics([], NOW, 0, 'week', week14Date).targetMinWetDiapersPerDay).toBeNull();
   });
 });

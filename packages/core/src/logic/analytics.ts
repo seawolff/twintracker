@@ -3,6 +3,7 @@ import type { TrackerEvent } from '../types/index';
 import { median } from './mathUtils';
 import {
   getAgeWeeks,
+  getAgeDays,
   getScheduleForAge,
   getDefaultOzForAge,
   getTargetDailySleepMs,
@@ -228,8 +229,11 @@ export function computeAnalytics(
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
   const msSinceLastDirty = lastDirty ? nowMs - new Date(lastDirty.startedAt).getTime() : null;
   // Clinical threshold: 6+ wet diapers/day is the newborn adequacy marker.
+  // AAP: applies from day 4 (colostrum phase before then means lower output is normal).
   // After ~3 months (13 weeks) it's no longer a standard monitoring metric.
-  const targetMinWetDiapersPerDay = ageWeeks < NEWBORN_WET_DIAPER_TRACKING_WEEKS ? 6 : null;
+  const ageDays = getAgeDays(birthDate);
+  const targetMinWetDiapersPerDay =
+    ageWeeks < NEWBORN_WET_DIAPER_TRACKING_WEEKS && (ageDays === null || ageDays >= 4) ? 6 : null;
 
   const selfSoothingWaitMs = getSelfSoothingMinutes(ageWeeks) * 60_000;
 

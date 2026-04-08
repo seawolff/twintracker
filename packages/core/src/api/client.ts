@@ -129,8 +129,23 @@ export const api = {
   },
   babies: {
     list: () => request<Baby[]>('/api/babies'),
-    create: (data: { name: string; birthDate?: string }) =>
-      request<Baby>('/api/babies', { method: 'POST', body: JSON.stringify(data) }),
+    create: (data: {
+      name: string;
+      birthDate?: string;
+      weightKg?: number | null;
+      heightCm?: number | null;
+      sex?: 'male' | 'female' | null;
+    }) => request<Baby>('/api/babies', { method: 'POST', body: JSON.stringify(data) }),
+    update: (
+      id: string,
+      data: {
+        name?: string;
+        birthDate?: string | null;
+        weightKg?: number | null;
+        heightCm?: number | null;
+        sex?: 'male' | 'female' | null;
+      },
+    ) => request<Baby>(`/api/babies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
   alarms: {
     active: () => request<NapAlarm[]>('/api/alarms/active'),

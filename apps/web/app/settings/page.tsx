@@ -13,23 +13,18 @@ import {
   BEDTIME_HOURS,
   WAKE_HOURS,
   hourLabel,
+  getAgeWeeks,
 } from '@tt/core';
 import type { Baby, LogEventPayload, TrackerEvent } from '@tt/core';
 import { BottomTabBar } from '../../components/BottomTabBar';
+import { SwitchRow } from '../../components/SwitchRow';
+import { copyToClipboard } from '../../utils/clipboard';
 import styles from './settings.module.scss';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const {
-    prefs,
-    setNapCheckMinutes,
-    setTwinSync,
-    setBedtimeHour,
-    setWakeHour,
-    setSleepTraining,
-    setDiaperNotifications,
-    setBottleNotifications,
-  } = usePreferences();
+  const { prefs, setNapCheckMinutes, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } =
+    usePreferences();
   const {
     isAdmin,
     inviteCode,
@@ -64,6 +59,8 @@ export default function SettingsPage() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
   const isAuthLoading = useDelayedLoading(authLoading);
+  const allStage1 =
+    babies.length > 0 && babies.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15);
 
   // Prevent preferences-based hydration mismatch: server renders with DEFAULT
   // prefs (no localStorage), client reads real localStorage. Guard all pref-
@@ -89,21 +86,10 @@ export default function SettingsPage() {
       return;
     }
     const text = t('settings.invite_share_message', { code: inviteCode });
-    const confirm = () => {
+    copyToClipboard(text, () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    };
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(confirm);
-    } else {
-      const el = document.createElement('textarea');
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      confirm();
-    }
+    });
   }
 
   async function handleToggleMockData() {
@@ -206,93 +192,68 @@ export default function SettingsPage() {
 
         {babies.length >= 2 && (
           <section className={styles.section}>
-            <p className={styles.sectionTitle}>{t('settings.twin_sync_title')}</p>
-            <p className={styles.sectionHint}>{t('settings.twin_sync_hint')}</p>
-            <button
-              className={`${styles.pill} ${styles.pillFull} ${prefs.twinSync ? styles.pillActive : ''}`}
-              onClick={() => setTwinSync(!prefs.twinSync)}
-              aria-pressed={prefs.twinSync}
-            >
-              {prefs.twinSync ? t('settings.twin_sync_enabled') : t('settings.twin_sync_enable')}
-            </button>
+            <SwitchRow
+              id="settingsTwinSync"
+              label={t('settings.twin_sync_title')}
+              hint={t('settings.twin_sync_hint')}
+              checked={prefs.twinSync}
+              onChange={setTwinSync}
+            />
           </section>
         )}
 
         <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.diaper_notifications_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.diaper_notifications_hint')}</p>
-          <button
-            className={`${styles.pill} ${styles.pillFull} ${prefs.diaperNotifications ? styles.pillActive : ''}`}
-            onClick={() => setDiaperNotifications(!prefs.diaperNotifications)}
-            aria-pressed={prefs.diaperNotifications}
-          >
-            {prefs.diaperNotifications
-              ? t('settings.diaper_notifications_enabled')
-              : t('settings.diaper_notifications_enable')}
-          </button>
+          <SwitchRow
+            id="settingsSleepTraining"
+            label={t('settings.sleep_training_title')}
+            hint={t('settings.sleep_training_hint')}
+            checked={prefs.sleepTraining}
+            onChange={setSleepTraining}
+          />
         </section>
 
-        <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.bottle_notifications_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.bottle_notifications_hint')}</p>
-          <button
-            className={`${styles.pill} ${styles.pillFull} ${prefs.bottleNotifications ? styles.pillActive : ''}`}
-            onClick={() => setBottleNotifications(!prefs.bottleNotifications)}
-            aria-pressed={prefs.bottleNotifications}
-          >
-            {prefs.bottleNotifications
-              ? t('settings.bottle_notifications_enabled')
-              : t('settings.bottle_notifications_enable')}
-          </button>
-        </section>
+        {allStage1 ? (
+          <section className={styles.section}>
+            <p className={styles.sectionTitle}>{t('settings.wake_title')}</p>
+            <p className={styles.sectionHint}>{t('settings.stage1_bedtime_note')}</p>
+          </section>
+        ) : (
+          <>
+            <section className={styles.section}>
+              <p className={styles.sectionTitle}>{t('settings.wake_title')}</p>
+              <p className={styles.sectionHint}>{t('settings.wake_hint')}</p>
+              <div className={styles.pillGrid}>
+                {WAKE_HOURS.map(h => (
+                  <button
+                    key={h}
+                    className={`${styles.pill} ${prefs.wakeHour === h ? styles.pillActive : ''}`}
+                    onClick={() => setWakeHour(h)}
+                    aria-pressed={prefs.wakeHour === h}
+                  >
+                    {hourLabel(h)}
+                  </button>
+                ))}
+              </div>
+            </section>
 
-        <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.sleep_training_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.sleep_training_hint')}</p>
-          <button
-            className={`${styles.pill} ${styles.pillFull} ${prefs.sleepTraining ? styles.pillActive : ''}`}
-            onClick={() => setSleepTraining(!prefs.sleepTraining)}
-            aria-pressed={prefs.sleepTraining}
-          >
-            {prefs.sleepTraining
-              ? t('settings.sleep_training_enabled')
-              : t('settings.sleep_training_enable')}
-          </button>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.wake_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.wake_hint')}</p>
-          <div className={styles.pillGrid}>
-            {WAKE_HOURS.map(h => (
-              <button
-                key={h}
-                className={`${styles.pill} ${prefs.wakeHour === h ? styles.pillActive : ''}`}
-                onClick={() => setWakeHour(h)}
-                aria-pressed={prefs.wakeHour === h}
-              >
-                {hourLabel(h)}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.bedtime_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.bedtime_hint')}</p>
-          <div className={styles.pillGrid}>
-            {BEDTIME_HOURS.map(h => (
-              <button
-                key={h}
-                className={`${styles.pill} ${prefs.bedtimeHour === h ? styles.pillActive : ''}`}
-                onClick={() => setBedtimeHour(h)}
-                aria-pressed={prefs.bedtimeHour === h}
-              >
-                {hourLabel(h)}
-              </button>
-            ))}
-          </div>
-        </section>
+            <section className={styles.section}>
+              <p className={styles.sectionTitle}>{t('settings.bedtime_title')}</p>
+              <p className={styles.sectionHint}>{t('settings.bedtime_hint')}</p>
+              <div className={styles.pillGrid}>
+                {BEDTIME_HOURS.map(h => (
+                  <button
+                    key={h}
+                    className={`${styles.pill} ${prefs.bedtimeHour === h ? styles.pillActive : ''}`}
+                    onClick={() => setBedtimeHour(h)}
+                    aria-pressed={prefs.bedtimeHour === h}
+                  >
+                    {hourLabel(h)}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
 
         {inviteCode && (
           <section className={styles.section}>
@@ -408,7 +369,7 @@ export default function SettingsPage() {
                   className={`${styles.pill} ${styles.pillFull}`}
                   onClick={() => setClearConfirm(false)}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             )}

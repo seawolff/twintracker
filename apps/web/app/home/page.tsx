@@ -12,7 +12,7 @@
  *   napBanners     — per-baby "Still sleeping?" banners shown when a nap-check alarm fires
  *   syncSuggestion — twin-sync one-tap banner for the other baby after a log
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   configure,
@@ -24,6 +24,7 @@ import {
   setSleepActive,
   useTheme,
   api,
+  i18n,
   useTranslation,
   BEDTIME_HOURS,
   WAKE_HOURS,
@@ -31,15 +32,14 @@ import {
   findUnsyncedBaby,
   getActiveEvent,
   findSyncedNapBaby,
-  getDiaperReminderIntervalMs,
-  getFeedReminderIntervalMs,
-  formatReminderInterval,
-  isNightFireTime,
+  getAgeWeeks,
 } from '@tt/core';
 import type { Baby, EventType, LogEventPayload, SyncableEventType, TrackerEvent } from '@tt/core';
-import { BabyCard, LogSheet } from '@tt/ui';
+import { BabyCard, BabyProfileSheet, LogSheet } from '@tt/ui';
 import { BottomTabBar } from '../../components/BottomTabBar';
 import { EmailVerificationBanner } from '../../components/EmailVerificationBanner';
+import { SwitchRow } from '../../components/SwitchRow';
+import { copyToClipboard } from '../../utils/clipboard';
 import styles from './home.module.scss';
 import { useDelayedLoading } from '../../hooks/useDelayedLoading';
 
@@ -48,11 +48,24 @@ configure('');
 interface BabyEntry {
   name: string;
   birthDate: string;
+  weightKg: string;
+  heightCm: string;
+}
+
+/** Parse a numeric string; return undefined when blank or non-positive. */
+function parseNumber(s: string): number | undefined {
+  const v = parseFloat(s.replace(',', '.'));
+  return isNaN(v) || v <= 0 ? undefined : v;
 }
 interface SheetState {
   baby: Baby;
   type: EventType;
   suggestedOz?: number;
+}
+
+/** True when every baby with a known birthDate is in Stage 1 (< 15 weeks). */
+function isAllStage1(bs: Baby[]): boolean {
+  return bs.length > 0 && bs.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15);
 }
 
 function formatBabyNames(bs: Baby[]): string {
@@ -91,15 +104,7 @@ export default function HomePage() {
   const { latest, events, logEvent, closeNap, deleteEvent } = useEventStore(
     !authLoading && isAuthenticated,
   );
-  const {
-    prefs,
-    setTwinSync,
-    setBedtimeHour,
-    setWakeHour,
-    setSleepTraining,
-    setDiaperNotifications,
-    setBottleNotifications,
-  } = usePreferences();
+  const { prefs, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } = usePreferences();
   const { alarms, createAlarm, dismissAlarm, rescheduleAlarm, getAlarmForBaby } = useAlarms();
 
   // Sync bedtime/wake settings into the theme engine so night mode transitions correctly
@@ -119,8 +124,11 @@ export default function HomePage() {
   const [babies, setBabies] = useState<Baby[]>([]);
   const [babiesLoading, setBabiesLoading] = useState(true);
   const showSkeleton = useDelayedLoading(authLoading || babiesLoading);
-  const [entries, setEntries] = useState<BabyEntry[]>([{ name: '', birthDate: '' }]);
+  const [entries, setEntries] = useState<BabyEntry[]>([
+    { name: '', birthDate: '', weightKg: '', heightCm: '' },
+  ]);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardError, setOnboardError] = useState('');
   const [showPrefsStep, setShowPrefsStep] = useState(false);
   const [prefsSubStep, setPrefsSubStep] = useState<1 | 2>(1);
   const [showInvite, setShowInvite] = useState(false);
@@ -144,6 +152,8 @@ export default function HomePage() {
     forBabyId: string;
     suggestedOz?: number;
   } | null>(null);
+  const [profileBaby, setProfileBaby] = useState<Baby | null>(null);
+
   // maps alarmId → web setTimeout id (for cancellation on dismiss/wake)
   const alarmTimers = useRef<Map<string, number>>(new Map());
   // Snapshot of latest state for use inside alarm setTimeout closures
@@ -153,17 +163,40 @@ export default function HomePage() {
   }, [babies, latest, prefs.twinSync]);
   // Alarm checks that fired while the tab was hidden — processed when tab becomes visible.
   const pendingAlarmChecks = useRef<Map<string, { babyName: string }>>(new Map());
-  // maps babyId → web setTimeout id for diaper reminders
-  const diaperTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  // maps babyId → web setTimeout id for feed reminders
-  const bottleTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [logToast, setLogToast] = useState<string | null>(null);
+  const logToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Browser back button: push a history entry when any modal opens so that pressing
+  // back closes the modal instead of navigating away from the page.
+  const modalHistoryPushed = useRef(false);
+  useEffect(() => {
+    const isOpen = sheet !== null || profileBaby !== null;
+    if (isOpen && !modalHistoryPushed.current) {
+      window.history.pushState({ ttModal: true }, '');
+      modalHistoryPushed.current = true;
+    } else if (!isOpen) {
+      modalHistoryPushed.current = false;
+    }
+  }, [sheet, profileBaby]);
+  useEffect(() => {
+    function handlePopState() {
+      setSheet(null);
+      setProfileBaby(null);
+      modalHistoryPushed.current = false;
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Flip to night mode while any baby has an active sleep (night) event.
   // Naps do not trigger night mode.
+  const anySleepActive = useMemo(
+    () => babies.some(baby => getActiveEvent(baby.id, 'sleep', latest) != null),
+    [babies, latest],
+  );
   useEffect(() => {
-    const anySleepActive = babies.some(baby => getActiveEvent(baby.id, 'sleep', latest) != null);
     setSleepActive(anySleepActive);
-  }, [babies, latest]);
+  }, [anySleepActive]);
 
   // Cancel web timeouts for alarms dismissed on another device
   useEffect(() => {
@@ -258,7 +291,7 @@ export default function HomePage() {
   }
 
   function addEntry() {
-    setEntries(prev => [...prev, { name: '', birthDate: '' }]);
+    setEntries(prev => [...prev, { name: '', birthDate: '', weightKg: '', heightCm: '' }]);
   }
 
   function removeEntry(i: number) {
@@ -271,6 +304,12 @@ export default function HomePage() {
     if (!valid.length) {
       return;
     }
+    const today = new Date().toISOString().split('T')[0];
+    if (valid.some(en => en.birthDate && en.birthDate > today)) {
+      setOnboardError(t('onboarding.error_dob_future'));
+      return;
+    }
+    setOnboardError('');
     setOnboardingLoading(true);
     try {
       const created: Baby[] = [];
@@ -278,13 +317,15 @@ export default function HomePage() {
         const baby = await api.babies.create({
           name: en.name.trim(),
           birthDate: en.birthDate,
+          weightKg: parseNumber(en.weightKg),
+          heightCm: parseNumber(en.heightCm),
         });
         created.push(baby);
       }
       setBabies(created);
       setShowPrefsStep(true);
       setPrefsSubStep(1);
-      setSleepTraining(true); // only override needed — diaperNotifications + bottleNotifications default to true
+      setSleepTraining(true);
       if (created.length >= 2) {
         setShowTwinSyncPrompt(true);
         // Auto-enable twin sync when babies share the same birth date (i.e. actual twins)
@@ -418,71 +459,20 @@ export default function HomePage() {
   // Called when the LogSheet is submitted.
   // Clears sheet state immediately (optimistic close) then evaluates twin-sync suggestion banners.
   async function handleSheetSubmit(payload: LogEventPayload) {
-    // Request notification permission while still in user gesture context — must be before any awaits.
-    if (
-      'Notification' in window &&
-      Notification.permission === 'default' &&
-      (prefs.diaperNotifications || prefs.bottleNotifications)
-    ) {
-      await Notification.requestPermission();
-    }
     const baby = sheet?.baby;
     const suggestedOz = sheet?.suggestedOz;
     setSheet(null);
     try {
       await logEvent(payload);
 
-      // Diaper reminder: cancel previous timer for this baby, schedule age-adaptive interval out.
-      // Skip if the fire time would land during the night window (bedtime→wake).
-      if (
-        payload.type === 'diaper' &&
-        baby &&
-        prefs.diaperNotifications &&
-        'Notification' in window &&
-        Notification.permission === 'granted'
-      ) {
-        const prevId = diaperTimers.current.get(baby.id);
-        if (prevId !== undefined) {
-          clearTimeout(prevId);
-        }
-        const intervalMs = getDiaperReminderIntervalMs(baby.birthDate);
-        if (!isNightFireTime(Date.now() + intervalMs, prefs.bedtimeHour, prefs.wakeHour)) {
-          const body = `It's been about ${formatReminderInterval(intervalMs)}. Time to change ${baby.name}?`;
-          diaperTimers.current.set(
-            baby.id,
-            setTimeout(() => {
-              diaperTimers.current.delete(baby.id);
-              new Notification('TwinTracker', { body, icon: '/icon-192.png' });
-            }, intervalMs),
-          );
-        }
+      // Confirmation toast
+      if (logToastTimer.current) {
+        clearTimeout(logToastTimer.current);
       }
-
-      // Feed reminder: cancel previous timer for this baby, schedule age-adaptive interval out.
-      // Skip if the fire time would land during the night window (bedtime→wake).
-      if (
-        (payload.type === 'bottle' || payload.type === 'nursing') &&
-        baby &&
-        prefs.bottleNotifications &&
-        'Notification' in window &&
-        Notification.permission === 'granted'
-      ) {
-        const prevId = bottleTimers.current.get(baby.id);
-        if (prevId !== undefined) {
-          clearTimeout(prevId);
-        }
-        const intervalMs = getFeedReminderIntervalMs(baby.birthDate);
-        if (!isNightFireTime(Date.now() + intervalMs, prefs.bedtimeHour, prefs.wakeHour)) {
-          const body = `It's been about ${formatReminderInterval(intervalMs)}. Time to feed ${baby.name}?`;
-          bottleTimers.current.set(
-            baby.id,
-            setTimeout(() => {
-              bottleTimers.current.delete(baby.id);
-              new Notification('TwinTracker', { body, icon: '/icon-192.png' });
-            }, intervalMs),
-          );
-        }
-      }
+      setLogToast(
+        i18n.t('common.log_confirmed', { label: i18n.t(`log_sheet.types.${payload.type}`) }),
+      );
+      logToastTimer.current = setTimeout(() => setLogToast(null), 2000);
 
       // Twin sync: after logging for one baby, show a one-tap banner for the
       // other baby if their last matching event is stale (nap: any gap,
@@ -562,21 +552,10 @@ export default function HomePage() {
       return;
     }
     const text = t('settings.invite_share_message', { code: inviteCode });
-    const confirm = () => {
+    copyToClipboard(text, () => {
       setInviteCopied(true);
       setTimeout(() => setInviteCopied(false), 2000);
-    };
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(confirm);
-    } else {
-      const el = document.createElement('textarea');
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      confirm();
-    }
+    });
   }
 
   return (
@@ -671,17 +650,25 @@ export default function HomePage() {
                     className={styles.input}
                     type="date"
                     value={en.birthDate}
+                    max={new Date().toISOString().split('T')[0]}
                     onChange={e => updateEntry(i, 'birthDate', e.target.value)}
                     required
                   />
+                  {/* Weight + height fields hidden until metric/imperial toggle is implemented */}
                 </div>
               ))}
               <button type="button" className={styles.addAnotherBtn} onClick={addEntry}>
                 {t('onboarding.add_another')}
               </button>
+              {onboardError && (
+                <p style={{ color: 'var(--tt-urgency-overdue)', fontSize: 13, margin: '8px 0 0' }}>
+                  {onboardError}
+                </p>
+              )}
               <button
                 type="submit"
                 className={styles.submitBtn}
+                style={{ marginTop: 24 }}
                 disabled={onboardingLoading || !entries.some(en => en.name.trim())}
               >
                 {onboardingLoading ? t('onboarding.adding') : t('onboarding.get_started')}
@@ -690,7 +677,7 @@ export default function HomePage() {
           </div>
         ) : showPrefsStep ? (
           /* ── Onboarding step 2: schedule + preferences ── */
-          prefsSubStep === 1 ? (
+          prefsSubStep === 1 && !isAllStage1(babies) ? (
             <div>
               <h1 className={styles.onboardHeading}>{t('onboarding.prefs_heading')}</h1>
               <p className={styles.onboardSub}>{t('onboarding.prefs_subtitle')}</p>
@@ -699,16 +686,6 @@ export default function HomePage() {
                 <p className={styles.onboardSectionTitle}>
                   {t('onboarding.bedtime_question', { names: formatBabyNames(babies) })}
                 </p>
-                {babies.some(b => {
-                  if (!b.birthDate) {
-                    return false;
-                  }
-                  return (Date.now() - new Date(b.birthDate).getTime()) / 604800000 < 15;
-                }) && (
-                  <p className={styles.onboardSectionHint}>
-                    {t('onboarding.newborn_bedtime_rec', { time: hourLabel(22) })}
-                  </p>
-                )}
                 <div className={styles.onboardPillGrid}>
                   {BEDTIME_HOURS.map(h => (
                     <button
@@ -753,80 +730,33 @@ export default function HomePage() {
               <p className={styles.onboardSub}>{t('onboarding.prefs_step2_sub')}</p>
 
               <div className={styles.onboardSection}>
-                <p className={styles.onboardSectionTitle}>
-                  {t('onboarding.sleep_training_question', { names: formatBabyNames(babies) })}
-                </p>
-                <p className={styles.onboardSectionHint}>
-                  {t('onboarding.sleep_training_onboard_desc')}
-                </p>
-                <button
-                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.sleepTraining ? styles.onboardPillActive : ''}`}
-                  onClick={() => setSleepTraining(!prefs.sleepTraining)}
-                  aria-pressed={prefs.sleepTraining}
-                  type="button"
-                >
-                  {prefs.sleepTraining
-                    ? t('settings.sleep_training_enabled')
-                    : t('settings.sleep_training_enable')}
-                </button>
-              </div>
-
-              <div className={styles.onboardSection}>
-                <p className={styles.onboardSectionTitle}>
-                  {t('onboarding.diaper_question', { names: formatBabyNames(babies) })}
-                </p>
-                <p className={styles.onboardSectionHint}>{t('onboarding.diaper_onboard_desc')}</p>
-                <button
-                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.diaperNotifications ? styles.onboardPillActive : ''}`}
-                  onClick={() => setDiaperNotifications(!prefs.diaperNotifications)}
-                  aria-pressed={prefs.diaperNotifications}
-                  type="button"
-                >
-                  {prefs.diaperNotifications
-                    ? t('settings.diaper_notifications_enabled')
-                    : t('settings.diaper_notifications_enable')}
-                </button>
-              </div>
-
-              <div className={styles.onboardSection}>
-                <p className={styles.onboardSectionTitle}>
-                  {t('onboarding.feed_question', { names: formatBabyNames(babies) })}
-                </p>
-                <p className={styles.onboardSectionHint}>{t('onboarding.feed_onboard_desc')}</p>
-                <button
-                  className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.bottleNotifications ? styles.onboardPillActive : ''}`}
-                  onClick={() => setBottleNotifications(!prefs.bottleNotifications)}
-                  aria-pressed={prefs.bottleNotifications}
-                  type="button"
-                >
-                  {prefs.bottleNotifications
-                    ? t('settings.bottle_notifications_enabled')
-                    : t('settings.bottle_notifications_enable')}
-                </button>
+                <SwitchRow
+                  id="onboardSleepTraining"
+                  label={t('settings.sleep_training_title')}
+                  hint={t('onboarding.sleep_training_onboard_desc')}
+                  checked={prefs.sleepTraining}
+                  onChange={setSleepTraining}
+                />
               </div>
 
               {babies.length >= 2 && (
                 <div className={styles.onboardSection}>
-                  <p className={styles.onboardSectionTitle}>{t('settings.twin_sync_title')}</p>
-                  <p className={styles.onboardSectionHint}>{t('settings.twin_sync_hint')}</p>
-                  <button
-                    className={`${styles.onboardPill} ${styles.onboardPillFull} ${prefs.twinSync ? styles.onboardPillActive : ''}`}
-                    onClick={() => {
-                      setTwinSync(!prefs.twinSync);
+                  <SwitchRow
+                    id="onboardTwinSync"
+                    label={t('settings.twin_sync_title')}
+                    hint={t('settings.twin_sync_hint')}
+                    checked={prefs.twinSync}
+                    onChange={v => {
+                      setTwinSync(v);
                       setShowTwinSyncPrompt(false);
                     }}
-                    aria-pressed={prefs.twinSync}
-                    type="button"
-                  >
-                    {prefs.twinSync
-                      ? t('settings.twin_sync_enabled')
-                      : t('settings.twin_sync_enable')}
-                  </button>
+                  />
                 </div>
               )}
 
               <button
                 className={styles.submitBtn}
+                style={{ marginTop: 24 }}
                 onClick={() => setShowPrefsStep(false)}
                 type="button"
               >
@@ -985,6 +915,7 @@ export default function HomePage() {
                     latest={latest}
                     events={events}
                     onLog={(type, oz) => handleLog(baby, type, oz)}
+                    onOpenProfile={() => setProfileBaby(baby)}
                     onOpenAnalytics={id => router.push(`/analytics/${id}`)}
                     resetHour={prefs.wakeHour}
                     bedtimeHour={prefs.bedtimeHour}
@@ -1025,9 +956,35 @@ export default function HomePage() {
         baby={sheet?.baby ?? null}
         eventType={sheet?.type ?? null}
         suggestedOz={sheet?.suggestedOz}
+        suggestedBreast={
+          sheet?.baby
+            ? latest[`${sheet.baby.id}:nursing`]?.notes === 'left'
+              ? 'right'
+              : 'left'
+            : 'left'
+        }
         onSubmit={handleSheetSubmit}
         onClose={() => setSheet(null)}
       />
+
+      <BabyProfileSheet
+        visible={profileBaby !== null}
+        baby={profileBaby}
+        onSave={async (id, data) => {
+          await api.babies.update(id, {
+            name: data.name,
+            birthDate: data.birthDate ?? null,
+            sex: data.sex,
+            weightKg: data.weightKg,
+            heightCm: data.heightCm,
+          });
+          const updated = await api.babies.list();
+          setBabies(updated);
+        }}
+        onClose={() => setProfileBaby(null)}
+      />
+
+      {logToast && <div className={styles.logToast}>{logToast}</div>}
 
       <BottomTabBar />
     </div>

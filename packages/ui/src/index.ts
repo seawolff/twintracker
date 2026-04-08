@@ -5,6 +5,7 @@ export { CountdownRing } from './components/CountdownRing';
 export { NapTimerModal } from './components/NapTimerModal';
 export { FeedPickerModal } from './components/FeedPickerModal';
 export { TriageStrip } from './components/TriageStrip';
+export { BabyProfileSheet } from './components/BabyProfileSheet';
 export * as tokens from './theme/tokens';
 export {
   BottleIcon,
@@ -22,4 +23,5 @@ export {
   TimerIcon,
   SettingsIcon,
   FilterIcon,
+  PersonIcon,
 } from './components/icons/BabyIcons';

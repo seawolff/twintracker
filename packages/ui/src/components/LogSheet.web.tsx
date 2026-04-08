@@ -7,11 +7,12 @@ import {
   BOTTLE_OZ,
   MAX_BOTTLE_OZ,
   NURSING_MINUTES,
+  NURSING_BREAST_OPTIONS,
   DIAPER_OPTIONS,
   i18n,
   authorColor,
 } from '@tt/core';
-import type { DiaperOption } from '@tt/core';
+import type { DiaperOption, NursingBreast } from '@tt/core';
 import { spacing, radius, fonts } from '../theme/tokens';
 import { CloseIcon } from './icons/BabyIcons';
 
@@ -27,6 +28,8 @@ interface LogSheetProps {
   initialStartedAt?: string;
   /** Pre-select this oz value when opening a bottle log. */
   suggestedOz?: number;
+  /** Pre-select this breast side when opening a nursing log. */
+  suggestedBreast?: NursingBreast;
 }
 
 function nowLocal(): string {
@@ -59,12 +62,14 @@ export function LogSheet({
   onEdit,
   initialStartedAt,
   suggestedOz,
+  suggestedBreast,
 }: LogSheetProps) {
   const theme = useThemeContext();
   const isEditing = !!initialEvent;
   const [selectedOz, setSelectedOz] = useState<number>(4);
   const [ozInput, setOzInput] = useState<string>('4');
   const [selectedNursingMinutes, setSelectedNursingMinutes] = useState<number>(15);
+  const [selectedBreast, setSelectedBreast] = useState<NursingBreast>('left');
   const [selectedDiaper, setSelectedDiaper] = useState<DiaperOption>('wet');
   const [notesText, setNotesText] = useState<string>('');
   const [startTime, setStartTime] = useState(nowLocal);
@@ -94,6 +99,7 @@ export function LogSheet({
         }
         if (initialEvent.type === 'nursing') {
           setSelectedNursingMinutes(initialEvent.value ?? 15);
+          setSelectedBreast((initialEvent.notes as NursingBreast) ?? 'left');
         }
         if (initialEvent.type === 'diaper') {
           setSelectedDiaper((initialEvent.notes as DiaperOption) ?? 'wet');
@@ -112,6 +118,7 @@ export function LogSheet({
         setSelectedOz(suggestedOz ?? 4);
         setOzInput(String(suggestedOz ?? 4));
         setSelectedNursingMinutes(15);
+        setSelectedBreast(suggestedBreast ?? 'left');
         setSelectedDiaper('wet');
         setNotesText('');
       }
@@ -157,6 +164,7 @@ export function LogSheet({
     } else if (eventType === 'nursing') {
       payload.value = selectedNursingMinutes;
       payload.unit = 'min';
+      payload.notes = selectedBreast;
     } else if (eventType === 'diaper') {
       payload.notes = selectedDiaper;
     } else if (eventType === 'food' || eventType === 'milestone' || eventType === 'medicine') {
@@ -360,6 +368,42 @@ export function LogSheet({
               <View style={{ marginTop: spacing.md }}>
                 <Text
                   style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t('log_sheet.nursing_breast')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {NURSING_BREAST_OPTIONS.map(side => {
+                    const active = selectedBreast === side;
+                    return (
+                      <Pressable
+                        key={side}
+                        onPress={() => setSelectedBreast(side)}
+                        accessibilityLabel={i18n.t(`log_sheet.nursing_${side}`)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: active }}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {i18n.t(`log_sheet.nursing_${side}`)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
                 >
                   {i18n.t('log_sheet.duration_min')}
                 </Text>

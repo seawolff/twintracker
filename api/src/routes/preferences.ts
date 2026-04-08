@@ -13,16 +13,9 @@ const VALID_PREF_KEYS = new Set([
   'wakeHour',
   'sleepTraining',
   'twinSync',
-  'diaperNotifications',
-  'bottleNotifications',
 ]);
 const HOUR_KEYS = new Set(['resetHour', 'bedtimeHour', 'wakeHour']);
-const BOOLEAN_KEYS = new Set([
-  'sleepTraining',
-  'twinSync',
-  'diaperNotifications',
-  'bottleNotifications',
-]);
+const BOOLEAN_KEYS = new Set(['sleepTraining', 'twinSync']);
 
 function validatePrefs(body: Record<string, unknown>): { message: string } | null {
   for (const key of Object.keys(body)) {

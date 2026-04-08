@@ -15,11 +15,19 @@ export type BabyColor = 'amber' | 'emerald' | 'slate' | 'rose' | 'sky' | 'violet
 
 export type Urgency = 'ok' | 'soon' | 'overdue';
 
+export type BabySex = 'male' | 'female';
+
 export interface Baby {
   id: string;
   name: string;
   color: BabyColor;
   birthDate?: string;
+  /** Weight in kilograms — used for WHO growth percentile calculations. */
+  weightKg?: number | null;
+  /** Height/length in centimetres — used for WHO growth percentile calculations. */
+  heightCm?: number | null;
+  /** Biological sex — required for accurate WHO percentile lookup. */
+  sex?: BabySex | null;
   createdAt: string;
 }
 

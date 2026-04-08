@@ -935,6 +935,19 @@ describe('Babies endpoints', () => {
     expect(res.body.message).toMatch(/YYYY-MM-DD/i);
   });
 
+  it('POST /api/babies → 400 when birthDate is in the future', async () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const futureDate = tomorrow.toISOString().split('T')[0];
+    const res = await request(app)
+      .post('/api/babies')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Eve', birthDate: futureDate });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/future/i);
+  });
+
   it('POST /api/babies color cycles through palette based on existing count', async () => {
     const COLORS = ['amber', 'emerald', 'slate', 'rose', 'sky', 'violet'];
 
@@ -966,7 +979,180 @@ describe('Babies endpoints', () => {
   });
 });
 
-// ── 11. Alarms endpoints ──────────────────────────────────────────────────────
+// ── 11. PATCH /api/babies/:id ────────────────────────────────────────────────
+
+describe('PATCH /api/babies/:id', () => {
+  const token = makeToken('user-b', 'hh-b');
+
+  it('updates name and returns the updated baby', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'b1', name: 'Emmy', color: 'amber', birthDate: null, createdAt: '2025-01-01' }],
+    });
+
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Emmy' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Emmy');
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/UPDATE babies/i);
+    // household_id scoping must be present
+    expect(params).toContain('hh-b');
+    expect(params).toContain('b1');
+  });
+
+  it('updates birthDate', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'b1',
+          name: 'Emmy',
+          color: 'amber',
+          birthDate: '2024-03-01',
+          createdAt: '2025-01-01',
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ birthDate: '2024-03-01' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.birthDate).toBe('2024-03-01');
+  });
+
+  it('→ 400 when name is empty string', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: '  ' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/non-empty/i);
+  });
+
+  it('→ 400 when name exceeds 50 characters', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'A'.repeat(51) });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/50 characters/i);
+  });
+
+  it('→ 400 when birthDate format is invalid', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ birthDate: '01/01/2025' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/YYYY-MM-DD/i);
+  });
+
+  it('→ 400 when birthDate is in the future', async () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const futureDate = tomorrow.toISOString().split('T')[0];
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ birthDate: futureDate });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/future/i);
+  });
+
+  it('updates weightKg and heightCm', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'b1',
+          name: 'Emmy',
+          color: 'amber',
+          birthDate: null,
+          weightKg: 6.5,
+          heightCm: 65,
+          sex: 'female',
+          createdAt: '2025-01-01',
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ weightKg: 6.5, heightCm: 65, sex: 'female' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.weightKg).toBe(6.5);
+    expect(res.body.heightCm).toBe(65);
+    expect(res.body.sex).toBe('female');
+  });
+
+  it('→ 400 when weightKg is negative', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ weightKg: -1 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/weightKg/i);
+  });
+
+  it('→ 400 when heightCm exceeds 300', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ heightCm: 999 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/heightCm/i);
+  });
+
+  it('→ 400 when sex is invalid value', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sex: 'unknown' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/sex/i);
+  });
+
+  it('→ 400 when no fields to update', async () => {
+    const res = await request(app)
+      .patch('/api/babies/b1')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/no fields/i);
+  });
+
+  it('→ 404 when baby does not belong to household', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .patch('/api/babies/b-other')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'X' });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('→ 401 without token', async () => {
+    const res = await request(app).patch('/api/babies/b1').send({ name: 'X' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── 12. Alarms endpoints ──────────────────────────────────────────────────────
 
 describe('Alarms endpoints', () => {
   const token = makeToken('user-a', 'hh-a');

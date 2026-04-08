@@ -87,33 +87,29 @@ describe('groupEventsByDay', () => {
     expect(labels).toContain('March 1st 2026');
   });
 
-  it('event exactly at reset boundary belongs to the new period', () => {
-    // resetHour = 6, event at exactly 6:00 AM today → "Today"
-    const events = [makeEvent('1', '2026-03-14T06:00:00')];
-    const groups = groupEventsByDay(events, NOW, 6);
+  it('event exactly at midnight belongs to today', () => {
+    const events = [makeEvent('1', '2026-03-14T00:00:00')];
+    const groups = groupEventsByDay(events, NOW, 0);
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Today');
   });
 
-  it('event one ms before reset boundary belongs to previous period', () => {
-    // resetHour = 6, event at 5:59:59.999 AM today → "Yesterday"
-    const events = [makeEvent('1', '2026-03-14T05:59:59.999')];
-    const groups = groupEventsByDay(events, NOW, 6);
+  it('event one ms before midnight belongs to yesterday', () => {
+    const events = [makeEvent('1', '2026-03-13T23:59:59.999')];
+    const groups = groupEventsByDay(events, NOW, 0);
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Yesterday');
   });
 
-  it('non-zero resetHour shifts grouping: 5 AM event belongs to yesterday when resetHour=6', () => {
+  it('early AM event (3 AM) belongs to today, not yesterday', () => {
+    // Regression: bottles logged before wake time used to go to "Yesterday"
     const events = [
-      makeEvent('1', '2026-03-14T05:00:00'), // before 6 AM reset → yesterday's period
-      makeEvent('2', '2026-03-14T07:00:00'), // after 6 AM reset → today's period
+      makeEvent('1', '2026-03-14T03:00:00'), // 3 AM today → Today
+      makeEvent('2', '2026-03-14T07:00:00'), // 7 AM today → Today
     ];
-    const groups = groupEventsByDay(events, NOW, 6);
-    expect(groups).toHaveLength(2);
+    const groups = groupEventsByDay(events, NOW, 0);
+    expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Today');
-    expect(groups[0].events[0].id).toBe('2');
-    expect(groups[1].label).toBe('Yesterday');
-    expect(groups[1].events[0].id).toBe('1');
   });
 
   it('handles events from many days ago correctly', () => {
@@ -160,19 +156,19 @@ describe('groupEventsByDay', () => {
     expect(groups[0].label).toBe('Today');
   });
 
-  it('sleep ending before resetHour on its calendar day still lands in that day (real-world bug)', () => {
-    // resetHour=7. Sleep started March 31 9:59 PM, ended April 1 6:39 AM (before 7 AM reset).
-    // User expects this to appear under "Today" (April 1), not "Yesterday" (March 31).
+  it('sleep ending at 6:39 AM lands in that calendar day (Today) with midnight reset', () => {
+    // resetHour=0 (midnight). Sleep started March 31 9:59 PM, ended April 1 6:39 AM.
+    // User expects this to appear under "Today" (April 1).
     const NOW_APRIL1 = new Date(2026, 3, 1, 15, 0, 0); // 3 PM April 1
     const sleepEvent: TrackerEvent = {
       id: 's3',
       babyId: 'b1',
       type: 'sleep',
-      startedAt: '2026-03-31T21:59:00', // 9:59 PM March 31
-      endedAt: '2026-04-01T06:39:00', // 6:39 AM April 1 (before 7 AM reset)
+      startedAt: '2026-03-31T21:59:00',
+      endedAt: '2026-04-01T06:39:00',
       createdAt: '2026-03-31T21:59:00',
     } as TrackerEvent;
-    const groups = groupEventsByDay([sleepEvent], NOW_APRIL1, 7);
+    const groups = groupEventsByDay([sleepEvent], NOW_APRIL1, 0);
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Today');
   });

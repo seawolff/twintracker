@@ -67,3 +67,4 @@ export const CloseIcon = makeIcon('CloseIcon');
 export const TimerIcon = makeIcon('TimerIcon');
 export const SettingsIcon = makeIcon('SettingsIcon');
 export const FilterIcon = makeIcon('FilterIcon');
+export const PersonIcon = makeIcon('PersonIcon');

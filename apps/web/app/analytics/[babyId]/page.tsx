@@ -36,6 +36,8 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
 }
 
+/** Format fractional months as a human-readable age string. */
+
 function rangeLabel(now: Date, days: number): string {
   const end = now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {
@@ -101,13 +103,7 @@ export default function AnalyticsPage() {
 
   const babyEvents = events.filter(e => e.babyId === baby.id);
   const now = new Date();
-  const a: BabyAnalytics = computeAnalytics(
-    babyEvents,
-    now,
-    prefs.wakeHour,
-    period,
-    baby.birthDate,
-  );
+  const a: BabyAnalytics = computeAnalytics(babyEvents, now, 0, period, baby.birthDate);
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
   const periodLabel = period === 'day' ? 'today' : period === 'month' ? 'this month' : 'this week';
@@ -336,6 +332,8 @@ export default function AnalyticsPage() {
             </p>
           </NarrativeBlock>
         )}
+
+        {/* Growth section hidden until metric/imperial toggle is implemented */}
 
         {a.milestones.length > 0 && (
           <NarrativeBlock icon={<MilestoneIcon size={14} />} title={t('analytics.milestones')}>

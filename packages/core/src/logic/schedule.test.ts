@@ -5,7 +5,6 @@ import {
   getScheduleStage,
   getSelfSoothingMinutes,
   getBabyInsight,
-  isNightFireTime,
 } from './schedule';
 
 // Local mirrors of schedule.ts internal constants (removed from public exports in P3 cleanup).
@@ -29,6 +28,8 @@ function msAgo(ms: number): string {
 }
 
 const BABY_ID = 'baby-1';
+/** Fixed birth date that is always Stage 2 (≥ 16 weeks old relative to 2026). */
+const STAGE2_BIRTH_DATE = '2025-06-01';
 const NOW = new Date();
 
 describe('getNextAction', () => {
@@ -332,6 +333,7 @@ describe('getBabyInsight', () => {
     id: BABY_ID,
     name: 'John',
     color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
     createdAt: new Date().toISOString(),
   };
 
@@ -348,7 +350,8 @@ describe('getBabyInsight', () => {
   });
 
   it('overdue nap: alarmMs is null, urgency overdue', () => {
-    const napStartedAt = msAgo(NAP_DURATION_MS + 15 * 60_000);
+    // 150 min elapsed — overdue for Stage 2 (120 min target) and Stage 1 (90 min target)
+    const napStartedAt = msAgo(150 * 60_000);
     const latest: LatestEventMap = {
       [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
     };
@@ -420,6 +423,47 @@ describe('getBabyInsight', () => {
     expect(insight.totalOzToday).toBe(9); // 4 + 5 only
   });
 
+  it('targetOzToday: Stage 1 newborn (0–4w, 3oz/feed, 3h interval) = 24 oz', () => {
+    // 24h / 3h × 3oz = 24 oz — under the 32 oz AAP cap
+    const newbornBirthDate = new Date(Date.now() - 2 * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const newborn: Baby = { ...baby, birthDate: newbornBirthDate };
+    const insight = getBabyInsight(newborn, {}, [], NOW);
+    expect(insight.targetOzToday).toBe(24);
+  });
+
+  it('targetOzToday: Stage 2 (5m, 6oz/feed, 4h interval) caps at AAP max 32 oz', () => {
+    // 24h / 4h × 6oz = 36 oz — exceeds cap, should clamp to 32
+    const fiveMonthBirthDate = new Date(Date.now() - 20 * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const babyWith5m: Baby = { ...baby, birthDate: fiveMonthBirthDate };
+    const insight = getBabyInsight(babyWith5m, {}, [], NOW);
+    expect(insight.targetOzToday).toBe(32);
+  });
+
+  it('feedCountToday counts bottle + nursing events since reset', () => {
+    const bottle = makeEvent(BABY_ID, 'bottle', new Date().toISOString());
+    const nursing = makeEvent(BABY_ID, 'nursing', new Date().toISOString());
+    const yesterday = {
+      ...makeEvent(BABY_ID, 'bottle', new Date(Date.now() - 26 * 60 * 60_000).toISOString()),
+      id: 'old',
+    };
+    const insight = getBabyInsight(baby, {}, [bottle, nursing, yesterday], NOW);
+    expect(insight.feedCountToday).toBe(2); // only today's bottle + nursing
+  });
+
+  it('targetFeedsPerDay: Stage 1 (3h interval) = 8 feeds', () => {
+    const newbornBirthDate = new Date(Date.now() - 2 * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const newborn: Baby = { ...baby, birthDate: newbornBirthDate };
+    const insight = getBabyInsight(newborn, {}, [], NOW);
+    expect(insight.targetFeedsPerDay).toBe(8); // 24h / 3h = 8
+  });
+
+  it('targetFeedsPerDay: Stage 2 (4h interval) = 6 feeds', () => {
+    const fiveMonthBirthDate = new Date(Date.now() - 20 * 7 * 24 * 60 * 60 * 1000).toISOString();
+    const babyWith5m: Baby = { ...baby, birthDate: fiveMonthBirthDate };
+    const insight = getBabyInsight(babyWith5m, {}, [], NOW);
+    expect(insight.targetFeedsPerDay).toBe(6); // 24h / 4h = 6
+  });
+
   it('no events: urgency ok, no alarm, narrative mentions name', () => {
     // Use a fixed 10am time so headline is deterministically "Good morning"
     const testNow = new Date(2026, 2, 14, 10, 0, 0);
@@ -431,7 +475,8 @@ describe('getBabyInsight', () => {
   });
 
   it('scheduleStage is 1 when no birthDate (default ~14w = Stage 1)', () => {
-    const insight = getBabyInsight(baby, {}, [], NOW);
+    const noBirthDateBaby: Baby = { ...baby, birthDate: undefined };
+    const insight = getBabyInsight(noBirthDateBaby, {}, [], NOW);
     expect(insight.scheduleStage).toBe(1);
   });
 
@@ -513,6 +558,24 @@ describe('getBabyInsight', () => {
     expect(insight.sleepStatus).toContain('ago');
   });
 
+  it('feed logged but not yet overdue, no sleep data: shows next bottle time, not empty state', () => {
+    // Regression: baby card showed "No events yet" + prediction chips simultaneously
+    // when a feed was logged in a prior session but was not yet overdue.
+    const testNow = new Date(2026, 2, 14, 10, 0, 0); // 10 AM
+    const feedMs = 3 * 60 * 60_000; // Stage 1: 3h interval
+    const lastFeedAt = new Date(testNow.getTime() - feedMs + 30 * 60_000).toISOString(); // due in 30m
+    const bottleEvent: TrackerEvent = {
+      ...makeEvent(BABY_ID, 'bottle', lastFeedAt),
+      id: 'b1',
+      value: 4,
+    };
+    const latest: LatestEventMap = { [`${BABY_ID}:bottle`]: bottleEvent };
+    const insight = getBabyInsight(baby, latest, [], testNow);
+    expect(insight.narrative).not.toContain('No events yet');
+    expect(insight.narrative).toContain('Next bottle');
+    expect(insight.urgency).toBe('ok');
+  });
+
   it('totalOzToday respects non-zero resetHour: event before reset excluded, event after included', () => {
     // NOW is a fixed point in time; we build a "now" that is 10:00 AM on some date
     const testNow = new Date(2026, 2, 14, 10, 0, 0); // 10 AM March 14
@@ -539,6 +602,7 @@ describe('getBabyInsight — night sleep (sleep event type)', () => {
     id: BABY_ID,
     name: 'John',
     color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
     createdAt: new Date().toISOString(),
   };
 
@@ -578,6 +642,7 @@ describe('getBabyInsight — bedtime awareness', () => {
     id: BABY_ID,
     name: 'John',
     color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
     createdAt: new Date().toISOString(),
   };
 
@@ -609,11 +674,161 @@ describe('getBabyInsight — bedtime awareness', () => {
   });
 });
 
+describe('getBabyInsight — catnap suggestion (Stage 2, 16–26 weeks)', () => {
+  // Baby woke from last nap 2+ hours ago and it's 5–6 PM (catnap window).
+  // The card should suggest a short contact nap rather than bedtime countdown or regular nap.
+
+  /** Birth date that is always 20 weeks old (Stage 2 early — within catnap age). */
+  const CATNAP_BIRTH_DATE = new Date(Date.now() - 20 * 7 * 24 * 60 * 60_000).toISOString();
+  /** Birth date that is always 30 weeks old (Stage 2 but past 26w — catnap age dropped). */
+  const POST_CATNAP_BIRTH_DATE = new Date(Date.now() - 30 * 7 * 24 * 60 * 60_000).toISOString();
+
+  const catnapBaby: Baby = {
+    id: BABY_ID,
+    name: 'John',
+    color: 'sky',
+    birthDate: CATNAP_BIRTH_DATE,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('suggests catnap at 5 PM when baby is overdue for a nap (Stage 2 early)', () => {
+    // testNow = 5:15 PM; baby last woke at 2:45 PM (2h 30m ago, past 2h awake window)
+    const testNow = new Date(2026, 2, 14, 17, 15, 0); // 5:15 PM
+    const napEndedAt = new Date(2026, 2, 14, 14, 45, 0).toISOString(); // 2:45 PM
+    const napStart = new Date(2026, 2, 14, 13, 15, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(catnapBaby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).toContain('catnap');
+    expect(insight.urgency).toBe('soon'); // overdue → soon
+  });
+
+  it('does not suggest catnap before 5 PM', () => {
+    // testNow = 4:45 PM; awake window elapsed but not yet catnap hour
+    const testNow = new Date(2026, 2, 14, 16, 45, 0); // 4:45 PM
+    const napEndedAt = new Date(2026, 2, 14, 14, 30, 0).toISOString(); // 2:30 PM
+    const napStart = new Date(2026, 2, 14, 13, 0, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(catnapBaby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).not.toMatch(/catnap/i);
+  });
+
+  it('does not suggest catnap after 6 PM (window closes)', () => {
+    // testNow = 6:10 PM; past the catnap window — too late for a nap before bed
+    const testNow = new Date(2026, 2, 14, 18, 10, 0); // 6:10 PM
+    const napEndedAt = new Date(2026, 2, 14, 14, 0, 0).toISOString(); // 2 PM
+    const napStart = new Date(2026, 2, 14, 12, 30, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(catnapBaby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).not.toMatch(/catnap/i);
+  });
+
+  it('does not suggest catnap for Stage 2 baby older than 26 weeks', () => {
+    const postCatnapBaby: Baby = {
+      id: BABY_ID,
+      name: 'John',
+      color: 'sky',
+      birthDate: POST_CATNAP_BIRTH_DATE,
+      createdAt: new Date().toISOString(),
+    };
+    const testNow = new Date(2026, 2, 14, 17, 15, 0); // 5:15 PM
+    const napEndedAt = new Date(2026, 2, 14, 14, 45, 0).toISOString();
+    const napStart = new Date(2026, 2, 14, 13, 15, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(postCatnapBaby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).not.toMatch(/catnap/i);
+  });
+
+  it('does not suggest catnap when baby has not been awake long enough', () => {
+    // testNow = 5:10 PM; baby woke at 4:30 PM (40m ago, << 2h awake window)
+    const testNow = new Date(2026, 2, 14, 17, 10, 0); // 5:10 PM
+    const napEndedAt = new Date(2026, 2, 14, 16, 30, 0).toISOString(); // 4:30 PM
+    const napStart = new Date(2026, 2, 14, 15, 0, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(catnapBaby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).not.toMatch(/catnap/i);
+  });
+});
+
+describe('getBabyInsight — too-late-for-nap guard', () => {
+  // Baby woke from last nap long before bedtime (> 4.5h), so isBedtimeStretch is false.
+  // But time has passed and now there's < napMs (2h for Stage 2) before bedtime.
+  // The card should show bedtime countdown, not "nap time".
+  const baby: Baby = {
+    id: BABY_ID,
+    name: 'John',
+    color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('shows bedtime countdown (not nap language) when less than napMs before bedtime', () => {
+    // testNow = 5:10 PM; bedtime = 7 PM (1h 50m away, < 2h napMs)
+    // baby last woke at 10 AM (7h before bedtime → isBedtimeStretch = false)
+    const testNow = new Date(2026, 2, 14, 17, 10, 0); // 5:10 PM
+    const napEndedAt = new Date(2026, 2, 14, 10, 0, 0).toISOString(); // 10 AM
+    const napStart = new Date(2026, 2, 14, 8, 30, 0).toISOString(); // 8:30 AM
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).toContain('Bedtime');
+    expect(insight.narrative).not.toContain('nap');
+    expect(insight.isBedtimeStretch).toBe(false); // guard is independent of isBedtimeStretch
+  });
+
+  it('still shows nap language when there is enough time before bedtime', () => {
+    // testNow = 3:00 PM; bedtime = 7 PM (4h away, > 2h napMs)
+    // baby last woke at 8 AM (11h before bedtime → isBedtimeStretch = false)
+    const testNow = new Date(2026, 2, 14, 15, 0, 0); // 3 PM
+    const napEndedAt = new Date(2026, 2, 14, 8, 0, 0).toISOString(); // 8 AM
+    const napStart = new Date(2026, 2, 14, 6, 30, 0).toISOString(); // 6:30 AM
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).not.toContain('Bedtime');
+    expect(insight.narrative).toContain('nap');
+  });
+
+  it('does not apply the guard for Stage 1 newborns', () => {
+    // Stage 1 newborns have no bedtime stretch — even < napMs before 10 PM
+    // should NOT redirect to bedtime language
+    const stage1Baby: Baby = {
+      id: BABY_ID,
+      name: 'John',
+      color: 'sky',
+      birthDate: new Date(Date.now() - 3 * 7 * 24 * 60 * 60_000).toISOString(), // 3 weeks old
+      createdAt: new Date().toISOString(),
+    };
+    // testNow = 9:10 PM; stage1 bedtime = 10 PM (50m away, < 90m napMs)
+    const testNow = new Date(2026, 2, 14, 21, 10, 0); // 9:10 PM
+    const napEndedAt = new Date(2026, 2, 14, 15, 0, 0).toISOString(); // 3 PM (6h ago)
+    const napStart = new Date(2026, 2, 14, 13, 30, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], testNow, 0, undefined, 19, 7);
+    // Stage 1 should NOT show Bedtime countdown via this guard
+    expect(insight.narrative).not.toContain('Bedtime in about');
+  });
+});
+
 describe('getBabyInsight — isNight', () => {
   const baby: Baby = {
     id: BABY_ID,
     name: 'John',
     color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
     createdAt: new Date().toISOString(),
   };
 
@@ -648,44 +863,12 @@ describe('getBabyInsight — isNight', () => {
   });
 });
 
-describe('isNightFireTime', () => {
-  // bedtimeHour=19, wakeHour=7
-  it('returns true for an hour at bedtime (19:00)', () => {
-    const d = new Date(2026, 2, 14, 19, 0, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(true);
-  });
-
-  it('returns true for a middle-of-night hour (2:00)', () => {
-    const d = new Date(2026, 2, 14, 2, 0, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(true);
-  });
-
-  it('returns true for just before wake hour (6:59)', () => {
-    const d = new Date(2026, 2, 14, 6, 59, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(true);
-  });
-
-  it('returns false at wake hour (7:00)', () => {
-    const d = new Date(2026, 2, 14, 7, 0, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(false);
-  });
-
-  it('returns false midday (12:00)', () => {
-    const d = new Date(2026, 2, 14, 12, 0, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(false);
-  });
-
-  it('returns false just before bedtime (18:59)', () => {
-    const d = new Date(2026, 2, 14, 18, 59, 0);
-    expect(isNightFireTime(d.getTime(), 19, 7)).toBe(false);
-  });
-});
-
 describe('getBabyInsight — isBedtimeStretch', () => {
   const baby: Baby = {
     id: BABY_ID,
     name: 'John',
     color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
     createdAt: new Date().toISOString(),
   };
 
@@ -804,5 +987,266 @@ describe('getBabyInsight with learnedStats', () => {
     };
     const insight = getBabyInsight(baby, latest, [], NOW, 0, learned);
     expect(insight.urgency).toBe('ok'); // 4h < 5h learned interval
+  });
+});
+
+describe('getBabyInsight — Stage 1 newborn behavior', () => {
+  const stage1Baby: Baby = {
+    id: BABY_ID,
+    name: 'Lily',
+    color: 'sky',
+    // No birthDate → defaults to 14 weeks = Stage 1
+    createdAt: new Date().toISOString(),
+  };
+
+  it('awake window uses nap language (same as Stage 2)', () => {
+    const noon = new Date(2026, 2, 14, 12, 0, 0);
+    const wokeAt = new Date(noon.getTime() - 30 * 60_000).toISOString();
+    const napStart = new Date(noon.getTime() - (90 * 60_000 + 30 * 60_000)).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, wokeAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], noon);
+    expect(insight.narrative.toLowerCase()).toContain('nap');
+  });
+
+  it('awake window narrative does not include nap-anywhere note', () => {
+    const noon = new Date(2026, 2, 14, 12, 0, 0);
+    const wokeAt = new Date(noon.getTime() - 30 * 60_000).toISOString();
+    const napStart = new Date(noon.getTime() - (90 * 60_000 + 30 * 60_000)).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, wokeAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], noon);
+    expect(insight.narrative).not.toContain('swing');
+  });
+
+  it('isBedtimeStretch is always false for Stage 1', () => {
+    // Even if woke within 4.5h of 10pm bedtime, Stage 1 suppresses the bedtime stretch
+    const testNow = new Date(2026, 2, 14, 19, 30, 0); // 7:30 PM — 2.5h before 10pm
+    const wokeAt = new Date(testNow.getTime() - 30 * 60_000).toISOString();
+    const napStart = new Date(testNow.getTime() - (90 * 60_000 + 30 * 60_000)).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, wokeAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isBedtimeStretch).toBe(false);
+    expect(insight.narrative).not.toContain('Bedtime');
+  });
+
+  it('isNight uses 10pm threshold for Stage 1 regardless of user bedtimeHour pref', () => {
+    // 9 PM — user has bedtime set to 7 PM, but Stage 1 uses 10 PM
+    const testNow = new Date(2026, 2, 14, 21, 0, 0);
+    const insight = getBabyInsight(stage1Baby, {}, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isNight).toBe(false); // not yet 10 PM
+  });
+
+  it('isNight is true after 10pm for Stage 1', () => {
+    const testNow = new Date(2026, 2, 14, 22, 30, 0);
+    const insight = getBabyInsight(stage1Baby, {}, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isNight).toBe(true);
+  });
+
+  it('active sleep event does not show "sleeping for the night" narrative', () => {
+    const sleepStartedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:sleep`]: makeEvent(BABY_ID, 'sleep', sleepStartedAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], NOW);
+    expect(insight.narrative).not.toContain('night');
+    expect(insight.alarmMs).toBeGreaterThan(0); // regular sleep countdown
+  });
+});
+
+describe('getBabyInsight — overnight feed wake alert (< 4 weeks)', () => {
+  /** Baby under 4 weeks: birth date 2 weeks ago. */
+  const newbornBirthDate = new Date(Date.now() - 14 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const newborn: Baby = {
+    id: BABY_ID,
+    name: 'Max',
+    color: 'amber',
+    birthDate: newbornBirthDate,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('surfaces wake alert when sleeping > 4h and baby < 4 weeks', () => {
+    const sleepStartedAt = new Date(Date.now() - 4.5 * 60 * 60_000).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', sleepStartedAt),
+    };
+    const insight = getBabyInsight(newborn, latest, [], NOW);
+    expect(insight.narrative).toContain('Wake');
+    expect(insight.narrative).toContain('feed');
+    expect(insight.urgency).toBe('overdue');
+    expect(insight.alarmMs).toBeNull();
+  });
+
+  it('does not surface wake alert when sleeping < 4h', () => {
+    const sleepStartedAt = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', sleepStartedAt),
+    };
+    const insight = getBabyInsight(newborn, latest, [], NOW);
+    // Wake-for-feed alert should not show — nap may still be overdue by duration, but not the alert
+    expect(insight.narrative).not.toContain('Wake');
+    expect(insight.narrative).not.toContain('feed');
+  });
+
+  it('does not surface wake alert for babies >= 4 weeks (Stage 1 but older)', () => {
+    const fourWeekBirthDate = new Date(Date.now() - 28 * 24 * 60 * 60_000)
+      .toISOString()
+      .slice(0, 10);
+    const fourWeekBaby: Baby = { ...newborn, birthDate: fourWeekBirthDate };
+    const sleepStartedAt = new Date(Date.now() - 5 * 60 * 60_000).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', sleepStartedAt),
+    };
+    const insight = getBabyInsight(fourWeekBaby, latest, [], NOW);
+    expect(insight.narrative).not.toContain('Wake Max');
+  });
+});
+
+describe('getBabyInsight — pre-bedtime feed/diaper snapping', () => {
+  /**
+   * Stage 2 baby (5 months old). Tests use bedtimeHour=19 (7 PM).
+   * PRE_BEDTIME_FEED_BUFFER_MS  = 30m  → feed deadline = 6:30 PM
+   * PRE_BEDTIME_DIAPER_BUFFER_MS = 15m → diaper deadline = 6:45 PM
+   * DIAPER_INTERVAL_MS = 2h
+   */
+  const stage2BirthDate = new Date(Date.now() - 20 * 7 * 24 * 60 * 60_000).toISOString();
+  const baby: Baby = {
+    id: BABY_ID,
+    name: 'John',
+    color: 'sky',
+    birthDate: stage2BirthDate,
+    createdAt: new Date().toISOString(),
+  };
+
+  /** Shared helper: build a LatestEventMap with a wakeup at wokeAt and optional feed + diaper. */
+  function makeLatest(opts: {
+    wokeAt: Date;
+    lastFeedAt?: Date;
+    lastDiaperAt?: Date;
+  }): LatestEventMap {
+    const map: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(
+        BABY_ID,
+        'nap',
+        new Date(opts.wokeAt.getTime() - NAP_DURATION_MS).toISOString(),
+        opts.wokeAt.toISOString(),
+      ),
+    };
+    if (opts.lastFeedAt) {
+      map[`${BABY_ID}:bottle`] = {
+        ...makeEvent(BABY_ID, 'bottle', opts.lastFeedAt.toISOString()),
+        value: 4,
+      };
+    }
+    if (opts.lastDiaperAt) {
+      map[`${BABY_ID}:diaper`] = makeEvent(BABY_ID, 'diaper', opts.lastDiaperAt.toISOString());
+    }
+    return map;
+  }
+
+  it('narrative shows "Feed by X" when normal next feed overshoots bedtime', () => {
+    // testNow = 5:45 PM; bedtime = 7 PM; last feed at 2 PM (Stage 2 = 4h interval → due 6 PM)
+    // 6 PM < 7 PM bedtime → no snap needed — BUT the narrative still shows bedtime countdown
+    // Adjust: last feed at 3:30 PM → next feed at 7:30 PM → overshoots → snap to 6:30 PM
+    const testNow = new Date(2026, 2, 14, 17, 45, 0); // 5:45 PM
+    const wokeAt = new Date(testNow.getTime() - 60 * 60_000); // 4:45 PM (1h before now)
+    const lastFeedAt = new Date(2026, 2, 14, 15, 30, 0); // 3:30 PM → next = 7:30 PM (overshoots)
+    const latest = makeLatest({ wokeAt, lastFeedAt });
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isBedtimeStretch).toBe(true);
+    expect(insight.narrative).toMatch(/Feed.*by.*6:30 PM/);
+    expect(insight.narrative).toContain('Bedtime');
+  });
+
+  it('narrative is pure bedtime countdown when last feed was very recent (no snap needed)', () => {
+    // testNow = 5 PM; bedtime = 7 PM; last feed at 4 PM (Stage 2 = 4h → due 8 PM overshoots)
+    // Wait — that DOES overshoot. Use last feed at 4 PM, but it already counted as "just fed":
+    // Actually, last feed at 4:30 PM → next = 8:30 PM → overshoots bedtime → would show "Feed by" —
+    // To get pure countdown, last feed must be due BEFORE bedtime:
+    // last feed at 3:30 PM → next = 7:30 PM → overshoots → shows "Feed by"
+    // last feed at 4:30 PM (just 30m ago) → next feed = 8:30 PM → overshoots → still shows "Feed by"
+    // The ONLY way to get pure countdown is when normal next feed <= bedtime:
+    // Stage 2 interval = 4h; bedtime = 7 PM; last feed must be after 3 PM for next feed = before 7 PM
+    // last feed at 4 PM → next = 8 PM → still overshoots
+    // last feed at 3:10 PM → next = 7:10 PM → overshoots (just barely)
+    // last feed at 3:00 PM → next = 7:00 PM → exactly bedtime → does NOT overshoot (equal is ok)
+    // last feed at 4:00 PM → ... feed at 3 PM = 7 PM exactly → no snap → pure countdown
+    const testNow = new Date(2026, 2, 14, 17, 0, 0); // 5 PM
+    const wokeAt = new Date(testNow.getTime() - 60 * 60_000); // 4 PM
+    const lastFeedAt = new Date(2026, 2, 14, 15, 0, 0); // 3 PM → next = 7 PM exactly (= bedtime, no snap)
+    const latest = makeLatest({ wokeAt, lastFeedAt });
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isBedtimeStretch).toBe(true);
+    expect(insight.narrative).not.toMatch(/Feed.*by/);
+    expect(insight.narrative).toContain('Bedtime');
+  });
+
+  it('narrative shows urgency overdue when feed window has already passed', () => {
+    // testNow = 6:45 PM; bedtime = 7 PM; feed deadline = 6:30 PM (already passed)
+    // Last feed overshoots bedtime → feed deadline was 6:30 PM → now past that
+    const testNow = new Date(2026, 2, 14, 18, 45, 0); // 6:45 PM
+    const wokeAt = new Date(testNow.getTime() - 2 * 60 * 60_000); // 4:45 PM
+    // Need overshoot: lastFeedAt at 3:30 PM → next = 7:30 PM; deadline = 6:30 PM; testNow = 6:45 PM → overdue
+    const lastFeedAtOvershoot = new Date(2026, 2, 14, 15, 30, 0); // 3:30 PM
+    const latestOvershoot = makeLatest({ wokeAt, lastFeedAt: lastFeedAtOvershoot });
+    const insight = getBabyInsight(baby, latestOvershoot, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isBedtimeStretch).toBe(true);
+    expect(insight.urgency).toBe('overdue');
+    expect(insight.narrative).toMatch(/Feed.*before bed/);
+    expect(insight.narrative).toContain('Bedtime');
+  });
+
+  it('narrative includes "+ change" suffix when diaper also needs to happen before bedtime', () => {
+    // testNow = 5:30 PM; bedtime = 7 PM; feed overhoots; last diaper > 1h 45m ago
+    // last diaper at 3 PM → normal next = 5 PM → past pre-bedtime diaper deadline (6:45 PM)? No.
+    // Normal next diaper at 5 PM < 6:45 PM → no snap (not overdue). Need diaper to overshoot too:
+    // last diaper at 5 PM → normal next = 7 PM → overshoots 6:45 PM diaper deadline → snap
+    const testNow = new Date(2026, 2, 14, 17, 30, 0); // 5:30 PM
+    const wokeAt = new Date(testNow.getTime() - 60 * 60_000); // 4:30 PM
+    const lastFeedAt = new Date(2026, 2, 14, 15, 30, 0); // 3:30 PM → next = 7:30 PM (overshoots)
+    const lastDiaperAt = new Date(2026, 2, 14, 17, 0, 0); // 5 PM → next = 7 PM (overshoots 6:45 PM deadline)
+    const latest = makeLatest({ wokeAt, lastFeedAt, lastDiaperAt });
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.isBedtimeStretch).toBe(true);
+    expect(insight.narrative).toMatch(/\+ change/);
+  });
+
+  it('predictions bottle chip snaps to pre-bedtime deadline when normal next feed overshoots', () => {
+    // Same scenario as "Feed by X" narrative test: feed snapped from 7:30 PM → 6:30 PM
+    const testNow = new Date(2026, 2, 14, 17, 45, 0); // 5:45 PM
+    const wokeAt = new Date(testNow.getTime() - 60 * 60_000);
+    const lastFeedAt = new Date(2026, 2, 14, 15, 30, 0); // → next = 7:30 PM → snaps to 6:30 PM
+    const latest = makeLatest({ wokeAt, lastFeedAt });
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    const bottleChip = insight.predictions.find(p => p.type === 'bottle');
+    expect(bottleChip).toBeDefined();
+    // Normal next = 7:30 PM = testNow + 1h 45m; snapped = 6:30 PM = testNow + 45m
+    // Remaining should be ~45 minutes, not 1h 45m
+    expect(bottleChip!.remainingMs).toBeLessThan(60 * 60_000); // < 1h (was 1h 45m before snapping)
+    expect(bottleChip!.remainingMs).toBeGreaterThan(0);
+  });
+
+  it('bedtime uses effectiveBedtimeHour: Stage 2 uses user pref, Stage 1 uses 10pm', () => {
+    // Verify Stage 2 baby with bedtimeHour=19 respects that preference
+    const testNow = new Date(2026, 2, 14, 18, 30, 0); // 6:30 PM — 30min before 7 PM
+    const wokeAt = new Date(testNow.getTime() - 60 * 60_000); // 5:30 PM
+    const lastFeedAt = new Date(2026, 2, 14, 15, 30, 0); // 3:30 PM → next = 7:30 PM → snaps to 6:30 PM
+    const latest = makeLatest({ wokeAt, lastFeedAt });
+
+    // Stage 2 baby with bedtimeHour=19 → feed deadline = 18:30, testNow = 18:30 → right on the edge
+    const insightStage2 = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insightStage2.isBedtimeStretch).toBe(true);
+
+    // Stage 1 baby (no birthDate → 14w default) with same testNow and bedtimeHour=19
+    // effectiveBedtimeHour = 22, so todayBedtime = 10 PM → 6:30 PM is 3.5h before 10 PM
+    // → isBedtimeStretch should be false (suppressed for Stage 1)
+    const stage1Baby: Baby = { ...baby, birthDate: undefined };
+    const insightStage1 = getBabyInsight(stage1Baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insightStage1.isBedtimeStretch).toBe(false);
+    expect(insightStage1.narrative).not.toContain('Bedtime');
   });
 });

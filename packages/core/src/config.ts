@@ -6,10 +6,13 @@
 export const NAP_CHECK_MINUTES = [15, 20, 30] as const;
 export type NapCheckMinutes = (typeof NAP_CHECK_MINUTES)[number];
 
-export const BEDTIME_HOURS = [18, 19, 20, 21, 22] as const;
+/** Stage 1 (0–15 weeks) bedtime — 10pm per sleep training research (~10pm circadian anchor). */
+export const STAGE1_BEDTIME_HOUR = 22;
+
+export const BEDTIME_HOURS = [18, 19, 20, 21, 22, 23] as const;
 export type BedtimeHour = (typeof BEDTIME_HOURS)[number];
 
-export const WAKE_HOURS = [5, 6, 7, 8] as const;
+export const WAKE_HOURS = [4, 5, 6, 7, 8] as const;
 export type WakeHour = (typeof WAKE_HOURS)[number];
 
 export const BOTTLE_OZ = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -30,6 +33,9 @@ export const MIN_DAYS_FOR_MONTH_VIEW = 7;
 
 export const NURSING_MINUTES = [5, 10, 15, 20, 25, 30, 40] as const;
 export type NursingMinutes = (typeof NURSING_MINUTES)[number];
+
+export const NURSING_BREAST_OPTIONS = ['left', 'right'] as const;
+export type NursingBreast = (typeof NURSING_BREAST_OPTIONS)[number];
 
 export const DIAPER_OPTIONS = ['wet', 'dirty', 'both'] as const;
 export type DiaperOption = (typeof DIAPER_OPTIONS)[number];

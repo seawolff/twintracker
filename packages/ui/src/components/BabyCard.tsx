@@ -18,6 +18,7 @@ import {
   MoreVertIcon,
   BarChartIcon,
   TimerIcon,
+  PersonIcon,
 } from './icons/BabyIcons';
 import { TriageStrip } from './TriageStrip';
 import { NapTimerModal } from './NapTimerModal';
@@ -31,6 +32,7 @@ interface BabyCardProps {
   events: TrackerEvent[];
   onLog: (type: EventType, suggestedOz?: number) => void;
   onOpenAnalytics?: (babyId: string) => void;
+  onOpenProfile?: () => void;
   now?: Date;
   resetHour?: number;
   bedtimeHour?: number;
@@ -60,6 +62,7 @@ export function BabyCard({
   events,
   onLog,
   onOpenAnalytics,
+  onOpenProfile,
   now: nowProp,
   resetHour = 0,
   bedtimeHour = 19,
@@ -132,12 +135,16 @@ export function BabyCard({
         ? theme.urgencySoon
         : theme.textDim;
 
-  const isSleepMode = insight.isNight || insight.isBedtimeStretch;
+  // Stage 1 newborns have no circadian rhythm — every sleep logs as 'sleep' type, not 'nap'.
+  const isSleepMode = insight.isNight || insight.isBedtimeStretch || insight.scheduleStage === 1;
   const napWaking = napIsActive || sleepIsActive;
   const napActionType: EventType = getNapActionType(napIsActive, sleepIsActive, isSleepMode);
+  // Stage 1 shows "Nap" label (same as daytime Stage 2) — logs as 'sleep' type behind the scenes.
+  // Night mode and bedtime stretch show "Sleep" label; Stage 1 does not.
+  const isSleepLabel = insight.isNight || insight.isBedtimeStretch;
   const napLabel = napWaking
     ? i18n.t('home.action_wake')
-    : isSleepMode
+    : isSleepLabel
       ? i18n.t('log_sheet.types.sleep')
       : i18n.t('log_sheet.types.nap');
 
@@ -160,6 +167,27 @@ export function BabyCard({
             {baby.name}
           </Text>
           <View style={styles.nameRowActions}>
+            {onOpenProfile && (
+              <Pressable
+                onPress={onOpenProfile}
+                onPressIn={() => setPressedBtn('profile')}
+                onPressOut={() => setPressedBtn('')}
+                accessibilityLabel={i18n.t('baby_profile.edit_profile', { name: baby.name })}
+                style={styles.iconBtn}
+              >
+                {pressedBtn === 'profile' && (
+                  <View
+                    style={[
+                      StyleSheet.absoluteFillObject,
+                      styles.stateLayer,
+                      { backgroundColor: theme.text },
+                    ]}
+                    pointerEvents="none"
+                  />
+                )}
+                <PersonIcon size={ICON_SIZE} color={theme.textDim} />
+              </Pressable>
+            )}
             {onOpenAnalytics && (
               <Pressable
                 onPress={() => onOpenAnalytics(baby.id)}

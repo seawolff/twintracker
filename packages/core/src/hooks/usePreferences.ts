@@ -10,8 +10,6 @@ export interface Preferences {
   bedtimeHour: number; // target bedtime hour 0–23; default 19 (7pm, Stage 2+); use 22 for Stage 1 newborns
   wakeHour: number; // expected morning wake hour 0–23; default 7 (7am); also used as the daily history reset boundary
   sleepTraining: boolean; // show self-soothing wait times and guided cues during nap/sleep, default false
-  diaperNotifications: boolean; // push notification ~3h after last diaper change, default true
-  bottleNotifications: boolean; // push notification when next feed is predicted due, default true
 }
 
 const DEFAULT: Preferences = {
@@ -20,8 +18,6 @@ const DEFAULT: Preferences = {
   bedtimeHour: 19,
   wakeHour: 7,
   sleepTraining: false,
-  diaperNotifications: true,
-  bottleNotifications: true,
 };
 
 function webStorage(): StorageInterface | null {
@@ -53,8 +49,6 @@ export function usePreferences(storage?: StorageInterface): {
   setBedtimeHour: (hour: number) => void;
   setWakeHour: (hour: number) => void;
   setSleepTraining: (enabled: boolean) => void;
-  setDiaperNotifications: (enabled: boolean) => void;
-  setBottleNotifications: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<Preferences>(() => readSync(storage ?? webStorage()));
 
@@ -79,14 +73,23 @@ export function usePreferences(storage?: StorageInterface): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // On mount, fetch from API — authoritative cross-device state wins over local cache
+  // On mount, fetch from API to hydrate a fresh device that has no local data.
+  // If local data already exists (e.g. set during onboarding), skip the overwrite —
+  // the local values are up to date and the API response may be stale if in-flight
+  // PUT requests haven't landed yet.
   useEffect(() => {
     api.preferences
       .get()
       .then(remote => {
+        const store = storage ?? webStorage();
+        const localRaw = store ? store.getItem(PREFS_KEY) : null;
+        if (localRaw instanceof Promise || localRaw != null) {
+          // Local data exists — already loaded via useState initializer; don't overwrite.
+          return;
+        }
+        // No local data: populate from API and cache locally.
         const merged: Preferences = { ...DEFAULT, ...remote };
         setPrefs(merged);
-        const store = storage ?? webStorage();
         if (store) {
           store.setItem(PREFS_KEY, JSON.stringify(merged));
         }
@@ -137,16 +140,6 @@ export function usePreferences(storage?: StorageInterface): {
     [prefs, save],
   );
 
-  const setDiaperNotifications = useCallback(
-    (enabled: boolean) => save({ ...prefs, diaperNotifications: enabled }),
-    [prefs, save],
-  );
-
-  const setBottleNotifications = useCallback(
-    (enabled: boolean) => save({ ...prefs, bottleNotifications: enabled }),
-    [prefs, save],
-  );
-
   return {
     prefs,
     setNapCheckMinutes,
@@ -154,7 +147,5 @@ export function usePreferences(storage?: StorageInterface): {
     setBedtimeHour,
     setWakeHour,
     setSleepTraining,
-    setDiaperNotifications,
-    setBottleNotifications,
   };
 }

@@ -32,7 +32,6 @@ const SCROLL_LOAD_THRESHOLD_PX = 400;
 interface HistoryFeedProps {
   events: TrackerEvent[];
   babies: Baby[];
-  resetHour?: number;
   now?: Date;
   onDelete: (id: string) => void;
   onEdit: (event: TrackerEvent) => void;
@@ -153,7 +152,6 @@ function SwipeRow({
 export function HistoryFeed({
   events,
   babies,
-  resetHour = 0,
   now: nowProp,
   onDelete,
   onEdit,
@@ -204,7 +202,7 @@ export function HistoryFeed({
     );
   }
 
-  const groups = groupEventsByDay(events, now, resetHour);
+  const groups = groupEventsByDay(events, now, 0);
 
   function handleScroll(e: {
     nativeEvent: {
@@ -318,7 +316,6 @@ HistoryFeed.propTypes = {
       color: PropTypes.string.isRequired,
     }).isRequired,
   ).isRequired,
-  resetHour: PropTypes.number,
   onDelete: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onAddForDay: PropTypes.func.isRequired,

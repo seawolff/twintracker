@@ -17,3 +17,4 @@ export * from './config';
 export * from './logic/twinSync';
 export * from './logic/authorUtils';
 export * from './logic/filterEvents';
+export * from './logic/growthPercentiles';

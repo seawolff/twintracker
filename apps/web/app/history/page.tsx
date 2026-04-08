@@ -5,7 +5,6 @@ import {
   configure,
   useAuth,
   useEventStore,
-  usePreferences,
   api,
   applyHistoryFilters,
   emptyFilters,
@@ -39,7 +38,6 @@ export default function HistoryPage() {
     logEvent,
     poll,
   } = useEventStore(!authLoading && isAuthenticated);
-  const { prefs } = usePreferences();
   const showSkeleton = useDelayedLoading(authLoading || eventsLoading);
   const [babies, setBabies] = useState<Baby[]>([]);
   const [editingEvent, setEditingEvent] = useState<TrackerEvent | null>(null);
@@ -153,7 +151,6 @@ export default function HistoryPage() {
         <HistoryFeed
           events={filteredEvents}
           babies={babies}
-          resetHour={prefs.wakeHour}
           onDelete={id => deleteEvent(id).catch(console.error)}
           onRestore={event =>
             logEvent({

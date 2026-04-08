@@ -47,7 +47,11 @@ export function TriageStrip({ insight }: TriageStripProps) {
           style={[styles.value, { color: theme.textDim, fontFamily: fonts.mono }]}
           numberOfLines={1}
         >
-          {insight.fedAgo ?? '—'}
+          {insight.feedCountToday > 0
+            ? insight.totalOzToday > 0
+              ? `${insight.feedCountToday}/${insight.targetFeedsPerDay} · ${insight.totalOzToday}oz`
+              : `${insight.feedCountToday}/${insight.targetFeedsPerDay} feeds`
+            : (insight.fedAgo ?? '—')}
         </Text>
       </View>
       <View

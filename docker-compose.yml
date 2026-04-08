@@ -28,7 +28,7 @@ services:
       NODE_ENV: development
       # Email verification — leave blank in dev to log links to console instead of sending.
       # Set all five in production to send real emails via any SMTP provider.
-      APP_URL: http://10.0.0.101:3001
+      APP_URL: http://localhost:3001
       SMTP_HOST: ''
       SMTP_PORT: '587'
       SMTP_SECURE: 'false'

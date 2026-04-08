@@ -8,9 +8,29 @@ import type {
   Urgency,
 } from '../types/index';
 import type { LearnedStats } from './learnedSchedule';
+import { AAP_MAX_DAILY_OZ, STAGE1_BEDTIME_HOUR } from '../config';
+import i18n from '../i18n/index';
 
 const SOON_THRESHOLD_MS = 5 * 60 * 1000;
 export const DIAPER_INTERVAL_MS = 2 * 60 * 60 * 1000;
+/**
+ * How far before bedtime the last feed should start.
+ * 30 min allows ~15 min to feed + burp and ~15 min to change + settle before sleep.
+ * Applies for Stage 2+ only (Stage 1 has no fixed bedtime).
+ */
+const PRE_BEDTIME_FEED_BUFFER_MS = 30 * 60_000;
+/**
+ * How far before bedtime the diaper change should happen.
+ * Targeted after the pre-bedtime feed (15 min before bedtime).
+ */
+const PRE_BEDTIME_DIAPER_BUFFER_MS = 15 * 60_000;
+/**
+ * AAP guidance: wake babies under 4 weeks if they have been sleeping > 4–5h without a feed.
+ * Weight gain is the priority in the first month — they should not be allowed to sleep through feeds.
+ */
+const NEWBORN_MAX_SLEEP_MS = 4 * 60 * 60_000;
+/** Age threshold for the overnight feed wake alert — applies only in the first 4 weeks. */
+const NEWBORN_WAKE_ALERT_WEEKS = 4;
 
 // ---------------------------------------------------------------------------
 // Age-based schedule helpers
@@ -24,9 +44,20 @@ export function getAgeWeeks(birthDate?: string): number {
   return Math.floor(ms / (7 * 24 * 60 * 60 * 1000));
 }
 
+/** Returns baby's age in whole days, or null if birthDate is missing. */
+export function getAgeDays(birthDate?: string | null): number | null {
+  if (!birthDate) {
+    return null;
+  }
+  const ms = Date.now() - new Date(birthDate).getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+/** Milliseconds in one day — used for feeds-per-day calculations. */
+const MS_PER_DAY = 24 * 60 * 60_000;
+
 /**
  * Age-appropriate default formula oz per feed.
- * Source: TwinTrackerSleepTrainingModuleResea.md (research source of truth).
  * Max daily intake ~32 oz; individual needs vary — learned stats override this.
  */
 export function getDefaultOzForAge(ageWeeks: number): number {
@@ -50,7 +81,6 @@ export function getDefaultOzForAge(ageWeeks: number): number {
  * Stage 1 (0–15w): 3-hour Feed→Play→Sleep cycle; late ~10pm bedtime.
  * Stage 2 (16w–18m): 4-hour schedule; two 2-hour crib naps; 7pm bedtime.
  * Stage 3 (18m+): one 2–3h afternoon nap starting 12–2pm.
- * Source: TwinTrackerSleepTrainingModuleResea.md
  */
 export function getScheduleStage(ageWeeks: number): 1 | 2 | 3 {
   if (ageWeeks < 16) return 1;
@@ -68,38 +98,10 @@ export function getScheduleStage(ageWeeks: number): 1 | 2 | 3 {
  *   16–52w: 3h   — Stage 2 infants; one feed every 4h but diaper check is still 3h
  *   52w+:   3.5h — toddlers; less frequent changes needed
  */
-export function getDiaperReminderIntervalMs(birthDate?: string | null): number {
-  const weeks = getAgeWeeks(birthDate ?? undefined);
-  if (weeks < 4) return 1.5 * 60 * 60_000;
-  if (weeks < 8) return 2 * 60 * 60_000;
-  if (weeks < 16) return 2.5 * 60 * 60_000;
-  if (weeks < 52) return 3 * 60 * 60_000;
-  return 3.5 * 60 * 60_000;
-}
-
-/**
- * Age-adaptive interval for feed reminders.
- * Delegates to the same feed-interval table used by the baby card schedule,
- * so reminder timing is always consistent with what the card predicts.
- */
-export function getFeedReminderIntervalMs(birthDate?: string | null): number {
-  return getScheduleForAge(getAgeWeeks(birthDate ?? undefined)).feedMs;
-}
-
-/**
- * Human-readable "about Xh" label for a reminder interval (used in notification body).
- * e.g. 5400000 → "1.5 hours", 7200000 → "2 hours", 10800000 → "3 hours"
- */
-export function formatReminderInterval(ms: number): string {
-  const h = ms / (60 * 60_000);
-  return h % 1 === 0 ? `${h} hour${h === 1 ? '' : 's'}` : `${h} hours`;
-}
-
 /**
  * How many minutes to wait before responding to overnight/nap crying.
  * Timer resets if crying stops — only count uninterrupted crying.
  * After wait: respond only with food (ghost feed), no rocking or comfort.
- * Source: TwinTrackerSleepTrainingModuleResea.md Tip #6
  * Note: Sleep Training mode will surface this prominently; here it's passive data.
  */
 export function getSelfSoothingMinutes(ageWeeks: number): number {
@@ -172,16 +174,6 @@ export function getTargetDailySleepMs(ageWeeks: number): { minMs: number; maxMs:
     return { minMs: h(12), maxMs: h(15) };
   }
   return { minMs: h(11), maxMs: h(14) };
-}
-
-/**
- * Returns true if the given fire timestamp would land inside the night window
- * (bedtimeHour ≤ hour < midnight, or midnight ≤ hour < wakeHour).
- * Used to suppress bottle/diaper reminder notifications during sleep time.
- */
-export function isNightFireTime(fireMs: number, bedtimeHour: number, wakeHour: number): boolean {
-  const h = new Date(fireMs).getHours();
-  return h >= bedtimeHour || h < wakeHour;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +343,18 @@ export interface BabyInsight {
   /** "Active · 1h 5m" / "1h 30m ago" / null if no nap data */
   sleepStatus: string | null;
   totalOzToday: number;
+  /**
+   * Age-based daily oz target: (feeds per day × suggestedOz), capped at AAP_MAX_DAILY_OZ.
+   * Uses learned feed interval when available. Only meaningful for bottle-fed babies.
+   */
+  targetOzToday: number;
+  /** Number of bottle + nursing events logged since the daily reset boundary. */
+  feedCountToday: number;
+  /**
+   * How many feeds fit in 24h at the current schedule interval.
+   * Stage 1 (3h) = 8, Stage 2 (4h) = 6, Stage 3 (5h) = 5.
+   */
+  targetFeedsPerDay: number;
   urgency: Urgency;
   /** Forward-looking predictions, sorted soonest/most-overdue first */
   predictions: PredictedAction[];
@@ -382,6 +386,13 @@ export interface BabyInsight {
 /**
  * Compute forward-looking predictions for bottle and diaper.
  * Pass `lastFeedMs=0` if no feed data — bottle prediction will be omitted.
+ *
+ * When `bedtimeMs` is provided (bedtime stretch), predictions are snapped earlier
+ * so that the feed and diaper change happen *before* sleep rather than after:
+ *   - Feed deadline → bedtimeMs - PRE_BEDTIME_FEED_BUFFER_MS
+ *   - Diaper deadline → bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS
+ * Only snapped when the normal timing would fall past the respective deadline.
+ * `bedtimeMs` is always the effective bedtime (accounts for Stage 1 = 22:00 override).
  */
 function computePredictions(
   babyId: string,
@@ -389,29 +400,46 @@ function computePredictions(
   lastFeedMs: number,
   schedule: { feedMs: number; awakeMs: number },
   now: Date,
+  bedtimeMs?: number,
 ): PredictedAction[] {
   const nowMs = now.getTime();
   const results: PredictedAction[] = [];
 
-  // Bottle
+  // Bottle — snap to pre-bedtime deadline when the normal next feed overshoots bedtime
   if (lastFeedMs > 0) {
-    const remainingMs = lastFeedMs + schedule.feedMs - nowMs;
+    const normalNextFeedMs = lastFeedMs + schedule.feedMs;
+    const feedDeadlineMs =
+      bedtimeMs != null && normalNextFeedMs > bedtimeMs
+        ? bedtimeMs - PRE_BEDTIME_FEED_BUFFER_MS
+        : normalNextFeedMs;
+    const remainingMs = feedDeadlineMs - nowMs;
     results.push({
       type: 'bottle',
-      label: remainingMs > 0 ? `Bottle in ${formatMs(remainingMs)}` : 'Bottle due',
+      label:
+        remainingMs > 0
+          ? i18n.t('schedule.pred_bottle_in', { time: formatMs(remainingMs) })
+          : i18n.t('schedule.pred_bottle_due'),
       remainingMs,
       intervalMs: schedule.feedMs,
       urgency: urgency(remainingMs),
     });
   }
 
-  // Diaper
+  // Diaper — snap to pre-bedtime deadline when the normal next change overshoots bedtime
   const diaperEvent = latest[`${babyId}:diaper`];
   if (diaperEvent) {
-    const remainingMs = new Date(diaperEvent.startedAt).getTime() + DIAPER_INTERVAL_MS - nowMs;
+    const normalNextDiaperMs = new Date(diaperEvent.startedAt).getTime() + DIAPER_INTERVAL_MS;
+    const diaperDeadlineMs =
+      bedtimeMs != null && normalNextDiaperMs > bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS
+        ? bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS
+        : normalNextDiaperMs;
+    const remainingMs = diaperDeadlineMs - nowMs;
     results.push({
       type: 'diaper',
-      label: remainingMs > 0 ? `Change in ${formatMs(remainingMs)}` : 'Change due',
+      label:
+        remainingMs > 0
+          ? i18n.t('schedule.pred_change_in', { time: formatMs(remainingMs) })
+          : i18n.t('schedule.pred_change_due'),
       remainingMs,
       intervalMs: DIAPER_INTERVAL_MS,
       urgency: urgency(remainingMs),
@@ -434,14 +462,13 @@ export function getBabyInsight(
 ): BabyInsight {
   const nowMs = now.getTime();
   const nowHour = now.getHours();
-  const isNight = nowHour >= bedtimeHour || nowHour < wakeHour;
 
   const ageWeeks = getAgeWeeks(baby.birthDate);
   const ageSchedule = getScheduleForAge(ageWeeks);
   const schedule = {
     napMs: learnedStats?.avgNapDurationMs ?? ageSchedule.napMs,
     awakeMs: learnedStats?.avgAwakeWindowMs ?? ageSchedule.awakeMs,
-    feedMs: learnedStats?.avgFeedIntervalMs ?? ageSchedule.feedMs,
+    feedMs: learnedStats?.avgFeedIntervalMs || ageSchedule.feedMs,
   };
   const suggestedOz =
     learnedStats?.avgBottleOz != null
@@ -449,6 +476,10 @@ export function getBabyInsight(
       : getDefaultOzForAge(ageWeeks);
   const scheduleStage = getScheduleStage(ageWeeks);
   const selfSoothingMinutes = getSelfSoothingMinutes(ageWeeks);
+
+  /** Stage 1 newborns have a 10pm circadian anchor — use that instead of user's bedtime preference. */
+  const effectiveBedtimeHour = scheduleStage === 1 ? STAGE1_BEDTIME_HOUR : bedtimeHour;
+  const isNight = nowHour >= effectiveBedtimeHour || nowHour < wakeHour;
 
   // Total oz today (bottle events for this baby since the daily reset boundary)
   const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), resetHour, 0, 0, 0);
@@ -463,6 +494,17 @@ export function getBabyInsight(
     )
     // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
     .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+
+  // Total feeds today (bottle + nursing) for this baby since the daily reset boundary
+  const feedCountToday = events.filter(
+    e =>
+      e.babyId === baby.id &&
+      (e.type === 'bottle' || e.type === 'nursing') &&
+      new Date(e.startedAt).getTime() >= resetMs,
+  ).length;
+
+  // Target feeds per day: how many feed intervals fit in 24h at the current schedule
+  const targetFeedsPerDay = Math.round(MS_PER_DAY / schedule.feedMs);
 
   // Last feed
   const bottleEvent = latest[`${baby.id}:bottle`];
@@ -527,23 +569,39 @@ export function getBabyInsight(
 
   // Pre-bedtime stretch: baby woke within 4.5h of tonight's bedtime and bedtime hasn't arrived.
   // Drives the Nap→Sleep button switch and bedtime-countdown narrative.
+  // Stage 1 newborns have no circadian rhythm yet — suppress the bedtime stretch entirely.
   const todayBedtime = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
-    bedtimeHour,
+    effectiveBedtimeHour,
     0,
     0,
     0,
   );
   const bedtimeRemainingMs = todayBedtime.getTime() - nowMs;
   const isBedtimeStretch =
+    scheduleStage !== 1 &&
     lastWokeMs > 0 &&
     todayBedtime.getTime() - lastWokeMs <= 4.5 * 60 * 60_000 &&
     bedtimeRemainingMs > 0;
 
   // Forward-looking predictions
-  const predictions = computePredictions(baby.id, latest, lastFeedMs, schedule, now);
+  // Pass effective bedtime so predictions snap to pre-bedtime deadlines during the stretch.
+  const predictions = computePredictions(
+    baby.id,
+    latest,
+    lastFeedMs,
+    schedule,
+    now,
+    isBedtimeStretch ? todayBedtime.getTime() : undefined,
+  );
+
+  // Daily oz target: (feeds per day × oz per feed), capped at the AAP maximum.
+  const targetOzToday = Math.min(
+    Math.round((MS_PER_DAY / schedule.feedMs) * suggestedOz),
+    AAP_MAX_DAILY_OZ,
+  );
 
   // Shared profile stats spread into every return
   const stats = {
@@ -551,6 +609,9 @@ export function getBabyInsight(
     changedAgo,
     sleepStatus,
     totalOzToday,
+    targetOzToday,
+    feedCountToday,
+    targetFeedsPerDay,
     predictions,
     suggestedOz,
     scheduleStage,
@@ -565,16 +626,28 @@ export function getBabyInsight(
     const elapsedMs = nowMs - eventStartMs;
     const elapsedStr = formatMs(elapsedMs);
 
-    if (activeEventIsNight) {
-      // Night sleep: no alarm (let them sleep); show elapsed time
+    // AAP: wake babies < 4 weeks if sleeping > 4h without a feed — weight gain is priority.
+    if (ageWeeks < NEWBORN_WAKE_ALERT_WEEKS && elapsedMs >= NEWBORN_MAX_SLEEP_MS) {
       return {
-        headline: `Sleeping · ${elapsedStr}`,
-        narrative: `${baby.name} is sleeping for the night.`,
+        headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.newborn_wake_narrative', { name: baby.name }),
+        alarmMs: null,
+        urgency: 'overdue',
+        ...stats,
+      };
+    }
+
+    if (activeEventIsNight && scheduleStage !== 1) {
+      // Night sleep (Stage 2+): no alarm (let them sleep); show elapsed time
+      return {
+        headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.sleeping_night', { name: baby.name }),
         alarmMs: null,
         urgency: 'ok',
         ...stats,
       };
     }
+    // Stage 1: no circadian rhythm — all sleeps use the same countdown narrative below
 
     // Daytime nap
     const remainingMs = schedule.napMs - elapsedMs;
@@ -583,16 +656,19 @@ export function getBabyInsight(
       const wakeTimeStr = formatTime12(wakeTime);
       const remainingStr = formatMsProse(remainingMs);
       return {
-        headline: `Sleeping · ${elapsedStr}`,
-        narrative: `Likely awake around ${wakeTimeStr}, in about ${remainingStr}.`,
+        headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.nap_wake_likely', {
+          time: wakeTimeStr,
+          remaining: remainingStr,
+        }),
         alarmMs: remainingMs,
         urgency: remainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
     } else {
       return {
-        headline: `Sleeping · ${elapsedStr}`,
-        narrative: `Sleeping a bit longer than usual. Could be awake any minute.`,
+        headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.nap_overdue'),
         alarmMs: null,
         urgency: 'overdue',
         ...stats,
@@ -605,12 +681,114 @@ export function getBabyInsight(
     const awakeElapsedMs = nowMs - lastWokeMs;
     const elapsedStr = formatMs(awakeElapsedMs);
 
+    // Stage 2 early (16–26 weeks): suggest the 5–6 PM catnap.
+    // Babies this age need a short contact nap (swing/stroller/arms) to bridge
+    // the 2h awake window to 7 PM bedtime without becoming overtired.
+    // Suggestion activates when baby is within 15 min of — or past — the awake window.
+    // After 26 weeks the pattern consolidates to 2 full crib naps and this bridge nap drops.
+    const isCatnapAge = scheduleStage === 2 && ageWeeks < 26;
+    /** 5–6 PM window (hour 17) when a catnap is developmentally appropriate. */
+    const CATNAP_START_HOUR = 17;
+    const CATNAP_END_HOUR = 18;
+    const isCatnapWindow = isCatnapAge && nowHour >= CATNAP_START_HOUR && nowHour < CATNAP_END_HOUR;
+    /** Show suggestion when within 15 min of the awake window or already overdue. */
+    const CATNAP_LEAD_MS = 15 * 60_000;
+    const isCatnapDue = awakeElapsedMs >= schedule.awakeMs - CATNAP_LEAD_MS;
+
+    if (isCatnapWindow && isCatnapDue) {
+      const catnapRemainingMs = schedule.awakeMs - awakeElapsedMs;
+      const catnapTime = new Date(lastWokeMs + schedule.awakeMs);
+      const catnapTimeStr = formatTime12(catnapTime);
+      return {
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative:
+          catnapRemainingMs <= 0
+            ? i18n.t('schedule.catnap_time')
+            : catnapRemainingMs <= SOON_THRESHOLD_MS
+              ? i18n.t('schedule.catnap_soon', { time: catnapTimeStr })
+              : i18n.t('schedule.catnap_in', {
+                  remaining: formatMsProse(catnapRemainingMs),
+                  time: catnapTimeStr,
+                }),
+        alarmMs: null,
+        urgency: catnapRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
+        ...stats,
+      };
+    }
+
     if (isBedtimeStretch) {
       const bedtimeStr = formatTime12(todayBedtime);
       const remainingStr = formatMsProse(bedtimeRemainingMs);
+      const bedtimeMs = todayBedtime.getTime();
+
+      // Pre-bedtime feed: needed when normal next feed would fall after bedtime
+      const normalNextFeedMs = lastFeedMs > 0 ? lastFeedMs + schedule.feedMs : 0;
+      const needsFeedBeforeBed = normalNextFeedMs > 0 && normalNextFeedMs > bedtimeMs;
+      const preBedtimeFeedDeadlineMs = bedtimeMs - PRE_BEDTIME_FEED_BUFFER_MS;
+      const feedBeforeBedRemainingMs = preBedtimeFeedDeadlineMs - nowMs;
+
+      // Pre-bedtime diaper: needed when normal next change would fall past the diaper deadline
+      const lastDiaperMs = diaperEvent ? new Date(diaperEvent.startedAt).getTime() : 0;
+      const normalNextDiaperMs = lastDiaperMs > 0 ? lastDiaperMs + DIAPER_INTERVAL_MS : 0;
+      const preBedtimeDiaperDeadlineMs = bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS;
+      const needsDiaperBeforeBed =
+        normalNextDiaperMs > 0 && normalNextDiaperMs > preBedtimeDiaperDeadlineMs;
+
+      if (needsFeedBeforeBed && feedBeforeBedRemainingMs <= 0) {
+        // Feed window has passed — escalate to overdue
+        return {
+          headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+          narrative: needsDiaperBeforeBed
+            ? i18n.t('schedule.feed_diaper_before_bed', { bedtime: bedtimeStr })
+            : i18n.t('schedule.feed_before_bed', { bedtime: bedtimeStr }),
+          alarmMs: null,
+          urgency: 'overdue',
+          ...stats,
+        };
+      }
+
+      if (needsFeedBeforeBed) {
+        const feedByStr = formatTime12(new Date(preBedtimeFeedDeadlineMs));
+        return {
+          headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+          narrative: needsDiaperBeforeBed
+            ? i18n.t('schedule.feed_change_by_bedtime', {
+                feedBy: feedByStr,
+                remaining: remainingStr,
+                bedtime: bedtimeStr,
+              })
+            : i18n.t('schedule.feed_by_bedtime', {
+                feedBy: feedByStr,
+                remaining: remainingStr,
+                bedtime: bedtimeStr,
+              }),
+          alarmMs: null,
+          urgency: feedBeforeBedRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
+          ...stats,
+        };
+      }
+
+      // No pre-bedtime feed needed — pure bedtime countdown
       return {
-        headline: `Awake · ${elapsedStr}`,
-        narrative: `Bedtime in about ${remainingStr} · ${bedtimeStr}.`,
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.bedtime_in', { remaining: remainingStr, time: bedtimeStr }),
+        alarmMs: null,
+        urgency: bedtimeRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
+        ...stats,
+      };
+    }
+
+    // If there's less than one full nap's worth of time before bedtime, a nap would run
+    // past bedtime — show bedtime countdown instead of nap language.
+    // isBedtimeStretch handles the normal last-awake-stretch case (woke within 4.5h of
+    // bedtime); this guard catches the edge case where the baby skipped or delayed a nap
+    // and is still awake well past when they should have gone down.
+    if (scheduleStage !== 1 && bedtimeRemainingMs > 0 && bedtimeRemainingMs < schedule.napMs) {
+      const bedtimeStr = formatTime12(todayBedtime);
+      const remainingStr = formatMsProse(bedtimeRemainingMs);
+      return {
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.bedtime_in', { remaining: remainingStr, time: bedtimeStr }),
         alarmMs: null,
         urgency: bedtimeRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
@@ -621,8 +799,8 @@ export function getBabyInsight(
 
     if (remainingMs <= 0) {
       return {
-        headline: `Awake · ${elapsedStr}`,
-        narrative: `It's time for a nap.`,
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.nap_time'),
         alarmMs: null,
         urgency: 'overdue',
         ...stats,
@@ -632,11 +810,11 @@ export function getBabyInsight(
       const napTimeStr = formatTime12(napTime);
       const remainingStr = formatMsProse(remainingMs);
       return {
-        headline: `Awake · ${elapsedStr}`,
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative:
           remainingMs <= SOON_THRESHOLD_MS
-            ? `Nap time · ${napTimeStr}.`
-            : `Nap in about ${remainingStr} · ${napTimeStr}.`,
+            ? i18n.t('schedule.nap_time_soon', { time: napTimeStr })
+            : i18n.t('schedule.nap_in', { remaining: remainingStr, time: napTimeStr }),
         alarmMs: null,
         urgency: remainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
@@ -646,8 +824,8 @@ export function getBabyInsight(
       const napTime = new Date(lastWokeMs + schedule.awakeMs);
       const napTimeStr = formatTime12(napTime);
       return {
-        headline: `Awake · ${elapsedStr}`,
-        narrative: `Next nap likely in about ${remainingStr} · ${napTimeStr}.`,
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.next_nap_in', { remaining: remainingStr, time: napTimeStr }),
         alarmMs: null,
         urgency: 'ok',
         ...stats,
@@ -655,7 +833,7 @@ export function getBabyInsight(
     }
   }
 
-  // ── Feed overdue (no nap data) ────────────────────────────────────────────
+  // ── Feed logged, no nap/sleep data ───────────────────────────────────────
   if (lastFeedMs > 0) {
     const feedAgoMs = nowMs - lastFeedMs;
     const feedRemainingMs = schedule.feedMs - feedAgoMs;
@@ -663,10 +841,24 @@ export function getBabyInsight(
       const timeStr = formatTime12(new Date(lastFeedMs));
       const agoStr = formatMsProse(feedAgoMs);
       return {
-        headline: 'Awake · hungry',
-        narrative: `${baby.name} is due for a feed. Last fed at ${timeStr} (${agoStr} ago).`,
+        headline: i18n.t('schedule.awake_hungry_headline'),
+        narrative: i18n.t('schedule.feed_due', { name: baby.name, time: timeStr, ago: agoStr }),
         alarmMs: null,
         urgency: 'overdue',
+        ...stats,
+      };
+    } else {
+      // Feed logged but not yet due — show next feed time instead of empty state
+      const nextFeedTime = formatTime12(new Date(lastFeedMs + schedule.feedMs));
+      const remainingStr = formatMsProse(feedRemainingMs);
+      return {
+        headline: isNight ? i18n.t('schedule.good_night') : i18n.t('schedule.good_morning'),
+        narrative: i18n.t('schedule.next_bottle_in', {
+          time: nextFeedTime,
+          remaining: remainingStr,
+        }),
+        alarmMs: null,
+        urgency: feedRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
     }
@@ -674,8 +866,8 @@ export function getBabyInsight(
 
   // ── No data ───────────────────────────────────────────────────────────────
   return {
-    headline: isNight ? 'Good night' : 'Good morning',
-    narrative: `No events yet for ${baby.name} today. Log the first feed or nap to get started.`,
+    headline: isNight ? i18n.t('schedule.good_night') : i18n.t('schedule.good_morning'),
+    narrative: i18n.t('schedule.no_events', { name: baby.name }),
     alarmMs: null,
     urgency: 'ok',
     ...stats,

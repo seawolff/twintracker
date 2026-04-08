@@ -83,6 +83,7 @@ import {
   computeAnalytics,
   ThemeProvider,
   useThemeContext,
+  i18n,
   initI18n,
   useTranslation,
   NAP_CHECK_MINUTES,
@@ -92,15 +93,12 @@ import {
   findUnsyncedBaby,
   getActiveEvent,
   findSyncedNapBaby,
-  getDiaperReminderIntervalMs,
-  getFeedReminderIntervalMs,
-  formatReminderInterval,
-  isNightFireTime,
   MIN_DAYS_FOR_MONTH_VIEW,
   EVENT_TYPES,
   applyHistoryFilters,
   emptyFilters,
   isFilterActive,
+  getAgeWeeks,
 } from '@tt/core';
 import type {
   Baby,
@@ -117,6 +115,7 @@ import * as Localization from 'expo-localization';
 initI18n(Localization.getLocales()[0]?.languageTag ?? 'en');
 import {
   BabyCard,
+  BabyProfileSheet,
   LogSheet,
   HistoryFeed,
   BottleIcon,
@@ -434,6 +433,12 @@ function formatBabyNames(bs: { name: string }[]): string {
 }
 
 /** Formats a YYYY-MM-DD string for display (e.g. "Jan 1, 2024"). */
+/** Parse a numeric string; return undefined when blank or non-positive. */
+function parseNumber(s: string): number | undefined {
+  const v = parseFloat(s.replace(',', '.'));
+  return isNaN(v) || v <= 0 ? undefined : v;
+}
+
 function formatDisplayDate(iso: string): string {
   const d = new Date(iso + 'T12:00:00');
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -457,10 +462,6 @@ function HomeScreen({
   setWakeHour,
   sleepTraining,
   setSleepTraining,
-  diaperNotifications,
-  setDiaperNotifications,
-  bottleNotifications,
-  setBottleNotifications,
   latest,
   events,
   logEvent,
@@ -482,10 +483,6 @@ function HomeScreen({
   setWakeHour: (h: number) => void;
   sleepTraining: boolean;
   setSleepTraining: (v: boolean) => void;
-  diaperNotifications: boolean;
-  setDiaperNotifications: (v: boolean) => void;
-  bottleNotifications: boolean;
-  setBottleNotifications: (v: boolean) => void;
   latest: ReturnType<typeof useEventStore>['latest'];
   events: ReturnType<typeof useEventStore>['events'];
   logEvent: ReturnType<typeof useEventStore>['logEvent'];
@@ -499,10 +496,8 @@ function HomeScreen({
   const [refreshing, setRefreshing] = useState(false);
   // maps alarmId → local notification identifier (for cancellation on dismiss/wake)
   const alarmNotifIds = useRef<Map<string, string>>(new Map());
-  // maps babyId → scheduled diaper-reminder notification identifier
-  const diaperNotifIds = useRef<Map<string, string>>(new Map());
-  // maps babyId → scheduled feed-reminder notification identifier
-  const bottleNotifIds = useRef<Map<string, string>>(new Map());
+  // maps babyId → "wake to feed" notification for newborns sleeping > 4h (< 4 weeks old)
+  const newbornFeedNotifIds = useRef<Map<string, string>>(new Map());
   // tracks last-seen latest snapshot to detect new events from polling (cross-device logs)
   const prevLatestRef = useRef<ReturnType<typeof useEventStore>['latest']>({});
 
@@ -512,21 +507,17 @@ function HomeScreen({
    * stale notifications are cancelled even when events arrive via polling
    * from web or another device (where handleSheetSubmit never ran).
    */
-  async function cancelReminderNotifications(
-    babyId: string,
-    reminderType: 'diaper' | 'feed',
-  ): Promise<void> {
-    const refMap = reminderType === 'diaper' ? diaperNotifIds : bottleNotifIds;
-    const cachedId = refMap.current.get(babyId);
+  async function cancelNewbornFeedNotif(babyId: string): Promise<void> {
+    const cachedId = newbornFeedNotifIds.current.get(babyId);
     if (cachedId) {
       await Notifications.cancelScheduledNotificationAsync(cachedId).catch(console.error);
-      refMap.current.delete(babyId);
+      newbornFeedNotifIds.current.delete(babyId);
     }
     // Scan OS queue — catches notifications scheduled in a previous session or by another device.
     const pending = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
     for (const n of pending) {
       const data = n.content.data as Record<string, unknown>;
-      if (data?.type === reminderType && data?.babyId === babyId) {
+      if (data?.type === 'newborn-feed' && data?.babyId === babyId) {
         await Notifications.cancelScheduledNotificationAsync(n.identifier).catch(console.error);
       }
     }
@@ -571,81 +562,12 @@ function HomeScreen({
     });
   }, [alarms]);
 
-  // Reconcile reminder notifications whenever latest events change.
-  // Handles both local logs and events arriving via polling from web or another device.
-  // This is the single source of truth for diaper/feed reminder scheduling.
+  // Schedule/cancel newborn feed wake alert (AAP: wake to feed if sleeping > 4h, < 4 weeks old).
   useEffect(() => {
     const prev = prevLatestRef.current;
     prevLatestRef.current = latest;
 
     babies.forEach(baby => {
-      // ── Diaper reminder ───────────────────────────────────────────────────
-      const currDiaper = latest[`${baby.id}:diaper`];
-      const prevDiaper = prev[`${baby.id}:diaper`];
-      if (currDiaper && currDiaper.startedAt !== prevDiaper?.startedAt) {
-        (async () => {
-          await cancelReminderNotifications(baby.id, 'diaper');
-          if (!diaperNotifications) {
-            return;
-          }
-          const intervalMs = getDiaperReminderIntervalMs(baby.birthDate);
-          const fireAt = new Date(currDiaper.startedAt).getTime() + intervalMs;
-          if (fireAt > Date.now() && !isNightFireTime(fireAt, bedtimeHour, wakeHour)) {
-            const notifId = await scheduleAlarmAt(
-              new Date(fireAt).toISOString(),
-              'TwinTracker',
-              t('notifications.diaper_body', {
-                interval: formatReminderInterval(intervalMs),
-                name: baby.name,
-              }),
-              { type: 'diaper', babyId: baby.id },
-            );
-            if (notifId) {
-              diaperNotifIds.current.set(baby.id, notifId);
-            }
-          }
-        })().catch(console.error);
-      }
-
-      // ── Feed reminder ─────────────────────────────────────────────────────
-      const currBottle = latest[`${baby.id}:bottle`];
-      const currNursing = latest[`${baby.id}:nursing`];
-      const prevBottle = prev[`${baby.id}:bottle`];
-      const prevNursing = prev[`${baby.id}:nursing`];
-      const lastFeedMs = Math.max(
-        currBottle ? new Date(currBottle.startedAt).getTime() : 0,
-        currNursing ? new Date(currNursing.startedAt).getTime() : 0,
-      );
-      const prevFeedMs = Math.max(
-        prevBottle ? new Date(prevBottle.startedAt).getTime() : 0,
-        prevNursing ? new Date(prevNursing.startedAt).getTime() : 0,
-      );
-      if (lastFeedMs > prevFeedMs) {
-        (async () => {
-          await cancelReminderNotifications(baby.id, 'feed');
-          if (!bottleNotifications) {
-            return;
-          }
-          const intervalMs = getFeedReminderIntervalMs(baby.birthDate);
-          const fireAt = lastFeedMs + intervalMs;
-          if (fireAt > Date.now() && !isNightFireTime(fireAt, bedtimeHour, wakeHour)) {
-            const notifId = await scheduleAlarmAt(
-              new Date(fireAt).toISOString(),
-              'TwinTracker',
-              t('notifications.feed_body', {
-                interval: formatReminderInterval(intervalMs),
-                name: baby.name,
-              }),
-              { type: 'feed', babyId: baby.id },
-            );
-            if (notifId) {
-              bottleNotifIds.current.set(baby.id, notifId);
-            }
-          }
-        })().catch(console.error);
-      }
-
-      // ── Cancel feed reminder when nap/sleep starts ────────────────────────
       const currNap = latest[`${baby.id}:nap`];
       const currSleep = latest[`${baby.id}:sleep`];
       const prevNap = prev[`${baby.id}:nap`];
@@ -654,11 +576,37 @@ function HomeScreen({
         currNap && !currNap.endedAt && currNap.startedAt !== prevNap?.startedAt;
       const sleepJustStarted =
         currSleep && !currSleep.endedAt && currSleep.startedAt !== prevSleep?.startedAt;
+
+      // ── Newborn feed wake alert (< 4 weeks): schedule when sleep starts ────
       if (napJustStarted || sleepJustStarted) {
-        cancelReminderNotifications(baby.id, 'feed').catch(console.error);
+        if (getAgeWeeks(baby.birthDate) < 4) {
+          const activeEvt = napJustStarted ? currNap! : currSleep!;
+          const fireAt = new Date(activeEvt.startedAt).getTime() + 4 * 60 * 60_000;
+          if (fireAt > Date.now()) {
+            (async () => {
+              await cancelNewbornFeedNotif(baby.id);
+              const notifId = await scheduleAlarmAt(
+                new Date(fireAt).toISOString(),
+                'TwinTracker',
+                t('notifications.newborn_feed_body', { name: baby.name }),
+                { type: 'newborn-feed', babyId: baby.id },
+              );
+              if (notifId) {
+                newbornFeedNotifIds.current.set(baby.id, notifId);
+              }
+            })().catch(console.error);
+          }
+        }
+      }
+
+      // ── Cancel newborn feed alert when sleep ends ───────────────────────────
+      const napJustEnded = currNap?.endedAt && currNap.endedAt !== prevNap?.endedAt;
+      const sleepJustEnded = currSleep?.endedAt && currSleep.endedAt !== prevSleep?.endedAt;
+      if (napJustEnded || sleepJustEnded) {
+        cancelNewbornFeedNotif(baby.id).catch(console.error);
       }
     });
-  }, [latest, babies, diaperNotifications, bottleNotifications, bedtimeHour, wakeHour, t]);
+  }, [latest, babies, t]);
 
   // Creates a server-side alarm and schedules a local notification for it.
   async function handleSetAlarm(baby: Baby, durationMs: number, isCustomTimer: boolean) {
@@ -688,9 +636,9 @@ function HomeScreen({
     }
   }
 
-  const [entries, setEntries] = useState<{ name: string; birthDate: string }[]>([
-    { name: '', birthDate: '' },
-  ]);
+  const [entries, setEntries] = useState<
+    { name: string; birthDate: string; weightKg: string; heightCm: string }[]
+  >([{ name: '', birthDate: '', weightKg: '', heightCm: '' }]);
   // DateTimePickerSheet state — covers DOB pickers and LogSheet date/time fields.
   // DateTimePickerSheet for DOB — outside any Modal so stacking is not an issue.
   const [dtPicker, setDtPicker] = useState<{
@@ -706,6 +654,8 @@ function HomeScreen({
   const [prefsSubStep, setPrefsSubStep] = useState<1 | 2>(1);
   // Single atomic state — eliminates the split-update race where sheetBaby/sheetType turned
   // visible=true one render before sheetSuggestedOz arrived, making the init useEffect in
+  const [profileBaby, setProfileBaby] = useState<Baby | null>(null);
+
   // LogSheet capture suggestedOz=undefined and default the oz input to 4.
   const [sheet, setSheet] = useState<{ baby: Baby; type: EventType; suggestedOz?: number } | null>(
     null,
@@ -719,11 +669,16 @@ function HomeScreen({
   // Creates babies from the dynamic entries list then advances to the schedule-preferences step.
   const handleCreateBabies = async () => {
     if (!entries.some(en => en.name.trim())) {
-      setCreateError('Enter at least one name');
+      setCreateError(t('onboarding.error_name_required'));
       return;
     }
     if (entries.some(en => en.name.trim() && !en.birthDate.trim())) {
-      setCreateError('Enter a date of birth for each baby');
+      setCreateError(t('onboarding.error_dob_required'));
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    if (entries.some(en => en.name.trim() && en.birthDate > today)) {
+      setCreateError(t('onboarding.error_dob_future'));
       return;
     }
     setCreateError('');
@@ -736,6 +691,8 @@ function HomeScreen({
             await api.babies.create({
               name: en.name.trim(),
               birthDate: en.birthDate,
+              weightKg: parseNumber(en.weightKg),
+              heightCm: parseNumber(en.heightCm),
             }),
           );
         }
@@ -743,7 +700,7 @@ function HomeScreen({
       setBabies(created);
       setShowPrefsStep(true);
       setPrefsSubStep(1);
-      setSleepTraining(true); // onboarding default — diaperNotifications + bottleNotifications already default true
+      setSleepTraining(true);
     } catch (e: unknown) {
       setCreateError(e instanceof Error ? e.message : 'Failed to create babies');
     } finally {
@@ -909,11 +866,17 @@ function HomeScreen({
                     {en.birthDate ? formatDisplayDate(en.birthDate) : t('onboarding.dob_label')}
                   </Text>
                 </Pressable>
+                {/* Weight + height fields hidden until metric/imperial toggle is implemented */}
               </View>
             ))}
             <Pressable
               style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, marginBottom: 16 }]}
-              onPress={() => setEntries(prev => [...prev, { name: '', birthDate: '' }])}
+              onPress={() =>
+                setEntries(prev => [
+                  ...prev,
+                  { name: '', birthDate: '', weightKg: '', heightCm: '' },
+                ])
+              }
             >
               <Text style={[homeStyles.addAnotherText, { color: theme.accent }]}>
                 {t('onboarding.add_another')}
@@ -925,7 +888,7 @@ function HomeScreen({
             <Pressable
               style={({ pressed }) => [
                 homeStyles.submitBtn,
-                { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 },
+                { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1, marginTop: 24 },
               ]}
               onPress={handleCreateBabies}
               disabled={creating}
@@ -949,28 +912,26 @@ function HomeScreen({
               {t('onboarding.prefs_heading')}
             </Text>
             <Text style={[homeStyles.onboardSub, { color: theme.textDim }]}>
-              {prefsSubStep === 1
+              {prefsSubStep === 1 &&
+              !(
+                babies.length > 0 &&
+                babies.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15)
+              )
                 ? t('onboarding.prefs_subtitle')
                 : t('onboarding.prefs_step2_sub')}
             </Text>
 
-            {prefsSubStep === 1 ? (
+            {prefsSubStep === 1 &&
+            !(
+              babies.length > 0 &&
+              babies.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15)
+            ) ? (
               <>
                 {/* Bedtime question */}
                 <View style={settingsStyles.adminSection}>
                   <Text style={[homeStyles.onboardQuestion, { color: theme.text }]}>
                     {t('onboarding.bedtime_question', { names: formatBabyNames(babies) })}
                   </Text>
-                  {babies.some(b => {
-                    if (!b.birthDate) {
-                      return false;
-                    }
-                    return (Date.now() - new Date(b.birthDate).getTime()) / 604800000 < 15;
-                  }) && (
-                    <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-                      {t('onboarding.newborn_bedtime_rec', { time: hourLabel(22) })}
-                    </Text>
-                  )}
                   <View style={settingsStyles.pillGrid}>
                     {BEDTIME_HOURS.map(h => {
                       const active = bedtimeHour === h;
@@ -1052,151 +1013,79 @@ function HomeScreen({
             ) : (
               <>
                 {/* Sleep training */}
-                <View style={settingsStyles.adminSection}>
-                  <Text style={[homeStyles.onboardQuestion, { color: theme.text }]}>
-                    {t('onboarding.sleep_training_question', { names: formatBabyNames(babies) })}
-                  </Text>
-                  <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-                    {t('onboarding.sleep_training_onboard_desc')}
-                  </Text>
-                  <Pressable
-                    onPress={() => setSleepTraining(!sleepTraining)}
-                    style={[
-                      settingsStyles.pill,
-                      {
-                        borderColor: sleepTraining ? theme.accent : theme.border,
-                        flex: undefined,
-                        width: '100%',
-                      },
-                      sleepTraining && { backgroundColor: theme.accent },
-                    ]}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: sleepTraining }}
-                  >
-                    <Text
-                      style={[
-                        settingsStyles.pillText,
-                        { color: sleepTraining ? theme.bg : theme.text },
-                      ]}
-                    >
-                      {sleepTraining
-                        ? t('settings.sleep_training_enabled')
-                        : t('settings.sleep_training_enable')}
+                <Pressable
+                  onPress={() => setSleepTraining(!sleepTraining)}
+                  style={[
+                    switchRowStyles.row,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                  ]}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: sleepTraining }}
+                >
+                  <View style={switchRowStyles.content}>
+                    <Text style={[switchRowStyles.label, { color: theme.text }]}>
+                      {t('settings.sleep_training_title')}
                     </Text>
-                  </Pressable>
-                </View>
-
-                {/* Diaper reminders */}
-                <View style={settingsStyles.adminSection}>
-                  <Text style={[homeStyles.onboardQuestion, { color: theme.text }]}>
-                    {t('onboarding.diaper_question', { names: formatBabyNames(babies) })}
-                  </Text>
-                  <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-                    {t('onboarding.diaper_onboard_desc')}
-                  </Text>
-                  <Pressable
-                    onPress={() => setDiaperNotifications(!diaperNotifications)}
-                    style={[
-                      settingsStyles.pill,
-                      {
-                        borderColor: diaperNotifications ? theme.accent : theme.border,
-                        flex: undefined,
-                        width: '100%',
-                      },
-                      diaperNotifications && { backgroundColor: theme.accent },
-                    ]}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: diaperNotifications }}
-                  >
-                    <Text
-                      style={[
-                        settingsStyles.pillText,
-                        { color: diaperNotifications ? theme.bg : theme.text },
-                      ]}
-                    >
-                      {diaperNotifications
-                        ? t('settings.diaper_notifications_enabled')
-                        : t('settings.diaper_notifications_enable')}
+                    <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+                      {t('onboarding.sleep_training_onboard_desc')}
                     </Text>
-                  </Pressable>
-                </View>
-
-                {/* Feed reminders */}
-                <View style={settingsStyles.adminSection}>
-                  <Text style={[homeStyles.onboardQuestion, { color: theme.text }]}>
-                    {t('onboarding.feed_question', { names: formatBabyNames(babies) })}
-                  </Text>
-                  <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-                    {t('onboarding.feed_onboard_desc')}
-                  </Text>
-                  <Pressable
-                    onPress={() => setBottleNotifications(!bottleNotifications)}
+                  </View>
+                  <View
                     style={[
-                      settingsStyles.pill,
-                      {
-                        borderColor: bottleNotifications ? theme.accent : theme.border,
-                        flex: undefined,
-                        width: '100%',
-                      },
-                      bottleNotifications && { backgroundColor: theme.accent },
+                      switchRowStyles.track,
+                      { backgroundColor: sleepTraining ? theme.accent : theme.border },
                     ]}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: bottleNotifications }}
                   >
-                    <Text
+                    <View
                       style={[
-                        settingsStyles.pillText,
-                        { color: bottleNotifications ? theme.bg : theme.text },
+                        switchRowStyles.thumb,
+                        { backgroundColor: theme.bg },
+                        sleepTraining && switchRowStyles.thumbOn,
                       ]}
-                    >
-                      {bottleNotifications
-                        ? t('settings.bottle_notifications_enabled')
-                        : t('settings.bottle_notifications_enable')}
-                    </Text>
-                  </Pressable>
-                </View>
+                    />
+                  </View>
+                </Pressable>
 
                 {/* Twin sync — only for ≥2 babies */}
                 {babies.length >= 2 && (
-                  <View style={settingsStyles.adminSection}>
-                    <Text style={[homeStyles.onboardQuestion, { color: theme.text }]}>
-                      {t('settings.twin_sync_title')}
-                    </Text>
-                    <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-                      {t('settings.twin_sync_hint')}
-                    </Text>
-                    <Pressable
-                      onPress={() => setTwinSync(!twinSync)}
-                      style={[
-                        settingsStyles.pill,
-                        {
-                          borderColor: twinSync ? theme.accent : theme.border,
-                          flex: undefined,
-                          width: '100%',
-                        },
-                        twinSync && { backgroundColor: theme.accent },
-                      ]}
-                      accessibilityRole="switch"
-                      accessibilityState={{ checked: twinSync }}
-                    >
-                      <Text
-                        style={[
-                          settingsStyles.pillText,
-                          { color: twinSync ? theme.bg : theme.text },
-                        ]}
-                      >
-                        {twinSync
-                          ? t('settings.twin_sync_enabled')
-                          : t('settings.twin_sync_enable')}
+                  <Pressable
+                    onPress={() => setTwinSync(!twinSync)}
+                    style={[
+                      switchRowStyles.row,
+                      { backgroundColor: theme.surface, borderColor: theme.border },
+                    ]}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: twinSync }}
+                  >
+                    <View style={switchRowStyles.content}>
+                      <Text style={[switchRowStyles.label, { color: theme.text }]}>
+                        {t('settings.twin_sync_title')}
                       </Text>
-                    </Pressable>
-                  </View>
+                      <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+                        {t('settings.twin_sync_hint')}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        switchRowStyles.track,
+                        { backgroundColor: twinSync ? theme.accent : theme.border },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          switchRowStyles.thumb,
+                          { backgroundColor: theme.bg },
+                          twinSync && switchRowStyles.thumbOn,
+                        ]}
+                      />
+                    </View>
+                  </Pressable>
                 )}
 
                 <Pressable
                   style={({ pressed }) => [
                     homeStyles.submitBtn,
-                    { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1, marginTop: 8 },
+                    { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1, marginTop: 24 },
                   ]}
                   onPress={() => setShowPrefsStep(false)}
                   accessibilityLabel={t('onboarding.finished')}
@@ -1303,6 +1192,7 @@ function HomeScreen({
                 latest={latest}
                 events={events}
                 onLog={(type, oz) => handleLog(baby, type, oz)}
+                onOpenProfile={() => setProfileBaby(baby)}
                 onOpenAnalytics={onOpenAnalytics}
                 resetHour={resetHour}
                 bedtimeHour={bedtimeHour}
@@ -1352,8 +1242,44 @@ function HomeScreen({
         baby={sheet?.baby ?? null}
         eventType={sheet?.type ?? null}
         suggestedOz={sheet?.suggestedOz}
+        suggestedBreast={
+          sheet?.baby
+            ? latest[`${sheet.baby.id}:nursing`]?.notes === 'left'
+              ? 'right'
+              : 'left'
+            : 'left'
+        }
         onSubmit={handleSheetSubmit}
         onClose={() => setSheet(null)}
+      />
+
+      <BabyProfileSheet
+        visible={profileBaby !== null}
+        baby={profileBaby}
+        onSave={async (id, data) => {
+          await api.babies.update(id, {
+            name: data.name,
+            birthDate: data.birthDate ?? null,
+            sex: data.sex,
+            weightKg: data.weightKg,
+            heightCm: data.heightCm,
+          });
+          const updated = await api.babies.list();
+          setBabies(updated);
+        }}
+        onClose={() => setProfileBaby(null)}
+        onOpenDatePicker={(current, onConfirm) => {
+          setDtPicker({
+            title: i18n.t('baby_profile.dob_label'),
+            value: current,
+            mode: 'date',
+            maximumDate: new Date(),
+            onConfirm: d => {
+              onConfirm(d);
+              setDtPicker(null);
+            },
+          });
+        }}
       />
 
       {/* DOB picker — outside any Modal so DateTimePickerSheet stacks correctly */}
@@ -1492,7 +1418,6 @@ const skeletonHistoryStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 function HistoryScreen({
   babies,
-  resetHour,
   events,
   loading,
   deleteEvent,
@@ -1501,7 +1426,6 @@ function HistoryScreen({
   onRefresh,
 }: {
   babies: Baby[];
-  resetHour: number;
   events: ReturnType<typeof useEventStore>['events'];
   loading: ReturnType<typeof useEventStore>['loading'];
   deleteEvent: ReturnType<typeof useEventStore>['deleteEvent'];
@@ -1582,7 +1506,6 @@ function HistoryScreen({
       <HistoryFeed
         events={filteredEvents}
         babies={babies}
-        resetHour={resetHour}
         onDelete={id => deleteEvent(id).catch(console.error)}
         onEdit={setEditingEvent}
         onAddForDay={handleAddForDay}
@@ -1851,13 +1774,11 @@ function formatDate(iso: string): string {
 function AnalyticsScreen({
   baby,
   events,
-  resetHour,
   sleepTraining,
   onBack,
 }: {
   baby: Baby;
   events: TrackerEvent[];
-  resetHour: number;
   sleepTraining: boolean;
   onBack: () => void;
 }) {
@@ -1869,7 +1790,7 @@ function AnalyticsScreen({
   const allTimes = babyEvents.map(e => new Date(e.startedAt).getTime());
   const totalDataSpanDays =
     allTimes.length > 0 ? (Date.now() - Math.min(...allTimes)) / MS_PER_DAY : 0;
-  const a: BabyAnalytics = computeAnalytics(babyEvents, now, resetHour, period, baby.birthDate);
+  const a: BabyAnalytics = computeAnalytics(babyEvents, now, 0, period, baby.birthDate);
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
   const periodLabel = period === 'day' ? 'today' : period === 'month' ? 'this month' : 'this week';
@@ -2234,10 +2155,6 @@ function SettingsScreen({
   setWakeHour,
   sleepTraining,
   setSleepTraining,
-  diaperNotifications,
-  setDiaperNotifications,
-  bottleNotifications,
-  setBottleNotifications,
   babiesCount,
   isAdmin,
   clearAllEvents,
@@ -2249,6 +2166,7 @@ function SettingsScreen({
   onToggleMockData,
   displayName,
   updateDisplayName,
+  allStage1,
 }: {
   napCheckMinutes: number;
   setNapCheckMinutes: (m: number) => void;
@@ -2260,10 +2178,6 @@ function SettingsScreen({
   setWakeHour: (h: number) => void;
   sleepTraining: boolean;
   setSleepTraining: (v: boolean) => void;
-  diaperNotifications: boolean;
-  setDiaperNotifications: (v: boolean) => void;
-  bottleNotifications: boolean;
-  setBottleNotifications: (v: boolean) => void;
   babiesCount: number;
   isAdmin: boolean;
   clearAllEvents: () => Promise<void>;
@@ -2275,6 +2189,7 @@ function SettingsScreen({
   onToggleMockData: () => void;
   displayName: string | null;
   updateDisplayName: (name: string) => Promise<void>;
+  allStage1: boolean;
 }) {
   const theme = useThemeContext();
   const { t } = useTranslation();
@@ -2347,193 +2262,156 @@ function SettingsScreen({
 
       {babiesCount >= 2 && (
         <View style={settingsStyles.adminSection}>
-          <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-            {t('settings.twin_sync_title').toUpperCase()}
-          </Text>
-          <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-            {t('settings.twin_sync_hint')}
-          </Text>
           <Pressable
             onPress={() => setTwinSync(!twinSync)}
             style={[
-              settingsStyles.pill,
-              {
-                borderColor: twinSync ? theme.accent : theme.border,
-                flex: undefined,
-                width: '100%',
-              },
-              twinSync && { backgroundColor: theme.accent },
+              switchRowStyles.row,
+              { backgroundColor: theme.surface, borderColor: theme.border },
             ]}
             accessibilityRole="switch"
             accessibilityState={{ checked: twinSync }}
           >
-            <Text style={[settingsStyles.pillText, { color: twinSync ? theme.bg : theme.text }]}>
-              {twinSync ? t('settings.twin_sync_enabled') : t('settings.twin_sync_enable')}
-            </Text>
+            <View style={switchRowStyles.content}>
+              <Text style={[switchRowStyles.label, { color: theme.text }]}>
+                {t('settings.twin_sync_title')}
+              </Text>
+              <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+                {t('settings.twin_sync_hint')}
+              </Text>
+            </View>
+            <View
+              style={[
+                switchRowStyles.track,
+                { backgroundColor: twinSync ? theme.accent : theme.border },
+              ]}
+            >
+              <View
+                style={[
+                  switchRowStyles.thumb,
+                  { backgroundColor: theme.bg },
+                  twinSync && switchRowStyles.thumbOn,
+                ]}
+              />
+            </View>
           </Pressable>
         </View>
       )}
 
       <View style={settingsStyles.adminSection}>
-        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.diaper_notifications_title').toUpperCase()}
-        </Text>
-        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.diaper_notifications_hint')}
-        </Text>
-        <Pressable
-          onPress={() => setDiaperNotifications(!diaperNotifications)}
-          style={[
-            settingsStyles.pill,
-            {
-              borderColor: diaperNotifications ? theme.accent : theme.border,
-              flex: undefined,
-              width: '100%',
-            },
-            diaperNotifications && { backgroundColor: theme.accent },
-          ]}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: diaperNotifications }}
-        >
-          <Text
-            style={[
-              settingsStyles.pillText,
-              { color: diaperNotifications ? theme.bg : theme.text },
-            ]}
-          >
-            {diaperNotifications
-              ? t('settings.diaper_notifications_enabled')
-              : t('settings.diaper_notifications_enable')}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={settingsStyles.adminSection}>
-        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.bottle_notifications_title').toUpperCase()}
-        </Text>
-        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.bottle_notifications_hint')}
-        </Text>
-        <Pressable
-          onPress={() => setBottleNotifications(!bottleNotifications)}
-          style={[
-            settingsStyles.pill,
-            {
-              borderColor: bottleNotifications ? theme.accent : theme.border,
-              flex: undefined,
-              width: '100%',
-            },
-            bottleNotifications && { backgroundColor: theme.accent },
-          ]}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: bottleNotifications }}
-        >
-          <Text
-            style={[
-              settingsStyles.pillText,
-              { color: bottleNotifications ? theme.bg : theme.text },
-            ]}
-          >
-            {bottleNotifications
-              ? t('settings.bottle_notifications_enabled')
-              : t('settings.bottle_notifications_enable')}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View style={settingsStyles.adminSection}>
-        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.sleep_training_title').toUpperCase()}
-        </Text>
-        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.sleep_training_hint')}
-        </Text>
         <Pressable
           onPress={() => setSleepTraining(!sleepTraining)}
           style={[
-            settingsStyles.pill,
-            {
-              borderColor: sleepTraining ? theme.accent : theme.border,
-              flex: undefined,
-              width: '100%',
-            },
-            sleepTraining && { backgroundColor: theme.accent },
+            switchRowStyles.row,
+            { backgroundColor: theme.surface, borderColor: theme.border },
           ]}
           accessibilityRole="switch"
           accessibilityState={{ checked: sleepTraining }}
         >
-          <Text style={[settingsStyles.pillText, { color: sleepTraining ? theme.bg : theme.text }]}>
-            {sleepTraining
-              ? t('settings.sleep_training_enabled')
-              : t('settings.sleep_training_enable')}
-          </Text>
+          <View style={switchRowStyles.content}>
+            <Text style={[switchRowStyles.label, { color: theme.text }]}>
+              {t('settings.sleep_training_title')}
+            </Text>
+            <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+              {t('settings.sleep_training_hint')}
+            </Text>
+          </View>
+          <View
+            style={[
+              switchRowStyles.track,
+              { backgroundColor: sleepTraining ? theme.accent : theme.border },
+            ]}
+          >
+            <View
+              style={[
+                switchRowStyles.thumb,
+                { backgroundColor: theme.bg },
+                sleepTraining && switchRowStyles.thumbOn,
+              ]}
+            />
+          </View>
         </Pressable>
       </View>
 
-      <View style={settingsStyles.adminSection}>
-        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.wake_title').toUpperCase()}
-        </Text>
-        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.wake_hint')}
-        </Text>
-        <View style={settingsStyles.pillGrid}>
-          {WAKE_HOURS.map(h => {
-            const active = wakeHour === h;
-            return (
-              <Pressable
-                key={h}
-                onPress={() => setWakeHour(h)}
-                accessibilityLabel={hourLabel(h)}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: active }}
-                style={[
-                  settingsStyles.pill,
-                  { borderColor: active ? theme.accent : theme.border },
-                  active && { backgroundColor: theme.accent },
-                ]}
-              >
-                <Text style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}>
-                  {hourLabel(h)}
-                </Text>
-              </Pressable>
-            );
-          })}
+      {allStage1 ? (
+        <View style={settingsStyles.adminSection}>
+          <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+            {t('settings.wake_title').toUpperCase()}
+          </Text>
+          <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+            {t('settings.stage1_bedtime_note')}
+          </Text>
         </View>
-      </View>
+      ) : (
+        <>
+          <View style={settingsStyles.adminSection}>
+            <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+              {t('settings.wake_title').toUpperCase()}
+            </Text>
+            <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+              {t('settings.wake_hint')}
+            </Text>
+            <View style={settingsStyles.pillGrid}>
+              {WAKE_HOURS.map(h => {
+                const active = wakeHour === h;
+                return (
+                  <Pressable
+                    key={h}
+                    onPress={() => setWakeHour(h)}
+                    accessibilityLabel={hourLabel(h)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: active }}
+                    style={[
+                      settingsStyles.pill,
+                      { borderColor: active ? theme.accent : theme.border },
+                      active && { backgroundColor: theme.accent },
+                    ]}
+                  >
+                    <Text
+                      style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}
+                    >
+                      {hourLabel(h)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
-      <View style={settingsStyles.adminSection}>
-        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.bedtime_title').toUpperCase()}
-        </Text>
-        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.bedtime_hint')}
-        </Text>
-        <View style={settingsStyles.pillGrid}>
-          {BEDTIME_HOURS.map(h => {
-            const active = bedtimeHour === h;
-            return (
-              <Pressable
-                key={h}
-                onPress={() => setBedtimeHour(h)}
-                accessibilityLabel={hourLabel(h)}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: active }}
-                style={[
-                  settingsStyles.pill,
-                  { borderColor: active ? theme.accent : theme.border },
-                  active && { backgroundColor: theme.accent },
-                ]}
-              >
-                <Text style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}>
-                  {hourLabel(h)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+          <View style={settingsStyles.adminSection}>
+            <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+              {t('settings.bedtime_title').toUpperCase()}
+            </Text>
+            <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+              {t('settings.bedtime_hint')}
+            </Text>
+            <View style={settingsStyles.pillGrid}>
+              {BEDTIME_HOURS.map(h => {
+                const active = bedtimeHour === h;
+                return (
+                  <Pressable
+                    key={h}
+                    onPress={() => setBedtimeHour(h)}
+                    accessibilityLabel={hourLabel(h)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: active }}
+                    style={[
+                      settingsStyles.pill,
+                      { borderColor: active ? theme.accent : theme.border },
+                      active && { backgroundColor: theme.accent },
+                    ]}
+                  >
+                    <Text
+                      style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}
+                    >
+                      {hourLabel(h)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </>
+      )}
 
       {inviteCode && (
         <View style={settingsStyles.adminSection}>
@@ -2850,16 +2728,8 @@ function AppContent() {
       setVerifyResendLoading(false);
     }
   }
-  const {
-    prefs,
-    setNapCheckMinutes,
-    setTwinSync,
-    setBedtimeHour,
-    setWakeHour,
-    setSleepTraining,
-    setDiaperNotifications,
-    setBottleNotifications,
-  } = usePreferences(asyncStorage);
+  const { prefs, setNapCheckMinutes, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } =
+    usePreferences(asyncStorage);
 
   const { t } = useTranslation();
 
@@ -3181,7 +3051,6 @@ function AppContent() {
         <AnalyticsScreen
           baby={analyticsBaby}
           events={events}
-          resetHour={prefs.wakeHour}
           sleepTraining={prefs.sleepTraining}
           onBack={() => setAnalyticsBabyId(null)}
         />
@@ -3255,10 +3124,6 @@ function AppContent() {
                     setWakeHour={setWakeHour}
                     sleepTraining={prefs.sleepTraining}
                     setSleepTraining={setSleepTraining}
-                    diaperNotifications={prefs.diaperNotifications}
-                    setDiaperNotifications={setDiaperNotifications}
-                    bottleNotifications={prefs.bottleNotifications}
-                    setBottleNotifications={setBottleNotifications}
                     latest={latest}
                     events={events}
                     logEvent={logEvent}
@@ -3287,7 +3152,6 @@ function AppContent() {
               >
                 <HistoryScreen
                   babies={babies}
-                  resetHour={prefs.wakeHour}
                   events={events}
                   loading={eventsLoading}
                   deleteEvent={deleteEvent}
@@ -3330,10 +3194,6 @@ function AppContent() {
                     setWakeHour={setWakeHour}
                     sleepTraining={prefs.sleepTraining}
                     setSleepTraining={setSleepTraining}
-                    diaperNotifications={prefs.diaperNotifications}
-                    setDiaperNotifications={setDiaperNotifications}
-                    bottleNotifications={prefs.bottleNotifications}
-                    setBottleNotifications={setBottleNotifications}
                     babiesCount={babies.length}
                     isAdmin={isAdmin}
                     clearAllEvents={clearAllEvents}
@@ -3348,6 +3208,10 @@ function AppContent() {
                     onToggleMockData={handleToggleMockData}
                     displayName={displayName}
                     updateDisplayName={updateDisplayName}
+                    allStage1={
+                      babies.length > 0 &&
+                      babies.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15)
+                    }
                   />
                 </View>
               )}
@@ -3694,6 +3558,44 @@ const settingsStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   shareBtnText: { fontSize: 14, fontWeight: '600' },
+});
+
+const switchRowStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  content: { flex: 1 },
+  label: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
+  hint: { fontSize: 12, lineHeight: 17 },
+  track: {
+    flexShrink: 0,
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+  },
+  thumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginHorizontal: 3,
+    // shadow for depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  thumbOn: {
+    // Shifts the thumb to the right inside the track
+    alignSelf: 'flex-end',
+  },
 });
 
 const analyticsStyles = StyleSheet.create({

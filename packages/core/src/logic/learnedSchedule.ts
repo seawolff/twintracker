@@ -30,19 +30,26 @@ const MAX_AWAKE_WINDOW_MS = 8 * 60 * 60_000;
 export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedStats {
   const cutoff = now.getTime() - WINDOW_MS;
 
-  const recent = events.filter(e => new Date(e.startedAt).getTime() >= cutoff);
+  // Pre-parse timestamps once — ISO string → ms — so each event pays the Date parse cost once.
+  const recent = events
+    .map(e => ({
+      ...e,
+      startedAtMs: new Date(e.startedAt).getTime(),
+      endedAtMs: e.endedAt ? new Date(e.endedAt).getTime() : null,
+    }))
+    .filter(e => e.startedAtMs >= cutoff);
 
   // ── Feed interval ────────────────────────────────────────────────────────────
-  const feeds = recent
+  const feedTimes = recent
     .filter(e => e.type === 'bottle' || e.type === 'nursing')
-    .map(e => new Date(e.startedAt).getTime())
+    .map(e => e.startedAtMs)
     .sort((a, b) => a - b);
 
   const feedIntervals: number[] = [];
-  for (let i = 1; i < feeds.length; i++) {
-    const gap = feeds[i] - feeds[i - 1];
-    // Skip overnight gaps > 8h — not a normal feed interval
-    if (gap < MAX_FEED_GAP_MS) {
+  for (let i = 1; i < feedTimes.length; i++) {
+    const gap = feedTimes[i] - feedTimes[i - 1];
+    // Skip zero-gaps (duplicate timestamps) and overnight gaps > 8h
+    if (gap > 0 && gap < MAX_FEED_GAP_MS) {
       feedIntervals.push(gap);
     }
   }
@@ -56,20 +63,18 @@ export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedS
 
   // ── Nap duration (completed naps only) ───────────────────────────────────────
   const napDurations = recent
-    .filter(e => e.type === 'nap' && e.endedAt != null)
-    .map(e => new Date(e.endedAt!).getTime() - new Date(e.startedAt).getTime())
+    .filter(e => e.type === 'nap' && e.endedAtMs != null)
+    .map(e => e.endedAtMs! - e.startedAtMs)
     .filter(d => d > MIN_NAP_DURATION_MS && d < MAX_NAP_DURATION_MS);
 
   // ── Awake window (nap.endedAt → next nap.startedAt) ─────────────────────────
   const completedNaps = recent
-    .filter(e => e.type === 'nap' && e.endedAt != null)
-    .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+    .filter(e => e.type === 'nap' && e.endedAtMs != null)
+    .sort((a, b) => a.startedAtMs - b.startedAtMs);
 
   const awakeWindows: number[] = [];
   for (let i = 0; i < completedNaps.length - 1; i++) {
-    const gap =
-      new Date(completedNaps[i + 1].startedAt).getTime() -
-      new Date(completedNaps[i].endedAt!).getTime();
+    const gap = completedNaps[i + 1].startedAtMs - completedNaps[i].endedAtMs!;
     if (gap >= MIN_AWAKE_WINDOW_MS && gap <= MAX_AWAKE_WINDOW_MS) {
       awakeWindows.push(gap);
     }

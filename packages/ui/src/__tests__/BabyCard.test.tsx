@@ -17,6 +17,9 @@ const BABY: Baby = {
   createdAt: '2026-01-01T00:00:00Z',
 };
 
+/** Stage 2 baby (6 months old) — for tests that expect Nap vs Sleep button distinction. */
+const STAGE2_BABY: Baby = { ...BABY, birthDate: '2025-09-18' };
+
 // Fixed reference time — 2pm UTC (unambiguously daytime across UTC-8 to UTC+8).
 // Using an explicit ISO string avoids timezone-dependent getHours() mismatches.
 const NOW = new Date('2026-03-18T14:00:00Z');
@@ -34,10 +37,14 @@ function makeEvent(overrides: Partial<TrackerEvent>): TrackerEvent {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-function renderCard(events: TrackerEvent[], latest: LatestEventMap = {}): string {
+function renderCard(
+  events: TrackerEvent[],
+  latest: LatestEventMap = {},
+  baby: Baby = BABY,
+): string {
   return renderToStaticMarkup(
     <BabyCard
-      baby={BABY}
+      baby={baby}
       latest={latest}
       events={events}
       onLog={jest.fn()}
@@ -66,8 +73,8 @@ describe('BabyCard — structure', () => {
     expect(renderCard([])).toContain('log_sheet.types.diaper');
   });
 
-  it('shows Nap button when no active nap', () => {
-    expect(renderCard([])).toContain('log_sheet.types.nap');
+  it('shows Nap button when no active nap (Stage 2+ baby)', () => {
+    expect(renderCard([], {}, STAGE2_BABY)).toContain('log_sheet.types.nap');
   });
 
   it('shows Wake button when nap is active (no endedAt)', () => {
@@ -76,10 +83,10 @@ describe('BabyCard — structure', () => {
     expect(renderCard([napEvent], latest)).toContain('home.action_wake');
   });
 
-  it('shows Nap button again after nap ends', () => {
+  it('shows Nap button again after nap ends (Stage 2+ baby)', () => {
     const napEvent = makeEvent({ type: 'nap', endedAt: '2026-03-18T09:45:00Z' });
     const latest: LatestEventMap = { 'b1:nap': napEvent };
-    const html = renderCard([napEvent], latest);
+    const html = renderCard([napEvent], latest, STAGE2_BABY);
     expect(html).toContain('log_sheet.types.nap');
     expect(html).not.toContain('home.action_wake');
   });
@@ -194,12 +201,12 @@ describe('BabyCard — sleeping state', () => {
 // ── Tests — event state reflected in card ─────────────────────────────────────
 
 describe('BabyCard — event state', () => {
-  it('shows time-ago info after a bottle is logged', () => {
+  it('shows feed count and oz progress in triage strip after a bottle is logged', () => {
     const bottleEvent = makeEvent({ type: 'bottle', value: 4, unit: 'oz' });
     const latest: LatestEventMap = { 'b1:bottle': bottleEvent };
     const html = renderCard([bottleEvent], latest);
-    // The triage strip should show fed time ago (e.g. "1h 0m ago")
-    expect(html).toMatch(/\d+h|\d+m/);
+    // Triage strip bottle cell shows "feedCount/target · Xoz" when bottle data exists
+    expect(html).toMatch(/\d+\/\d+ · \d+oz/);
   });
 
   it('reflects active nap in triage strip sleep status', () => {

@@ -4,8 +4,11 @@
 // Allow self-signed certs for remote DBs (Railway, staging) in non-production Node processes.
 // The actual production API runs on Railway itself (same network, no proxy cert issues).
 const _url = process.env.DATABASE_URL ?? '';
-const _isRemote = !_url.includes('localhost') && !_url.includes('127.0.0.1') && !_url.includes('@db:');
-if (_isRemote) { process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; }
+const _isRemote =
+  !_url.includes('localhost') && !_url.includes('127.0.0.1') && !_url.includes('@db:');
+if (_isRemote) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 
 const { Pool } = require('pg');
 
@@ -159,6 +162,14 @@ async function migrate() {
 
       -- Mark all existing accounts as verified so current users are unaffected.
       UPDATE users SET email_verified = true WHERE email_verified = false;
+    `);
+
+    // Migration 12: baby growth measurements — weight (kg), height (cm), sex
+    // Used for WHO growth percentile calculations in analytics.
+    await client.query(`
+      ALTER TABLE babies ADD COLUMN IF NOT EXISTS weight_kg  FLOAT;
+      ALTER TABLE babies ADD COLUMN IF NOT EXISTS height_cm  FLOAT;
+      ALTER TABLE babies ADD COLUMN IF NOT EXISTS sex        VARCHAR(10);
     `);
 
     console.log('Migration complete');

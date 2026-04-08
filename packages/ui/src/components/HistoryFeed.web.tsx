@@ -52,7 +52,6 @@ const ClassView = View as React.ComponentType<ComponentProps<typeof View> & { cl
 interface HistoryFeedProps {
   events: TrackerEvent[];
   babies: Baby[];
-  resetHour?: number;
   now?: Date;
   onDelete: (id: string) => void;
   /** Called when the user taps Undo — re-creates the just-deleted event. */
@@ -69,7 +68,6 @@ function getBaby(babies: Baby[], babyId: string): Baby | undefined {
 export function HistoryFeed({
   events,
   babies,
-  resetHour = 0,
   now: nowProp,
   onDelete,
   onRestore,
@@ -176,7 +174,7 @@ export function HistoryFeed({
     );
   }
 
-  const groups = groupEventsByDay(events, now, resetHour);
+  const groups = groupEventsByDay(events, now, 0);
   const visibleSlice = groups.slice(0, visibleGroups);
 
   return (
@@ -366,7 +364,6 @@ HistoryFeed.propTypes = {
       color: PropTypes.string.isRequired,
     }).isRequired,
   ).isRequired,
-  resetHour: PropTypes.number,
   onDelete: PropTypes.func.isRequired,
   onRestore: PropTypes.func,
   onEdit: PropTypes.func.isRequired,
