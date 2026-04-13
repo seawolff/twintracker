@@ -35,14 +35,21 @@
 
 .section {
   margin-bottom: $space-xl;
+  padding-top: $space-xl;
+  border-top: 1px solid var(--tt-border);
+
+  &:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
 }
 
 .sectionTitle {
   font-family: $font-mono;
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--tt-text-muted);
+  letter-spacing: 0.8px;
+  color: var(--tt-text-dim);
   margin-bottom: $space-sm;
 }
 

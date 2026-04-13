@@ -69,6 +69,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
 import { DateTimePickerSheet } from './DateTimePickerSheet';
 import {
   configure,
@@ -81,6 +82,13 @@ import {
   api,
   generateMockEvents,
   computeAnalytics,
+  computeTrendData,
+  detectTransitionSignals,
+  computeLearnedStats,
+  computeWeightPercentile,
+  computeHeightPercentile,
+  formatPercentile,
+  ageInMonths,
   ThemeProvider,
   useThemeContext,
   i18n,
@@ -99,6 +107,7 @@ import {
   emptyFilters,
   isFilterActive,
   getAgeWeeks,
+  authorColor,
 } from '@tt/core';
 import type {
   Baby,
@@ -108,6 +117,7 @@ import type {
   LogEventPayload,
   SyncableEventType,
   TrackerEvent,
+  TrendPoint,
 } from '@tt/core';
 import * as Localization from 'expo-localization';
 
@@ -126,10 +136,19 @@ import {
   MilestoneIcon,
   SettingsIcon,
   FilterIcon,
+  PersonIcon,
 } from '@tt/ui';
 import { asyncStorage } from './storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 configure(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000');
+
+// Configure Google Sign-In once at module load.
+// webClientId is the OAuth 2.0 Web client ID from Google Cloud Console.
+// iosClientId is optional — falls back to webClientId for token verification.
+GoogleSignin.configure({
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
+});
 
 type Tab = 'home' | 'history' | 'settings';
 
@@ -142,10 +161,12 @@ function LoginScreen({
   login,
   register,
   join,
+  loginWithGoogle,
 }: {
   login: (email: string, password: string) => Promise<unknown>;
   register: (email: string, password: string, name?: string) => Promise<unknown>;
   join: (email: string, password: string, code: string, name?: string) => Promise<unknown>;
+  loginWithGoogle: (idToken: string, inviteCode?: string) => Promise<unknown>;
 }) {
   const theme = useThemeContext();
   const { t } = useTranslation();
@@ -156,6 +177,27 @@ function LoginScreen({
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setSubmitting(true);
+    try {
+      await GoogleSignin.hasPlayServices();
+      const { data } = await GoogleSignin.signIn();
+      if (!data?.idToken) {
+        throw new Error('Google sign-in did not return an ID token');
+      }
+      await loginWithGoogle(data.idToken, inviteCode || undefined);
+    } catch (e: unknown) {
+      // User cancelled — no error shown
+      const code = (e as { code?: string }).code;
+      if (code !== 'SIGN_IN_CANCELLED' && code !== 'statusCodes.SIGN_IN_CANCELLED') {
+        setError(e instanceof Error ? e.message : 'Google sign-in failed');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setError('');
@@ -263,6 +305,33 @@ function LoginScreen({
                   : t('auth.join')}
             </Text>
           )}
+        </Pressable>
+
+        {/* ── Google Sign-In ──────────────────────────────────────── */}
+        <View style={loginStyles.dividerRow}>
+          <View style={[loginStyles.dividerLine, { backgroundColor: theme.border }]} />
+          <Text style={[loginStyles.dividerText, { color: theme.textMuted }]}>
+            {t('auth.or_divider')}
+          </Text>
+          <View style={[loginStyles.dividerLine, { backgroundColor: theme.border }]} />
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            loginStyles.googleBtn,
+            {
+              borderColor: theme.border,
+              backgroundColor: theme.surface,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+          onPress={handleGoogleSignIn}
+          disabled={submitting}
+          accessibilityLabel={t('auth.sign_in_google')}
+        >
+          <Text style={[loginStyles.googleBtnText, { color: theme.text }]}>
+            {t('auth.sign_in_google')}
+          </Text>
         </Pressable>
 
         {mode === 'signin' ? (
@@ -1743,7 +1812,7 @@ function HistoryScreen({
 // ---------------------------------------------------------------------------
 // Analytics Screen
 // ---------------------------------------------------------------------------
-function formatMs(ms: number): string {
+function fmtMs(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   if (h === 0) {
@@ -1755,57 +1824,432 @@ function formatMs(ms: number): string {
   return `${h}h ${m}m`;
 }
 
-function formatInterval(ms: number): string {
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  if (h === 0) {
-    return `${m}m`;
-  }
-  if (m === 0) {
-    return `${h}h`;
-  }
-  return `${h}h ${m}m`;
-}
-
-function formatDate(iso: string): string {
+function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+}
+
+// ── Native trend charts ───────────────────────────────────────────────────────
+
+const BAR_GAP_RATIO = 0.3;
+
+function NativeTrendBars({
+  data,
+  height = 64,
+  benchmarkValue,
+  benchmarkLabel,
+  color,
+}: {
+  data: TrendPoint[];
+  height?: number;
+  benchmarkValue?: number;
+  benchmarkLabel?: string;
+  color: string;
+}) {
+  const nonNull = data.map(p => p.value).filter((v): v is number => v !== null);
+  if (nonNull.length === 0) {
+    return <View style={{ height }} />;
+  }
+
+  const WIDTH = 300; // logical units — SVG scales to container width
+  const topPad = 4;
+  const drawH = height - topPad;
+  const maxVal = Math.max(...nonNull, benchmarkValue ?? 0);
+  const count = data.length;
+  const slotW = WIDTH / count;
+  const barW = slotW * (1 - BAR_GAP_RATIO);
+  const gapW = slotW * BAR_GAP_RATIO;
+
+  function barH(val: number): number {
+    return maxVal > 0 ? (val / maxVal) * drawH : 0;
+  }
+
+  const benchmarkY =
+    benchmarkValue !== undefined && maxVal > 0
+      ? topPad + drawH - (benchmarkValue / maxVal) * drawH
+      : null;
+
+  return (
+    <View>
+      <Svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${WIDTH} ${height}`}
+        preserveAspectRatio="none"
+      >
+        {data.map((point, i) => {
+          if (point.value === null) {
+            return null;
+          }
+          const bh = barH(point.value);
+          const x = i * slotW + gapW / 2;
+          const y = topPad + drawH - bh;
+          return (
+            <Rect
+              key={point.dayMs}
+              x={x}
+              y={y}
+              width={barW}
+              height={bh}
+              fill={color}
+              opacity={0.7}
+              rx={1.5}
+            />
+          );
+        })}
+        {benchmarkY !== null && (
+          <Line
+            x1={0}
+            y1={benchmarkY}
+            x2={WIDTH}
+            y2={benchmarkY}
+            stroke={color}
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            opacity={0.5}
+          />
+        )}
+      </Svg>
+      {benchmarkLabel != null && (
+        <View
+          style={{ position: 'absolute', top: benchmarkY != null ? benchmarkY - 14 : 0, right: 0 }}
+        >
+          <Text style={{ fontSize: 9, opacity: 0.5, color }}>{benchmarkLabel}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function NativeTrendSparkline({
+  data,
+  height = 48,
+  benchmarkValue,
+  color,
+}: {
+  data: TrendPoint[];
+  height?: number;
+  benchmarkValue?: number;
+  color: string;
+}) {
+  const nonNull = data.map(p => p.value).filter((v): v is number => v !== null);
+  if (nonNull.length < 2) {
+    return <View style={{ height }} />;
+  }
+
+  const WIDTH = 300;
+  const topPad = 4;
+  const botPad = 4;
+  const drawH = height - topPad - botPad;
+  const maxVal = Math.max(...nonNull, benchmarkValue ?? 0);
+  const minVal = Math.min(...nonNull, benchmarkValue ?? Infinity);
+  const range = maxVal - minVal || 1;
+  const count = data.length;
+
+  function xPos(i: number): number {
+    return count > 1 ? (i / (count - 1)) * WIDTH : WIDTH / 2;
+  }
+  function yPos(val: number): number {
+    return topPad + drawH - ((val - minVal) / range) * drawH;
+  }
+
+  // Build polyline segments — break on null gaps
+  const segments: string[][] = [];
+  let current: string[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i].value;
+    if (v !== null) {
+      current.push(`${xPos(i)},${yPos(v)}`);
+    } else {
+      if (current.length >= 2) {
+        segments.push(current);
+      }
+      current = [];
+    }
+  }
+  if (current.length >= 2) {
+    segments.push(current);
+  }
+
+  const benchmarkY = benchmarkValue !== undefined ? yPos(Math.min(benchmarkValue, maxVal)) : null;
+
+  return (
+    <Svg width="100%" height={height} viewBox={`0 0 ${WIDTH} ${height}`} preserveAspectRatio="none">
+      {benchmarkY !== null && (
+        <Line
+          x1={0}
+          y1={benchmarkY}
+          x2={WIDTH}
+          y2={benchmarkY}
+          stroke={color}
+          strokeWidth={1}
+          strokeDasharray="3 3"
+          opacity={0.4}
+        />
+      )}
+      {segments.map((pts, idx) => (
+        <Polyline
+          key={idx}
+          points={pts.join(' ')}
+          fill="none"
+          stroke={color}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+      {data.map((point, i) => {
+        if (point.value === null) {
+          return null;
+        }
+        return <Circle key={point.dayMs} cx={xPos(i)} cy={yPos(point.value)} r={2} fill={color} />;
+      })}
+    </Svg>
+  );
+}
+
+// ── Analytics skeleton ────────────────────────────────────────────────────────
+
+function AnalyticsSkeleton({ onBack }: { onBack: () => void }) {
+  const theme = useThemeContext();
+  const { t } = useTranslation();
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [pulse]);
+
+  // A single pulsing block
+  function SkeletonBlock({ w, h, style }: { w: string | number; h: number; style?: object }) {
+    return (
+      <Animated.View
+        style={[
+          {
+            height: h,
+            width: w,
+            borderRadius: 4,
+            backgroundColor: theme.surface,
+            opacity: pulse,
+          },
+          style,
+        ]}
+      />
+    );
+  }
+
+  // A skeleton section card: icon circle + title line + primary stat + 3 stat rows
+  function SkeletonCard() {
+    return (
+      <View
+        style={[
+          analyticsStyles.block,
+          { backgroundColor: theme.surface, borderColor: theme.border, gap: 10 },
+        ]}
+      >
+        {/* Card header */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Animated.View
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              backgroundColor: theme.border,
+              opacity: pulse,
+            }}
+          />
+          <SkeletonBlock w="40%" h={10} />
+        </View>
+        {/* Primary stat */}
+        <SkeletonBlock w="35%" h={30} />
+        {/* Stat rows */}
+        {[55, 70, 48].map((pct, i) => (
+          <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <SkeletonBlock w={`${pct}%`} h={12} />
+            <SkeletonBlock w="18%" h={12} />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={analyticsStyles.scroll} showsVerticalScrollIndicator={false}>
+      {/* Back button */}
+      <Pressable onPress={onBack} style={analyticsStyles.backBtn}>
+        <Text style={[analyticsStyles.backText, { color: theme.textMuted }]}>
+          ← {t('analytics.back')}
+        </Text>
+      </Pressable>
+      {/* Heading */}
+      <SkeletonBlock w="55%" h={26} style={{ marginBottom: 8 }} />
+      {/* Subheading */}
+      <SkeletonBlock w="38%" h={12} style={{ marginBottom: 24 }} />
+      {/* Period tabs */}
+      <SkeletonBlock w="100%" h={36} style={{ borderRadius: 6, marginBottom: 24 }} />
+      {/* Section cards */}
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+    </ScrollView>
+  );
 }
 
 function AnalyticsScreen({
   baby,
   events,
+  eventsLoading,
   sleepTraining,
+  units,
   onBack,
 }: {
   baby: Baby;
   events: TrackerEvent[];
+  eventsLoading: boolean;
   sleepTraining: boolean;
+  units: 'metric' | 'imperial';
   onBack: () => void;
 }) {
   const theme = useThemeContext();
   const { t } = useTranslation();
-  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('day');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month'>('week');
+
+  if (eventsLoading) {
+    return <AnalyticsSkeleton onBack={onBack} />;
+  }
+
   const now = new Date();
   const babyEvents = events.filter(e => e.babyId === baby.id);
   const allTimes = babyEvents.map(e => new Date(e.startedAt).getTime());
   const totalDataSpanDays =
     allTimes.length > 0 ? (Date.now() - Math.min(...allTimes)) / MS_PER_DAY : 0;
-  const a: BabyAnalytics = computeAnalytics(babyEvents, now, 0, period, baby.birthDate);
+
+  const ageWeeks = getAgeWeeks(baby.birthDate);
+  const isNewborn = ageWeeks < 15;
+
+  // Stage label: "Stage N · Xmo old"
+  const stage = ageWeeks < 15 ? 1 : ageWeeks < 78 ? 2 : 3;
+  const stageAge = (() => {
+    if (!baby.birthDate) {
+      return null;
+    }
+    if (ageWeeks < 8) {
+      return `${ageWeeks}w`;
+    }
+    if (ageWeeks < 52) {
+      return `${Math.round(ageWeeks / 4.33)}mo`;
+    }
+    return `${Math.floor(ageWeeks / 52)}y`;
+  })();
+
+  // Learned stats for avg naps/day
+  const learnedStats = computeLearnedStats(babyEvents, now);
+
+  // Growth percentiles
+  const babyAgeMonths = ageInMonths(baby.birthDate, now);
+  const isImperial = units === 'imperial';
+  const weightPercentile =
+    baby.weightKg != null && baby.sex != null && babyAgeMonths != null
+      ? computeWeightPercentile(baby.weightKg, babyAgeMonths, baby.sex as 'male' | 'female')
+      : null;
+  const heightPercentile =
+    baby.heightCm != null && baby.sex != null && babyAgeMonths != null
+      ? computeHeightPercentile(baby.heightCm, babyAgeMonths, baby.sex as 'male' | 'female')
+      : null;
+  const showGrowth = baby.weightKg != null || baby.heightCm != null;
+  function fmtWeight(kg: number): string {
+    return isImperial ? `${(kg * 2.2046).toFixed(1)} lbs` : `${kg.toFixed(1)} kg`;
+  }
+  function fmtHeight(cm: number): string {
+    return isImperial ? `${(cm * 0.3937).toFixed(1)} in` : `${Math.round(cm)} cm`;
+  }
+
+  const a: BabyAnalytics = computeAnalytics(babyEvents, now, period, baby.birthDate);
+
+  // Trend data uses 14 days for Day/Week, 30 days for Month.
+  const trendDays = period === 'month' ? 30 : 14;
+  const signals = detectTransitionSignals(babyEvents, now, baby.birthDate);
+  const trend = computeTrendData(babyEvents, now, baby.birthDate, trendDays);
+
+  // Trend summaries, delta pills and signals are only meaningful over multiple days.
+  const showTrends = period !== 'day';
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
-  const periodLabel = period === 'day' ? 'today' : period === 'month' ? 'this month' : 'this week';
 
-  const weekEnd = now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString(
-    undefined,
-    { month: 'short', day: 'numeric' },
-  );
+  const rangeEnd = now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const rangeStart = (daysBack: number) =>
+    new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
   const periodHeader =
     period === 'day'
-      ? 'Today'
+      ? t('analytics.today')
       : period === 'month'
-        ? 'Last 30 days'
-        : t('analytics.this_week', { range: `${weekStart} – ${weekEnd}` });
+        ? t('analytics.this_month', { range: `${rangeStart(30)} – ${rangeEnd}` })
+        : t('analytics.this_week', { range: `${rangeStart(7)} – ${rangeEnd}` });
+
+  // Reusable card wrapper
+  function Card({
+    icon,
+    title,
+    children,
+  }: {
+    icon: React.ReactNode;
+    title: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <View
+        style={[
+          analyticsStyles.block,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        <View style={analyticsStyles.blockHeader}>
+          {icon}
+          <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>{title}</Text>
+        </View>
+        {children}
+      </View>
+    );
+  }
+
+  // Key/value stat row
+  function StatRow({ label, value }: { label: string; value: string }) {
+    return (
+      <View style={analyticsStyles.statRow}>
+        <Text style={[analyticsStyles.statLabel, { color: theme.textMuted }]}>{label}</Text>
+        <Text style={[analyticsStyles.statValue, { color: theme.text }]}>{value}</Text>
+      </View>
+    );
+  }
+
+  // Week-over-week delta pill
+  function DeltaPill({ ms, positive }: { ms: number; positive: boolean }) {
+    return (
+      <View style={analyticsStyles.deltaRow}>
+        <View
+          style={[
+            analyticsStyles.pill,
+            positive ? analyticsStyles.pillPos : analyticsStyles.pillNeg,
+          ]}
+        >
+          <Text style={[analyticsStyles.pillText, { color: theme.text }]}>
+            {positive ? '+' : '−'}
+            {fmtMs(ms)}
+          </Text>
+        </View>
+        <Text style={[analyticsStyles.deltaLabel, { color: theme.textMuted }]}>
+          {positive ? 'more' : 'less'} vs last week
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -1825,7 +2269,13 @@ function AnalyticsScreen({
         {t('analytics.heading', { name: baby.name })}
       </Text>
       <Text style={[analyticsStyles.subheading, { color: theme.textMuted }]}>{periodHeader}</Text>
+      {stageAge && (
+        <Text style={[analyticsStyles.stageIndicator, { color: theme.textMuted }]}>
+          {t('analytics.stage_indicator', { stage, age: stageAge })}
+        </Text>
+      )}
 
+      {/* ── Period tabs ─────────────────────────────────────────────────────── */}
       <View style={analyticsStyles.periodTabs}>
         {(['day', 'week', 'month'] as const).map(p => {
           const disabled = p === 'month' && totalDataSpanDays < MIN_DAYS_FOR_MONTH_VIEW;
@@ -1861,249 +2311,364 @@ function AnalyticsScreen({
             { color: theme.textMuted, borderColor: theme.border },
           ]}
         >
-          {`Only ${Math.ceil(a.dataSpanDays)} day${Math.ceil(a.dataSpanDays) === 1 ? '' : 's'} of data — partial ${period} view.`}
+          {`${Math.ceil(a.dataSpanDays)} day${Math.ceil(a.dataSpanDays) === 1 ? '' : 's'} of data — partial ${period} view.`}
         </Text>
       )}
 
-      <View
-        style={[
-          analyticsStyles.block,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        <View style={analyticsStyles.blockHeader}>
-          <BottleIcon size={14} color={theme.textMuted} />
-          <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-            {t('analytics.feeding')}
-          </Text>
-        </View>
+      {/* ── Feeding ─────────────────────────────────────────────────────────── */}
+      <Card icon={<BottleIcon size={14} color={theme.textMuted} />} title={t('analytics.feeding')}>
         {a.totalOzThisWeek > 0 ? (
           <>
-            <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-              {t('analytics.feeding_oz', { total: a.totalOzThisWeek, period: periodLabel })}
+            <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+              {`${Math.round(a.totalOzThisWeek)} oz`}
             </Text>
-            {a.avgOzPerFeed != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {t('analytics.feeding_avg_oz', { avg: a.avgOzPerFeed.toFixed(1) })}
-              </Text>
-            )}
-            {a.avgFeedIntervalMs != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {t('analytics.feeding_interval', { interval: formatInterval(a.avgFeedIntervalMs) })}
-              </Text>
-            )}
-            <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-              {`${a.avgFeedsPerDay.toFixed(1)} feeds/day`}
-            </Text>
+            <View style={analyticsStyles.statsGrid}>
+              {a.avgOzPerFeed != null && (
+                <StatRow
+                  label={t('analytics.oz_per_feed_label')}
+                  value={`${a.avgOzPerFeed.toFixed(1)} oz avg`}
+                />
+              )}
+              {a.avgFeedIntervalMs != null && (
+                <StatRow
+                  label={t('analytics.feed_interval_label')}
+                  value={`every ${fmtMs(a.avgFeedIntervalMs)} avg`}
+                />
+              )}
+              <StatRow label="feeds/day" value={`${a.avgFeedsPerDay.toFixed(1)}`} />
+            </View>
             <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
-              {`Target: ${a.targetOzPerFeed} oz/feed · every ${formatInterval(a.targetFeedIntervalMs)}`}
-            </Text>
-            <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
-              {`Avg: ${a.avgOzPerDay.toFixed(1)} oz/day · Max rec: ${a.targetDailyOzMax} oz/day`}
+              {`Target ${a.targetOzPerFeed} oz/feed · ${fmtMs(a.targetFeedIntervalMs)} interval`}
             </Text>
           </>
         ) : (
           <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
-            {t('analytics.feeding_empty', { period: periodLabel })}
+            {t('analytics.feeding_empty', { period: 'this period' })}
           </Text>
         )}
-      </View>
+      </Card>
 
-      <View
-        style={[
-          analyticsStyles.block,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        <View style={analyticsStyles.blockHeader}>
-          <MoonIcon size={14} color={theme.textMuted} />
-          <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-            {t('analytics.naps')}
-          </Text>
-        </View>
-        {a.napCountThisWeek > 0 ? (
-          <>
-            <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-              {a.napCountThisWeek === 1
-                ? t('analytics.naps_total', {
-                    total: formatMs(a.totalNapMsThisWeek),
-                    count: a.napCountThisWeek,
-                    period: periodLabel,
-                  })
-                : t('analytics.naps_total_plural', {
-                    total: formatMs(a.totalNapMsThisWeek),
-                    count: a.napCountThisWeek,
-                    period: periodLabel,
-                  })}
+      {/* ── Sleep ───────────────────────────────────────────────────────────── */}
+      {isNewborn ? (
+        // Stage 1: single Newborn Sleep block — no nap/night split
+        <Card
+          icon={<MoonIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.newborn_sleep')}
+        >
+          {a.totalSleepMsThisWeek > 0 ? (
+            <>
+              <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+                {fmtMs(a.totalSleepMsThisWeek)}
+              </Text>
+              <View style={analyticsStyles.statsGrid}>
+                <StatRow
+                  label={t('analytics.nap_count_label')}
+                  value={`${a.napCountThisWeek + a.nightSleepCountThisWeek} sessions`}
+                />
+                <StatRow label="avg/day" value={fmtMs(a.avgDailySleepMs)} />
+              </View>
+              <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
+                {`Target: ${fmtMs(a.targetDailySleepMs.minMs)}–${fmtMs(a.targetDailySleepMs.maxMs)}/day`}
+              </Text>
+            </>
+          ) : (
+            <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
+              {t('analytics.naps_empty', { period: 'this period' })}
             </Text>
-            {a.avgNapDurationMs != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {t('analytics.naps_avg', { avg: formatMs(a.avgNapDurationMs) })}
+          )}
+        </Card>
+      ) : (
+        <>
+          {/* Stage 2+: separate nap and night sleep cards */}
+          <Card icon={<MoonIcon size={14} color={theme.textMuted} />} title={t('analytics.naps')}>
+            {a.napCountThisWeek > 0 ? (
+              <>
+                <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+                  {fmtMs(a.totalNapMsThisWeek)}
+                </Text>
+                <View style={analyticsStyles.statsGrid}>
+                  <StatRow
+                    label={t('analytics.nap_count_label')}
+                    value={`${a.napCountThisWeek} naps`}
+                  />
+                  {a.avgNapDurationMs != null && (
+                    <StatRow label="avg/nap" value={fmtMs(a.avgNapDurationMs)} />
+                  )}
+                  {a.longestNapMs != null && (
+                    <StatRow label="longest" value={fmtMs(a.longestNapMs)} />
+                  )}
+                  {learnedStats.avgNapsPerDay != null && (
+                    <StatRow
+                      label={t('analytics.avg_naps_per_day_label')}
+                      value={learnedStats.avgNapsPerDay.toFixed(1)}
+                    />
+                  )}
+                </View>
+                {showTrends && a.napDeltaVsLastWeek != null && (
+                  <DeltaPill
+                    ms={Math.abs(a.napDeltaVsLastWeek)}
+                    positive={a.napDeltaVsLastWeek >= 0}
+                  />
+                )}
+                <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
+                  {`Target nap: ${fmtMs(a.targetNapDurationMs)}`}
+                </Text>
+              </>
+            ) : (
+              <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
+                {t('analytics.naps_empty', { period: 'this period' })}
               </Text>
             )}
-            {a.longestNapMs != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {t('analytics.naps_longest', { longest: formatMs(a.longestNapMs) })}
-              </Text>
-            )}
-            {a.napDeltaVsLastWeek != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {a.napDeltaVsLastWeek >= 0
-                  ? t('analytics.naps_delta_more', {
-                      delta: formatMs(Math.abs(a.napDeltaVsLastWeek)),
-                    })
-                  : t('analytics.naps_delta_less', {
-                      delta: formatMs(Math.abs(a.napDeltaVsLastWeek)),
-                    })}
-              </Text>
-            )}
-            <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
-              {`Target nap: ${formatMs(a.targetNapDurationMs)}`}
-            </Text>
-          </>
-        ) : (
-          <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
-            {t('analytics.naps_empty', { period: periodLabel })}
-          </Text>
-        )}
-      </View>
+          </Card>
 
-      <View
-        style={[
-          analyticsStyles.block,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        <View style={analyticsStyles.blockHeader}>
-          <HotelIcon size={14} color={theme.textMuted} />
-          <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-            {t('analytics.night_sleep')}
-          </Text>
-        </View>
-        {a.nightSleepCountThisWeek > 0 ? (
-          <>
-            <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-              {period === 'day'
-                ? t('analytics.night_sleep_total_day', {
-                    total: formatMs(a.totalNightSleepMsThisWeek),
-                  })
-                : a.nightSleepCountThisWeek === 1
-                  ? t('analytics.night_sleep_total', {
-                      total: formatMs(a.totalNightSleepMsThisWeek),
-                      count: a.nightSleepCountThisWeek,
-                      period: periodLabel,
-                    })
-                  : t('analytics.night_sleep_total_plural', {
-                      total: formatMs(a.totalNightSleepMsThisWeek),
-                      count: a.nightSleepCountThisWeek,
-                      period: periodLabel,
-                    })}
-            </Text>
-            {a.avgNightSleepDurationMs != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {t('analytics.night_sleep_avg', { avg: formatMs(a.avgNightSleepDurationMs) })}
+          <Card
+            icon={<HotelIcon size={14} color={theme.textMuted} />}
+            title={t('analytics.night_sleep')}
+          >
+            {a.nightSleepCountThisWeek > 0 ? (
+              <>
+                <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+                  {fmtMs(a.totalNightSleepMsThisWeek)}
+                </Text>
+                <View style={analyticsStyles.statsGrid}>
+                  {a.avgNightSleepDurationMs != null && (
+                    <StatRow label="avg/night" value={fmtMs(a.avgNightSleepDurationMs)} />
+                  )}
+                  <StatRow label="avg/day total" value={fmtMs(a.avgDailySleepMs)} />
+                </View>
+                {showTrends && a.sleepDeltaVsLastWeek != null && (
+                  <DeltaPill
+                    ms={Math.abs(a.sleepDeltaVsLastWeek)}
+                    positive={a.sleepDeltaVsLastWeek >= 0}
+                  />
+                )}
+                <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
+                  {`Target: ${fmtMs(a.targetDailySleepMs.minMs)}–${fmtMs(a.targetDailySleepMs.maxMs)}/day`}
+                </Text>
+              </>
+            ) : (
+              <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
+                {t('analytics.night_sleep_empty', { period: 'this period' })}
               </Text>
             )}
-            {a.sleepDeltaVsLastWeek != null && (
-              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-                {a.sleepDeltaVsLastWeek >= 0
-                  ? t('analytics.sleep_more', { delta: formatMs(Math.abs(a.sleepDeltaVsLastWeek)) })
-                  : t('analytics.sleep_less', {
-                      delta: formatMs(Math.abs(a.sleepDeltaVsLastWeek)),
-                    })}
-              </Text>
-            )}
-            <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
-              {`Avg daily sleep: ${formatMs(a.avgDailySleepMs)} · Target: ${formatMs(a.targetDailySleepMs.minMs)}–${formatMs(a.targetDailySleepMs.maxMs)}`}
-            </Text>
-          </>
-        ) : (
-          <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
-            {t('analytics.night_sleep_empty', { period: periodLabel })}
-          </Text>
-        )}
-      </View>
+          </Card>
+        </>
+      )}
 
-      <View
-        style={[
-          analyticsStyles.block,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        <View style={analyticsStyles.blockHeader}>
-          <DiaperIcon size={14} color={theme.textMuted} />
-          <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-            {t('analytics.diapers')}
+      {/* ── Feeding trends ───────────────────────────────────────────────────── */}
+      {showTrends && trend.feedIntervalByDay.filter(p => p.value !== null).length >= 3 && (
+        <Card
+          icon={<BottleIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.feeding_trends')}
+        >
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim }]}>
+            {t('analytics.oz_per_feed_label')}
           </Text>
-        </View>
+          <NativeTrendSparkline
+            data={trend.ozPerFeedByDay}
+            benchmarkValue={
+              trend.targetOzPerDay /
+              (trend.targetFeedIntervalMs > 0
+                ? Math.round(86400000 / trend.targetFeedIntervalMs)
+                : 6)
+            }
+            color={theme.text}
+            height={52}
+          />
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim, marginTop: 10 }]}>
+            {t('analytics.feed_interval_label')}
+          </Text>
+          <NativeTrendSparkline
+            data={trend.feedIntervalByDay}
+            benchmarkValue={trend.targetFeedIntervalMs}
+            color={theme.text}
+            height={52}
+          />
+          <Text style={[analyticsStyles.trendNote, { color: theme.textMuted, marginTop: 6 }]}>
+            {t('analytics.last_14_days')}
+          </Text>
+        </Card>
+      )}
+
+      {/* ── Sleep consolidation ──────────────────────────────────────────────── */}
+      {showTrends && trend.longestNightByDay.filter(p => p.value !== null).length >= 3 && (
+        <Card
+          icon={<HotelIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.sleep_consolidation')}
+        >
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim }]}>
+            {t('analytics.night_stretch_label')}
+          </Text>
+          <NativeTrendBars
+            data={trend.longestNightByDay}
+            benchmarkValue={trend.targetDailySleepMs.minMs}
+            benchmarkLabel={`${t('analytics.target_label')} ${fmtMs(trend.targetDailySleepMs.minMs)}`}
+            color={theme.text}
+            height={72}
+          />
+          {trend.napCountByDay.filter(p => p.value !== null).length >= 3 && (
+            <>
+              <Text
+                style={[analyticsStyles.trendBlockLabel, { color: theme.textDim, marginTop: 10 }]}
+              >
+                {t('analytics.nap_count_label')}
+              </Text>
+              <NativeTrendBars
+                data={trend.napCountByDay}
+                benchmarkValue={trend.targetNapsPerDay}
+                benchmarkLabel={`${t('analytics.target_label')} ${trend.targetNapsPerDay} ${t('analytics.naps')}`}
+                color={theme.text}
+                height={56}
+              />
+            </>
+          )}
+          <Text style={[analyticsStyles.trendNote, { color: theme.textMuted, marginTop: 6 }]}>
+            {t('analytics.last_14_days')}
+          </Text>
+        </Card>
+      )}
+
+      {/* ── Transition signals ──────────────────────────────────────────────── */}
+      {showTrends && signals.length > 0 && (
+        <Card
+          icon={<MilestoneIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.transition_signals')}
+        >
+          {signals.map((signal, i) => {
+            const kindKey =
+              signal.kind === 'feed_interval_lengthening'
+                ? 'interval'
+                : signal.kind === 'nap_consolidating'
+                  ? 'nap'
+                  : signal.kind === 'sleep_stretch_milestone'
+                    ? 'sleep'
+                    : 'oz';
+            const detailParams =
+              signal.kind === 'sleep_stretch_milestone' && signal.valueMs
+                ? { duration: fmtMs(signal.valueMs) }
+                : {};
+            return (
+              <View
+                key={i}
+                style={[
+                  analyticsStyles.signalRow,
+                  i > 0 && {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: theme.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    analyticsStyles.signalDot,
+                    {
+                      backgroundColor: signal.direction === 'positive' ? theme.text : theme.textDim,
+                      opacity: signal.direction === 'positive' ? 0.7 : 0.45,
+                    },
+                  ]}
+                />
+                <View style={analyticsStyles.signalTextCol}>
+                  <Text style={[analyticsStyles.signalTitle, { color: theme.text }]}>
+                    {t(`analytics.signal_${kindKey}_title`)}
+                  </Text>
+                  <Text style={[analyticsStyles.signalDetail, { color: theme.textDim }]}>
+                    {t(`analytics.signal_${kindKey}_detail`, detailParams)}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </Card>
+      )}
+
+      {/* ── Growth ──────────────────────────────────────────────────────────── */}
+      {showGrowth && (
+        <Card icon={<PersonIcon size={14} color={theme.textMuted} />} title={t('analytics.growth')}>
+          <View style={analyticsStyles.growthGrid}>
+            {baby.weightKg != null && (
+              <View style={analyticsStyles.growthItem}>
+                <Text style={[analyticsStyles.growthValue, { color: theme.text }]}>
+                  {fmtWeight(baby.weightKg)}
+                </Text>
+                <Text style={[analyticsStyles.growthLabel, { color: theme.textMuted }]}>
+                  {t('analytics.weight_label')}
+                </Text>
+                {weightPercentile != null && (
+                  <Text style={[analyticsStyles.growthPercentile, { color: theme.textDim }]}>
+                    {formatPercentile(weightPercentile)}
+                  </Text>
+                )}
+              </View>
+            )}
+            {baby.heightCm != null && (
+              <View style={analyticsStyles.growthItem}>
+                <Text style={[analyticsStyles.growthValue, { color: theme.text }]}>
+                  {fmtHeight(baby.heightCm)}
+                </Text>
+                <Text style={[analyticsStyles.growthLabel, { color: theme.textMuted }]}>
+                  {t('analytics.height_label')}
+                </Text>
+                {heightPercentile != null && (
+                  <Text style={[analyticsStyles.growthPercentile, { color: theme.textDim }]}>
+                    {formatPercentile(heightPercentile)}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+        </Card>
+      )}
+
+      {/* ── Diapers ─────────────────────────────────────────────────────────── */}
+      <Card icon={<DiaperIcon size={14} color={theme.textMuted} />} title={t('analytics.diapers')}>
         {a.diaperCountThisWeek > 0 ? (
           <>
-            <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-              {t('analytics.diapers_count', { count: a.diaperCountThisWeek, period: periodLabel })}
+            <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+              {String(a.diaperCountThisWeek)}
             </Text>
-            <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-              {t('analytics.diapers_per_day', { avg: a.avgDiapersPerDay.toFixed(1) })}
-            </Text>
+            <View style={analyticsStyles.statsGrid}>
+              <StatRow label="per day" value={`${a.avgDiapersPerDay.toFixed(1)}`} />
+              {a.msSinceLastDirty != null && (
+                <StatRow label="last dirty" value={`${fmtMs(a.msSinceLastDirty)} ago`} />
+              )}
+            </View>
             {a.targetMinWetDiapersPerDay != null && (
               <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
-                {`Min wet diapers/day: ${a.targetMinWetDiapersPerDay} (newborn adequacy)`}
+                {`Min ${a.targetMinWetDiapersPerDay} wet/day (newborn adequacy)`}
               </Text>
             )}
           </>
         ) : (
-          <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
-            {t('analytics.diapers_empty', { period: periodLabel })}
-          </Text>
-        )}
-        {a.msSinceLastDirty != null && (
-          <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
-            {`Last dirty: ${formatInterval(a.msSinceLastDirty)} ago`}
-          </Text>
-        )}
-      </View>
-
-      {a.foodCountThisWeek > 0 && (
-        <View
-          style={[
-            analyticsStyles.block,
-            { backgroundColor: theme.surface, borderColor: theme.border },
-          ]}
-        >
-          <View style={analyticsStyles.blockHeader}>
-            <FoodIcon size={14} color={theme.textMuted} />
-            <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-              {t('analytics.solids')}
+          <>
+            <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
+              {t('analytics.diapers_empty', { period: 'this period' })}
             </Text>
-          </View>
-          <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-            {a.foodCountThisWeek === 1
-              ? t('analytics.solids_count_one', { count: a.foodCountThisWeek, period: periodLabel })
-              : t('analytics.solids_count_other', {
-                  count: a.foodCountThisWeek,
-                  period: periodLabel,
-                })}
+            {a.msSinceLastDirty != null && (
+              <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
+                {`Last dirty: ${fmtMs(a.msSinceLastDirty)} ago`}
+              </Text>
+            )}
+          </>
+        )}
+      </Card>
+
+      {/* ── Solid foods ─────────────────────────────────────────────────────── */}
+      {a.foodCountThisWeek > 0 && (
+        <Card icon={<FoodIcon size={14} color={theme.textMuted} />} title={t('analytics.solids')}>
+          <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+            {String(a.foodCountThisWeek)}
           </Text>
           <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
             {t('analytics.solids_note', { name: baby.name })}
           </Text>
-        </View>
+        </Card>
       )}
 
+      {/* ── Sleep training ──────────────────────────────────────────────────── */}
       {sleepTraining && (
-        <View
-          style={[
-            analyticsStyles.block,
-            { backgroundColor: theme.surface, borderColor: theme.border },
-          ]}
-        >
-          <View style={analyticsStyles.blockHeader}>
-            <MoonIcon size={14} color={theme.textMuted} />
-            <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-              {'SLEEP TRAINING'}
-            </Text>
-          </View>
-          <Text style={[analyticsStyles.stat, { color: theme.text }]}>
-            {`Self-soothing wait: ${formatInterval(a.selfSoothingWaitMs)}`}
+        <Card icon={<MoonIcon size={14} color={theme.textMuted} />} title="SLEEP TRAINING">
+          <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+            {fmtMs(a.selfSoothingWaitMs)}
           </Text>
           <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
             {'When nap crying starts, wait before responding. Reset timer if crying pauses.'}
@@ -2111,28 +2676,21 @@ function AnalyticsScreen({
           <Text style={[analyticsStyles.detail, { color: theme.textDim }]}>
             {'After wait: respond with a feed only — no rocking or comfort.'}
           </Text>
-        </View>
+        </Card>
       )}
 
+      {/* ── Milestones ──────────────────────────────────────────────────────── */}
       {a.milestones.length > 0 && (
-        <View
-          style={[
-            analyticsStyles.block,
-            { backgroundColor: theme.surface, borderColor: theme.border },
-          ]}
+        <Card
+          icon={<MilestoneIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.milestones')}
         >
-          <View style={analyticsStyles.blockHeader}>
-            <MilestoneIcon size={14} color={theme.textMuted} />
-            <Text style={[analyticsStyles.blockTitle, { color: theme.textMuted }]}>
-              {t('analytics.milestones')}
-            </Text>
-          </View>
           {a.milestones.map(m => (
             <Text key={m.id} style={[analyticsStyles.milestone, { color: theme.text }]}>
-              {t('analytics.milestone_row', { notes: m.notes, date: formatDate(m.startedAt) })}
+              {t('analytics.milestone_row', { notes: m.notes, date: fmtDate(m.startedAt) })}
             </Text>
           ))}
-        </View>
+        </Card>
       )}
     </ScrollView>
   );
@@ -2155,6 +2713,8 @@ function SettingsScreen({
   setWakeHour,
   sleepTraining,
   setSleepTraining,
+  units,
+  setUnits,
   babiesCount,
   isAdmin,
   clearAllEvents,
@@ -2167,6 +2727,7 @@ function SettingsScreen({
   displayName,
   updateDisplayName,
   allStage1,
+  members,
 }: {
   napCheckMinutes: number;
   setNapCheckMinutes: (m: number) => void;
@@ -2178,6 +2739,8 @@ function SettingsScreen({
   setWakeHour: (h: number) => void;
   sleepTraining: boolean;
   setSleepTraining: (v: boolean) => void;
+  units: 'metric' | 'imperial';
+  setUnits: (u: 'metric' | 'imperial') => void;
   babiesCount: number;
   isAdmin: boolean;
   clearAllEvents: () => Promise<void>;
@@ -2190,6 +2753,7 @@ function SettingsScreen({
   displayName: string | null;
   updateDisplayName: (name: string) => Promise<void>;
   allStage1: boolean;
+  members: { id: string; displayName?: string | null }[];
 }) {
   const theme = useThemeContext();
   const { t } = useTranslation();
@@ -2197,6 +2761,8 @@ function SettingsScreen({
   const [nameSaved, setNameSaved] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState(false);
+  // Adds theme-aware top border to each settings section
+  const section = [settingsStyles.adminSection, { borderTopColor: theme.border }];
 
   function handleClearLogs() {
     Alert.alert(t('settings.clear_logs'), t('settings.clear_hint'), [
@@ -2261,7 +2827,7 @@ function SettingsScreen({
       )}
 
       {babiesCount >= 2 && (
-        <View style={settingsStyles.adminSection}>
+        <View style={section}>
           <Pressable
             onPress={() => setTwinSync(!twinSync)}
             style={[
@@ -2297,7 +2863,7 @@ function SettingsScreen({
         </View>
       )}
 
-      <View style={settingsStyles.adminSection}>
+      <View style={section}>
         <Pressable
           onPress={() => setSleepTraining(!sleepTraining)}
           style={[
@@ -2332,8 +2898,43 @@ function SettingsScreen({
         </Pressable>
       </View>
 
+      {/* ── Units ───────────────────────────────────────────────────────────── */}
+      <View style={section}>
+        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+          {t('settings.units_title').toUpperCase()}
+        </Text>
+        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+          {t('settings.units_hint')}
+        </Text>
+        <View style={settingsStyles.pillGrid}>
+          {(['metric', 'imperial'] as const).map(u => {
+            const active = units === u;
+            return (
+              <Pressable
+                key={u}
+                onPress={() => setUnits(u)}
+                accessibilityLabel={t(`settings.units_${u}`)}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                style={[
+                  settingsStyles.pill,
+                  { borderColor: active ? theme.accent : theme.border },
+                  active && { backgroundColor: theme.accent },
+                ]}
+              >
+                <Text
+                  style={[settingsStyles.pillText, { color: active ? theme.bg : theme.textMuted }]}
+                >
+                  {t(`settings.units_${u}`)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       {allStage1 ? (
-        <View style={settingsStyles.adminSection}>
+        <View style={section}>
           <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
             {t('settings.wake_title').toUpperCase()}
           </Text>
@@ -2343,7 +2944,7 @@ function SettingsScreen({
         </View>
       ) : (
         <>
-          <View style={settingsStyles.adminSection}>
+          <View style={section}>
             <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
               {t('settings.wake_title').toUpperCase()}
             </Text>
@@ -2377,7 +2978,7 @@ function SettingsScreen({
             </View>
           </View>
 
-          <View style={settingsStyles.adminSection}>
+          <View style={section}>
             <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
               {t('settings.bedtime_title').toUpperCase()}
             </Text>
@@ -2413,37 +3014,48 @@ function SettingsScreen({
         </>
       )}
 
-      {inviteCode && (
-        <View style={settingsStyles.adminSection}>
-          <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-            {t('settings.invite_title').toUpperCase()}
-          </Text>
-          <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-            {t('settings.invite_hint')}
-          </Text>
-          <View style={[settingsStyles.codeRow, { borderColor: theme.border }]}>
-            <Text style={[settingsStyles.codeText, { color: theme.text }]}>{inviteCode}</Text>
-            <Pressable
-              onPress={() =>
-                Share.share({ message: t('settings.invite_share_message', { code: inviteCode }) })
-              }
-              style={[settingsStyles.shareBtn, { borderColor: theme.border }]}
-              accessibilityLabel={t('settings.invite_share')}
-            >
-              <Text style={[settingsStyles.shareBtnText, { color: theme.text }]}>
-                {t('settings.invite_share')} ›
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      <View style={settingsStyles.adminSection}>
+      <View style={section}>
         <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-          {t('settings.profile_title').toUpperCase()}
+          {t('settings.household_title').toUpperCase()}
         </Text>
+
+        {/* Member avatars */}
+        {members.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+            {members.map(m => {
+              const name = m.displayName ?? '?';
+              const color = authorColor(name);
+              return (
+                <View key={m.id} style={{ alignItems: 'center', gap: 4 }}>
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: color,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
+                      {name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text
+                    style={{ color: theme.textDim, fontSize: 11, maxWidth: 52 }}
+                    numberOfLines={1}
+                  >
+                    {name}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Your name */}
         <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-          {t('settings.your_name_label')}
+          {t('settings.household_your_name_label')}
         </Text>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
           <TextInput
@@ -2466,7 +3078,7 @@ function SettingsScreen({
               setNameInput(v);
               setNameSaved(false);
             }}
-            accessibilityLabel={t('settings.your_name_label')}
+            accessibilityLabel={t('settings.household_your_name_label')}
           />
           <Pressable
             style={({ pressed }) => [
@@ -2490,9 +3102,34 @@ function SettingsScreen({
             </Text>
           </Pressable>
         </View>
+
+        {/* Invite code */}
+        {inviteCode && (
+          <>
+            <Text style={[settingsStyles.hint, { color: theme.textMuted, marginTop: 16 }]}>
+              {t('settings.invite_hint')}
+            </Text>
+            <View style={[settingsStyles.codeRow, { borderColor: theme.border }]}>
+              <Text style={[settingsStyles.codeText, { color: theme.text }]}>{inviteCode}</Text>
+              <Pressable
+                onPress={() =>
+                  Share.share({
+                    message: t('settings.invite_share_message', { code: inviteCode }),
+                  })
+                }
+                style={[settingsStyles.shareBtn, { borderColor: theme.border }]}
+                accessibilityLabel={t('settings.invite_share')}
+              >
+                <Text style={[settingsStyles.shareBtnText, { color: theme.text }]}>
+                  {t('settings.invite_share')} ›
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
 
-      <View style={settingsStyles.adminSection}>
+      <View style={section}>
         <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
           {t('settings.account_title').toUpperCase()}
         </Text>
@@ -2505,10 +3142,28 @@ function SettingsScreen({
             {t('settings.sign_out')}
           </Text>
         </Pressable>
+        <Pressable
+          onPress={() => Linking.openURL('https://www.twintracker.app/settings')}
+          style={[settingsStyles.dangerBtn, { borderColor: theme.border, marginTop: 8 }]}
+          accessibilityLabel={t('settings.export_data_web_link')}
+        >
+          <Text style={[settingsStyles.dangerText, { color: theme.textMuted }]}>
+            {t('settings.export_data_web_link')}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => Linking.openURL('https://www.twintracker.app/settings')}
+          style={[settingsStyles.dangerBtn, { borderColor: theme.border, marginTop: 8 }]}
+          accessibilityLabel={t('settings.delete_account_web_link')}
+        >
+          <Text style={[settingsStyles.dangerText, { color: theme.textMuted }]}>
+            {t('settings.delete_account_web_link')}
+          </Text>
+        </Pressable>
       </View>
 
       {isAdmin && (
-        <View style={settingsStyles.adminSection}>
+        <View style={section}>
           <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
             {t('settings.admin_title').toUpperCase()}
           </Text>
@@ -2686,6 +3341,7 @@ function AppContent() {
     isAdmin,
     inviteCode,
     login,
+    loginWithGoogle,
     register,
     join,
     logout,
@@ -2728,8 +3384,15 @@ function AppContent() {
       setVerifyResendLoading(false);
     }
   }
-  const { prefs, setNapCheckMinutes, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } =
-    usePreferences(asyncStorage);
+  const {
+    prefs,
+    setNapCheckMinutes,
+    setTwinSync,
+    setBedtimeHour,
+    setWakeHour,
+    setSleepTraining,
+    setUnits,
+  } = usePreferences(asyncStorage);
 
   const { t } = useTranslation();
 
@@ -2771,6 +3434,7 @@ function AppContent() {
   };
   const [babies, setBabies] = useState<Baby[]>([]);
   const [babiesLoading, setBabiesLoading] = useState(true);
+  const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
 
   // Flip to night mode while any baby has an active sleep (night) event.
   // Naps do not trigger night mode.
@@ -2880,6 +3544,7 @@ function AppContent() {
       .finally(() => {
         setBabiesLoading(false);
       });
+    api.auth.householdMembers().then(setMembers).catch(console.error);
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
@@ -3037,7 +3702,14 @@ function AppContent() {
   }
 
   if (!isAuthenticated) {
-    return <LoginScreen login={login} register={register} join={join} />;
+    return (
+      <LoginScreen
+        login={login}
+        register={register}
+        join={join}
+        loginWithGoogle={loginWithGoogle}
+      />
+    );
   }
 
   const analyticsBaby = analyticsBabyId
@@ -3051,7 +3723,9 @@ function AppContent() {
         <AnalyticsScreen
           baby={analyticsBaby}
           events={events}
+          eventsLoading={eventsLoading}
           sleepTraining={prefs.sleepTraining}
+          units={prefs.units}
           onBack={() => setAnalyticsBabyId(null)}
         />
       </SafeAreaView>
@@ -3194,6 +3868,8 @@ function AppContent() {
                     setWakeHour={setWakeHour}
                     sleepTraining={prefs.sleepTraining}
                     setSleepTraining={setSleepTraining}
+                    units={prefs.units}
+                    setUnits={setUnits}
                     babiesCount={babies.length}
                     isAdmin={isAdmin}
                     clearAllEvents={clearAllEvents}
@@ -3212,6 +3888,7 @@ function AppContent() {
                       babies.length > 0 &&
                       babies.every(b => b.birthDate != null && getAgeWeeks(b.birthDate) < 15)
                     }
+                    members={members}
                   />
                 </View>
               )}
@@ -3279,6 +3956,19 @@ const loginStyles = StyleSheet.create({
   submitText: { fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
   linkBtn: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 },
   linkText: { fontSize: 13 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { fontSize: 12 },
+  googleBtn: {
+    width: '100%',
+    borderRadius: 10,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  googleBtnText: { fontSize: 15, fontWeight: '600', letterSpacing: 0.3 },
 });
 
 const homeStyles = StyleSheet.create({
@@ -3502,7 +4192,7 @@ const quickStyles = StyleSheet.create({
 });
 
 const settingsStyles = StyleSheet.create({
-  sectionTitle: { fontSize: 11, letterSpacing: 1, marginBottom: 8 },
+  sectionTitle: { fontSize: 13, letterSpacing: 0.8, marginBottom: 8 },
   hint: { fontSize: 12, marginBottom: 16, lineHeight: 18 },
   pillGrid: {
     flexDirection: 'row',
@@ -3518,7 +4208,7 @@ const settingsStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   pillText: { fontSize: 13 },
-  adminSection: { marginTop: 32 },
+  adminSection: { marginTop: 0, paddingTop: 24, borderTopWidth: 1 },
   dangerBtn: {
     height: 52,
     borderWidth: 1,
@@ -3629,4 +4319,49 @@ const analyticsStyles = StyleSheet.create({
     padding: 8,
     marginBottom: 8,
   },
+  // Elevated card (replaces block)
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  // Primary big stat inside a card
+  primaryStat: { fontSize: 32, fontWeight: '800', marginBottom: 4 },
+  // Stats grid rows
+  statsGrid: { marginTop: 8 },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5 },
+  statLabel: { fontSize: 13 },
+  statValue: { fontSize: 13, fontWeight: '600' },
+  // Delta row (week-over-week comparison)
+  deltaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' },
+  deltaLabel: { fontSize: 12 },
+  // Delta pills
+  pill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginRight: 4 },
+  pillPos: { backgroundColor: 'rgba(16,185,129,0.15)' },
+  pillNeg: { backgroundColor: 'rgba(251,113,133,0.15)' },
+  pillText: { fontSize: 12, fontWeight: '600' },
+  // Trend section sub-label (chart title above each chart)
+  trendBlockLabel: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
+  // Trend note — date range caption below charts
+  trendNote: { fontSize: 11, marginTop: 4, lineHeight: 16 },
+  // Transition signal rows
+  signalRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 8 },
+  signalDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
+  signalTextCol: { flex: 1 },
+  signalTitle: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  signalDetail: { fontSize: 12, lineHeight: 18 },
+  // Stage indicator below period subheading
+  stageIndicator: {
+    fontSize: 11,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 16,
+  },
+  // Growth section
+  growthGrid: { flexDirection: 'row', gap: 24, marginBottom: 8 },
+  growthItem: { flexDirection: 'column', gap: 2 },
+  growthValue: { fontSize: 22, fontWeight: '600', letterSpacing: -0.5 },
+  growthLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 },
+  growthPercentile: { fontSize: 11, marginTop: 2 },
 });

@@ -1,5 +1,6 @@
 'use client';
 import { Suspense, useState } from 'react';
+import { GoogleLogin } from '@react-oauth/google';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { configure, useAuth, useTranslation } from '@tt/core';
 import styles from './login.module.scss';
@@ -19,7 +20,7 @@ export default function LoginPage() {
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, register, join } = useAuth();
+  const { login, register, join, loginWithGoogle, resendVerification } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState(() => searchParams.get('code') ?? '');
@@ -35,7 +36,19 @@ function LoginPageInner() {
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
-  const { resendVerification } = useAuth();
+
+  const handleGoogleSuccess = async (credential: string) => {
+    setError('');
+    setLoading(true);
+    try {
+      await loginWithGoogle(credential, inviteCode || undefined);
+      router.replace('/home');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,6 +116,26 @@ function LoginPageInner() {
       <div className={styles.card}>
         <h1 className={styles.wordmark}>{t('auth.title')}</h1>
         <p className={styles.tagline}>{t('auth.tagline')}</p>
+
+        <div className={styles.googleBtn}>
+          <GoogleLogin
+            onSuccess={({ credential }) => {
+              if (credential) {
+                handleGoogleSuccess(credential);
+              }
+            }}
+            onError={() => setError('Google sign-in failed')}
+            theme="outline"
+            size="large"
+            width="100%"
+          />
+        </div>
+
+        <div className={styles.divider}>
+          <span className={styles.dividerLine} />
+          <span className={styles.dividerText}>{t('auth.or_divider')}</span>
+          <span className={styles.dividerLine} />
+        </div>
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <input

@@ -10,6 +10,7 @@ export interface Preferences {
   bedtimeHour: number; // target bedtime hour 0–23; default 19 (7pm, Stage 2+); use 22 for Stage 1 newborns
   wakeHour: number; // expected morning wake hour 0–23; default 7 (7am); also used as the daily history reset boundary
   sleepTraining: boolean; // show self-soothing wait times and guided cues during nap/sleep, default false
+  units: 'metric' | 'imperial'; // how weight and height are displayed; storage always kg/cm, default 'metric'
 }
 
 const DEFAULT: Preferences = {
@@ -18,6 +19,7 @@ const DEFAULT: Preferences = {
   bedtimeHour: 19,
   wakeHour: 7,
   sleepTraining: false,
+  units: 'metric',
 };
 
 function webStorage(): StorageInterface | null {
@@ -49,6 +51,7 @@ export function usePreferences(storage?: StorageInterface): {
   setBedtimeHour: (hour: number) => void;
   setWakeHour: (hour: number) => void;
   setSleepTraining: (enabled: boolean) => void;
+  setUnits: (units: 'metric' | 'imperial') => void;
 } {
   const [prefs, setPrefs] = useState<Preferences>(() => readSync(storage ?? webStorage()));
 
@@ -140,6 +143,11 @@ export function usePreferences(storage?: StorageInterface): {
     [prefs, save],
   );
 
+  const setUnits = useCallback(
+    (units: 'metric' | 'imperial') => save({ ...prefs, units }),
+    [prefs, save],
+  );
+
   return {
     prefs,
     setNapCheckMinutes,
@@ -147,5 +155,6 @@ export function usePreferences(storage?: StorageInterface): {
     setBedtimeHour,
     setWakeHour,
     setSleepTraining,
+    setUnits,
   };
 }

@@ -24,35 +24,72 @@
     max-width: 680px;
   }
 
-  // Desktop: give analytics more horizontal room
   @media (min-width: $bp-xl) {
     max-width: 900px;
     margin-inline: auto;
   }
 }
 
-.loading {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--tt-bg);
-}
+// ── Skeleton loading ──────────────────────────────────────────────────────────
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
   }
 }
 
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--tt-border);
-  border-top-color: var(--tt-text);
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
+.skeletonLine {
+  background: var(--tt-surface);
+  border-radius: 4px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
 }
+
+.skeletonCard {
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  padding: $space-md;
+  margin-bottom: $space-sm;
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+}
+
+.skeletonCardHeader {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin-bottom: $space-xs;
+}
+
+.skeletonIconCircle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--tt-border);
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeletonStatsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+  margin-top: $space-xs;
+}
+
+.skeletonStatRow {
+  display: flex;
+  justify-content: space-between;
+  gap: $space-sm;
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
 
 .header {
   margin-bottom: $space-lg;
@@ -91,83 +128,19 @@
   margin: 0;
 }
 
-// ── Narrative blocks — surface cards ─────────────────────────────
-
-.block {
-  background: var(--tt-surface);
-  border: 1px solid var(--tt-border);
-  border-radius: $radius-md;
-  padding: $space-md;
-  margin-bottom: $space-sm;
-}
-
-// Icon + uppercase label row at the top of each card
-.blockHeader {
-  display: flex;
-  align-items: center;
-  gap: $space-xs;
-  margin-bottom: $space-sm;
-}
-
-// Icon wrapper — inherits the muted label color so no extra prop needed
-.blockIcon {
-  display: flex;
-  align-items: center;
-  color: var(--tt-text-muted);
-  flex-shrink: 0;
-}
-
-.blockTitle {
+.stageIndicator {
   font-family: $font-mono;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
   color: var(--tt-text-muted);
+  margin: $space-xs 0 0;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  margin: 0;
 }
 
-.blockBody {
-  display: flex;
-  flex-direction: column;
-  gap: $space-xs;
-}
-
-.stat {
-  font-family: $font-mono;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--tt-text);
-  margin: 0;
-}
-
-.detail {
-  font-family: $font-mono;
-  font-size: 13px;
-  color: var(--tt-text-dim);
-  margin: 0;
-}
-
-.empty {
-  font-family: $font-mono;
-  font-size: 13px;
-  color: var(--tt-text-muted);
-  margin: 0;
-  font-style: italic;
-}
-
-.milestone {
-  font-family: $font-mono;
-  font-size: 13px;
-  color: var(--tt-text);
-  margin: 0;
-}
-
-// ── Period tabs — Segmented button ────────────────────────────────────────
+// ── Period tabs ───────────────────────────────────────────────────────────────
 
 .periodTabs {
   display: flex;
-  gap: 0;
   margin-bottom: $space-md;
   border: 1px solid var(--tt-border);
   border-radius: $radius-sm;
@@ -209,15 +182,8 @@
   pointer-events: none;
 }
 
-// ── Benchmark rows ─────────────────────────────────────────────────────────────
-.benchmark {
-  font-family: $font-mono;
-  font-size: 11px;
-  color: var(--tt-text-muted);
-  margin: 0;
-}
+// ── Data notice ───────────────────────────────────────────────────────────────
 
-// ── Insufficient data notice ───────────────────────────────────────────────────
 .dataNotice {
   font-family: $font-mono;
   font-size: 11px;
@@ -225,6 +191,322 @@
   border: 1px solid var(--tt-border);
   border-radius: $radius-sm;
   padding: $space-xs $space-sm;
-  margin-bottom: $space-sm;
   margin: 0 0 $space-sm;
+}
+
+// ── Section cards ─────────────────────────────────────────────────────────────
+// Elevated surface with a faint shadow — distinct from the flat page background.
+
+.card {
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  padding: $space-md;
+  margin-bottom: $space-sm;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin-bottom: $space-md;
+}
+
+.cardIcon {
+  display: flex;
+  align-items: center;
+  color: var(--tt-text-muted);
+  flex-shrink: 0;
+}
+
+.cardTitle {
+  font-family: $font-mono;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: 0;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: $space-xs;
+}
+
+// ── Primary stat — large display number ───────────────────────────────────────
+
+.primaryStat {
+  font-family: $font-display;
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--tt-text);
+  letter-spacing: -1px;
+  line-height: 1;
+  margin: 0 0 $space-sm;
+}
+
+// ── Stats grid — two-column key/value rows ────────────────────────────────────
+
+.statsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: $space-xs;
+}
+
+.statRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: $space-sm;
+}
+
+.statLabel {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+}
+
+.statValue {
+  font-family: $font-mono;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tt-text);
+}
+
+// ── Detail / benchmark rows ───────────────────────────────────────────────────
+
+.detail {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  margin: 0;
+}
+
+.benchmark {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  margin: 0;
+  padding-top: $space-xs;
+  border-top: 1px solid var(--tt-border);
+  margin-top: $space-xs;
+}
+
+.empty {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  margin: 0;
+  font-style: italic;
+}
+
+.milestone {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  margin: 0;
+}
+
+// ── Delta pills — week-over-week comparison ───────────────────────────────────
+
+.deltaRow {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin: $space-xs 0;
+}
+
+.deltaLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+}
+
+.pillPositive,
+.pillNegative {
+  font-family: $font-mono;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: $radius-full;
+}
+
+.pillPositive {
+  background: rgba(16, 185, 129, 0.12); // emerald tint — theme-neutral opacity
+  color: var(--tt-text);
+}
+
+.pillNegative {
+  background: rgba(251, 113, 133, 0.12); // rose tint
+  color: var(--tt-text);
+}
+
+// ── Trend charts ──────────────────────────────────────────────────────────────
+
+.trendSubhead {
+  font-family: $font-mono;
+  font-size: 10px;
+  color: var(--tt-text-muted);
+  letter-spacing: 0.5px;
+  margin: 0 0 $space-sm;
+}
+
+.trendBlock {
+  margin-bottom: $space-sm;
+}
+
+.trendBlockHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.trendBlockLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tt-text-dim);
+}
+
+.trendBlockSublabel {
+  font-family: $font-mono;
+  font-size: 10px;
+  color: var(--tt-text-muted);
+}
+
+// X-axis day labels row — evenly distributed below the chart.
+.trendAxisRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.axisLabel {
+  font-family: $font-mono;
+  font-size: 9px;
+  color: var(--tt-text-muted);
+}
+
+// ── Transition signal rows ────────────────────────────────────────────────────
+
+.signalRow {
+  display: flex;
+  align-items: flex-start;
+  gap: $space-sm;
+  padding: $space-sm 0;
+
+  & + & {
+    border-top: 1px solid var(--tt-border);
+  }
+}
+
+.signalDotPositive,
+.signalDotWatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.signalDotPositive {
+  background: var(--tt-text);
+  opacity: 0.7;
+}
+
+.signalDotWatch {
+  background: var(--tt-text-dim);
+  opacity: 0.5;
+}
+
+.signalText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.signalTitle {
+  font-family: $font-mono;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tt-text);
+  margin: 0;
+}
+
+.signalDetail {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+// ── Growth section ────────────────────────────────────────────────────────────
+
+.growthGrid {
+  display: flex;
+  gap: $space-lg;
+  margin-bottom: $space-md;
+}
+
+.growthItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.growthValue {
+  font-family: $font-mono;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--tt-text);
+  letter-spacing: -0.5px;
+}
+
+.growthLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.growthPercentile {
+  font-family: $font-mono;
+  font-size: 11px;
+  color: var(--tt-text-dim);
+  margin-top: 2px;
+}
+
+.unitsRow {
+  display: flex;
+  gap: $space-xs;
+  margin-top: $space-xs;
+}
+
+.unitsPill {
+  font-family: $font-mono;
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-sm;
+  background: none;
+  color: var(--tt-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--tt-text-muted);
+  }
+}
+
+.unitsPillActive {
+  border-color: var(--tt-accent);
+  color: var(--tt-text);
+  background: var(--tt-surface);
 }

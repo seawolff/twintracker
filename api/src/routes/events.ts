@@ -48,6 +48,61 @@ const INSERT_RETURNING = `
   (SELECT display_name FROM users WHERE id = logged_by) AS "loggedByName"
 `;
 
+// GET /events/export — download all household events as CSV
+router.get('/export', async (req: AuthRequest, res) => {
+  const { rows } = await pool.query(
+    `SELECT e.started_at, e.ended_at, b.name AS baby_name, e.type, e.value, e.unit, e.notes
+     FROM events e
+     JOIN babies b ON b.id = e.baby_id
+     WHERE b.household_id = $1 AND e.deleted_at IS NULL
+     ORDER BY e.started_at DESC`,
+    [req.householdId],
+  );
+
+  const csvEscape = (v: unknown): string => {
+    if (v == null) {
+      return '';
+    }
+    const s = String(v);
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+
+  const durationMin = (start: Date, end: Date | null): string => {
+    if (!end) {
+      return '';
+    }
+    return String(Math.round((end.getTime() - start.getTime()) / 60000));
+  };
+
+  const header = 'Date,Time,Baby,Type,Value,Unit,Notes,Duration (min)\n';
+  const lines = rows.map(r => {
+    const d = new Date(r.started_at);
+    const date = d.toISOString().slice(0, 10);
+    const time = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return [
+      date,
+      time,
+      csvEscape(r.baby_name),
+      csvEscape(r.type),
+      csvEscape(r.value),
+      csvEscape(r.unit),
+      csvEscape(r.notes),
+      durationMin(d, r.ended_at ? new Date(r.ended_at) : null),
+    ].join(',');
+  });
+
+  const filename = `twintracker-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(header + lines.join('\n'));
+});
+
 // GET /events?since=ISO — delta sync
 router.get('/', async (req: AuthRequest, res) => {
   const since = req.query.since as string | undefined;
@@ -59,7 +114,7 @@ router.get('/', async (req: AuthRequest, res) => {
        AND ($2::timestamptz IS NULL OR GREATEST(e.created_at, e.updated_at) > $2::timestamptz)
        AND ($2::timestamptz IS NOT NULL OR e.deleted_at IS NULL)
      ORDER BY e.started_at DESC
-     LIMIT 200`,
+     LIMIT 1000`,
     [req.householdId, since ?? null],
   );
   res.json(rows);

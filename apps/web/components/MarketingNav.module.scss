@@ -1,0 +1,67 @@
+@use '../styles/variables' as *;
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $space-md $space-lg;
+  background: var(--tt-bg);
+  border-bottom: 1px solid var(--tt-border);
+
+  @media (min-width: $bp-md) {
+    padding: $space-md $space-xl;
+  }
+}
+
+.logo {
+  font-family: $font-display;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--tt-text);
+  letter-spacing: -0.3px;
+}
+
+.navRight {
+  display: flex;
+  align-items: center;
+  gap: $space-md;
+}
+
+.themeBtn {
+  background: none;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  color: var(--tt-text);
+  font-size: 16px;
+  width: $tap-min;
+  height: $tap-min;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.signIn {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  padding: 0 $space-md;
+  height: $tap-min;
+  display: flex;
+  align-items: center;
+  transition: border-color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}

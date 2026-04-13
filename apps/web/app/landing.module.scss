@@ -1,0 +1,411 @@
+@use '../styles/variables' as *;
+
+.page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--tt-bg);
+}
+
+// ── Hero ──────────────────────────────────────────────────────────────────────
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: $space-xxl $space-lg;
+  gap: $space-xxl;
+
+  @media (min-width: $bp-md) {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    padding: 80px $space-xl;
+    gap: 80px;
+  }
+
+  @media (min-width: $bp-xl) {
+    padding: 100px $space-xl;
+    max-width: 1200px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
+
+.heroLeft {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  max-width: 480px;
+}
+
+.tagline {
+  font-family: $font-display;
+  font-size: 52px;
+  font-weight: 800;
+  color: var(--tt-text);
+  letter-spacing: -1.5px;
+  line-height: 1.05;
+  margin-bottom: $space-md;
+
+  @media (min-width: $bp-md) {
+    font-size: 64px;
+  }
+
+  @media (min-width: $bp-xl) {
+    font-size: 80px;
+  }
+}
+
+.heroSub {
+  font-family: $font-mono;
+  font-size: 15px;
+  color: var(--tt-text-dim);
+  line-height: 1.6;
+  margin-bottom: $space-xl;
+}
+
+.ctas {
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+  width: 100%;
+
+  @media (min-width: $bp-md) {
+    flex-direction: row;
+    width: auto;
+  }
+}
+
+.ctaPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  padding: 0 $space-xl;
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+  font-family: $font-mono;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: $radius-full;
+  transition: opacity $transition-fast;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.ctaSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  padding: 0 $space-xl;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 14px;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  transition: border-color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+// ── Phone mockup ──────────────────────────────────────────────────────────────
+.heroRight {
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+// iPhone 14 proportions: 390×844 logical pixels.
+// Rendered at ~90% on mobile, full size on desktop.
+.phone {
+  width: 352px;
+  height: 700px;
+  border: 10px solid var(--tt-border);
+  border-radius: 48px;
+  background: var(--tt-bg);
+  display: flex;
+  flex-direction: column;
+  box-shadow:
+    0 0 0 1px var(--tt-surface),
+    0 32px 80px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+
+  @media (min-width: $bp-md) {
+    width: 390px;
+    height: 760px;
+  }
+}
+
+// Simulates the phone status-bar notch area at the top.
+.phoneContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 32px $space-sm 0;
+  overflow: hidden;
+}
+
+// pointer-events: none so only the DemoSleepStrip overlay responds to interaction.
+// position: relative so the absolute-positioned overlay is anchored to this container.
+.phoneCards {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  min-height: 0;
+  position: relative;
+}
+
+// ── Phone skeleton ────────────────────────────────────────────────────────────
+@keyframes skeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.skeletonCard {
+  flex: 1;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  padding: $space-md;
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+  margin: 0 $space-xs;
+}
+
+.skeletonLine {
+  background: var(--tt-surface);
+  border-radius: 4px;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.skeletonActions {
+  display: flex;
+  gap: $space-sm;
+  margin-top: auto;
+  padding-top: $space-sm;
+}
+
+.skeletonBtn {
+  height: 52px;
+  flex: 1;
+  background: var(--tt-surface);
+  border-radius: $radius-full;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+.skeletonTabBar {
+  height: 56px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--tt-border);
+  background: var(--tt-bg);
+}
+
+// ── Demo mode toggle ──────────────────────────────────────────────────────────
+.phoneDemoWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $space-md;
+}
+
+.demoToggle {
+  display: flex;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  overflow: hidden;
+}
+
+.demoToggleBtn {
+  padding: 6px 20px;
+  font-family: $font-mono;
+  font-size: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--tt-text-dim);
+  transition:
+    background $transition-fast,
+    color $transition-fast;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+.demoToggleActive {
+  background: var(--tt-text);
+  color: var(--tt-bg);
+}
+
+// ── Features ──────────────────────────────────────────────────────────────────
+.features {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $space-md;
+  padding: $space-xl $space-lg;
+  border-top: 1px solid var(--tt-border);
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(3, 1fr);
+    padding: 80px $space-xl;
+    gap: $space-xl;
+    max-width: 960px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
+
+.featureCard {
+  padding: $space-lg;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+}
+
+.featureIcon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.featureTitle {
+  font-family: $font-display;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--tt-text);
+  letter-spacing: -0.3px;
+}
+
+.featureDesc {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  line-height: 1.6;
+}
+
+// ── Story ─────────────────────────────────────────────────────────────────────
+.story {
+  border-top: 1px solid var(--tt-border);
+  padding: $space-xl $space-lg;
+
+  @media (min-width: $bp-md) {
+    padding: 80px $space-xl;
+  }
+}
+
+.storyInner {
+  display: flex;
+  flex-direction: column;
+  gap: $space-lg;
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.storyTitle {
+  font-family: $font-display;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--tt-text);
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+
+  @media (min-width: $bp-md) {
+    font-size: 32px;
+  }
+}
+
+.storyBody {
+  font-family: $font-mono;
+  font-size: 14px;
+  color: var(--tt-text-dim);
+  line-height: 1.75;
+}
+
+// ── Privacy promise ───────────────────────────────────────────────────────────
+.privacyPromise {
+  padding: $space-xl $space-lg;
+  border-top: 1px solid var(--tt-border);
+  text-align: center;
+
+  @media (min-width: $bp-md) {
+    padding: 80px $space-xl;
+    max-width: 960px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
+
+.privacyPromiseTitle {
+  font-family: $font-display;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--tt-text);
+  letter-spacing: -0.5px;
+  margin-bottom: $space-sm;
+
+  @media (min-width: $bp-md) {
+    font-size: 36px;
+  }
+}
+
+.privacyPromiseIntro {
+  font-family: $font-mono;
+  font-size: 14px;
+  color: var(--tt-text-dim);
+  line-height: 1.6;
+  margin-bottom: $space-xl;
+  max-width: 520px;
+  margin-inline: auto;
+}
+
+.privacyCards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: $space-md;
+  text-align: left;
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: repeat(3, 1fr);
+    gap: $space-xl;
+  }
+}
+
+.privacyCard {
+  padding: $space-lg;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+}
+
+.privacyCardTitle {
+  font-family: $font-display;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--tt-text);
+  letter-spacing: -0.2px;
+}
+
+.privacyCardDesc {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  line-height: 1.6;
+}

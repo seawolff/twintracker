@@ -1,0 +1,30 @@
+@use '../styles/variables' as *;
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  padding: $space-xl $space-lg;
+  border-top: 1px solid var(--tt-border);
+  font-family: $font-mono;
+  font-size: 12px;
+}
+
+.link {
+  color: var(--tt-text-muted);
+  transition: color $transition-fast;
+
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+.sep {
+  color: var(--tt-border);
+}
+
+.copy {
+  color: var(--tt-text-muted);
+}

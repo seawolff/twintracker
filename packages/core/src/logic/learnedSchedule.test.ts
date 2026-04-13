@@ -35,6 +35,7 @@ describe('computeLearnedStats', () => {
     expect(stats.avgBottleOz).toBeNull();
     expect(stats.avgNapDurationMs).toBeNull();
     expect(stats.avgAwakeWindowMs).toBeNull();
+    expect(stats.avgNapsPerDay).toBeNull();
   });
 
   test('< 3 data points → all null', () => {
@@ -159,5 +160,33 @@ describe('computeLearnedStats', () => {
     ];
     const stats = computeLearnedStats(events, NOW);
     expect(stats.avgBottleOz).toBeNull(); // 0 valid values < minimum 3
+  });
+
+  test('avgNapsPerDay: median naps per calendar day', () => {
+    // Day keys (UTC ms / 86400000):
+    // hoursAgo(48) → 2 days ago, hoursAgo(46) → 2 days ago = 2 naps that day
+    // hoursAgo(24) → 1 day ago = 1 nap
+    // hoursAgo(2) → today = 1 nap
+    // naps per day: [2, 1, 1] → sorted [1, 1, 2] → median = 1
+    const mkNap = (startHoursAgo: number, durMin: number) =>
+      makeEvent('b1', 'nap', hoursAgo(startHoursAgo), {
+        endedAt: new Date(
+          NOW.getTime() - startHoursAgo * 3_600_000 + durMin * 60_000,
+        ).toISOString(),
+      });
+    const events = [mkNap(48, 60), mkNap(46, 45), mkNap(24, 90), mkNap(2, 60)];
+    const stats = computeLearnedStats(events, NOW);
+    expect(stats.avgNapsPerDay).toBe(1);
+  });
+
+  test('avgNapsPerDay: null when fewer than 3 days of data', () => {
+    const mkNap = (startHoursAgo: number) =>
+      makeEvent('b1', 'nap', hoursAgo(startHoursAgo), {
+        endedAt: new Date(NOW.getTime() - startHoursAgo * 3_600_000 + 60 * 60_000).toISOString(),
+      });
+    // Only 2 distinct days
+    const events = [mkNap(24), mkNap(2)];
+    const stats = computeLearnedStats(events, NOW);
+    expect(stats.avgNapsPerDay).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import {
   WAKE_HOURS,
   hourLabel,
   getAgeWeeks,
+  authorColor,
 } from '@tt/core';
 import type { Baby, LogEventPayload, TrackerEvent } from '@tt/core';
 import { BottomTabBar } from '../../components/BottomTabBar';
@@ -23,12 +24,20 @@ import styles from './settings.module.scss';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { prefs, setNapCheckMinutes, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } =
-    usePreferences();
+  const {
+    prefs,
+    setNapCheckMinutes,
+    setTwinSync,
+    setBedtimeHour,
+    setWakeHour,
+    setSleepTraining,
+    setUnits,
+  } = usePreferences();
   const {
     isAdmin,
     inviteCode,
     logout,
+    deleteAccount,
     isAuthenticated,
     loading: authLoading,
     displayName,
@@ -49,7 +58,12 @@ export default function SettingsPage() {
   }, [displayName]);
   const [clearing, setClearing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [babies, setBabies] = useState<Baby[]>([]);
+  const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
   const [mockMode, setMockMode] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('tt_mock_mode') === 'true',
   );
@@ -79,6 +93,7 @@ export default function SettingsPage() {
       return;
     }
     api.babies.list().then(setBabies).catch(console.error);
+    api.auth.householdMembers().then(setMembers).catch(console.error);
   }, [authLoading, isAuthenticated]);
 
   function handleCopy() {
@@ -143,6 +158,33 @@ export default function SettingsPage() {
     } finally {
       setGenerating(false);
       setMockProgress(null);
+    }
+  }
+
+  async function handleExportData() {
+    setExporting(true);
+    try {
+      const csv = await api.events.exportCsv();
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `twintracker-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      router.replace('/login');
+    } catch {
+      setDeleteError(t('settings.delete_account_hint'));
+      setDeleting(false);
     }
   }
 
@@ -212,6 +254,24 @@ export default function SettingsPage() {
           />
         </section>
 
+        <section className={styles.section}>
+          <p className={styles.sectionTitle}>{t('settings.units_title')}</p>
+          <p className={styles.sectionHint}>{t('settings.units_hint')}</p>
+          <div className={styles.pillGrid}>
+            {(['metric', 'imperial'] as const).map(u => (
+              <button
+                key={u}
+                className={`${styles.pill} ${prefs.units === u ? styles.pillActive : ''}`}
+                onClick={() => setUnits(u)}
+                type="button"
+                aria-pressed={prefs.units === u}
+              >
+                {t(`settings.units_${u}`)}
+              </button>
+            ))}
+          </div>
+        </section>
+
         {allStage1 ? (
           <section className={styles.section}>
             <p className={styles.sectionTitle}>{t('settings.wake_title')}</p>
@@ -255,23 +315,63 @@ export default function SettingsPage() {
           </>
         )}
 
-        {inviteCode && (
-          <section className={styles.section}>
-            <p className={styles.sectionTitle}>{t('settings.invite_title')}</p>
-            <p className={styles.sectionHint}>{t('settings.invite_hint')}</p>
-            <div className={styles.codeRow}>
-              <span className={styles.codeText}>{inviteCode}</span>
-              <button className={styles.copyBtn} onClick={handleCopy}>
-                {copied ? t('settings.invite_copied') : t('settings.invite_copy')}
-              </button>
-            </div>
-          </section>
-        )}
-
         <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.profile_title')}</p>
-          <p className={styles.sectionHint}>{t('settings.your_name_label')}</p>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <p className={styles.sectionTitle}>{t('settings.household_title')}</p>
+
+          {/* Member avatars */}
+          {members.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              {members.map(m => {
+                const name = m.displayName ?? '?';
+                const color = authorColor(name);
+                return (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 16,
+                        fontWeight: 600,
+                        color: '#fff',
+                      }}
+                    >
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--tt-text-dim)',
+                        maxWidth: 52,
+                        textAlign: 'center',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Your name */}
+          <p className={styles.sectionHint}>{t('settings.household_your_name_label')}</p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: inviteCode ? 16 : 0 }}>
             <input
               className={styles.input ?? ''}
               type="text"
@@ -303,6 +403,21 @@ export default function SettingsPage() {
               {nameSaved ? '✓' : t('settings.save_name')}
             </button>
           </div>
+
+          {/* Invite code */}
+          {inviteCode && (
+            <>
+              <p className={styles.sectionHint} style={{ marginTop: 16 }}>
+                {t('settings.invite_hint')}
+              </p>
+              <div className={styles.codeRow}>
+                <span className={styles.codeText}>{inviteCode}</span>
+                <button className={styles.copyBtn} onClick={handleCopy}>
+                  {copied ? t('settings.invite_copied') : t('settings.invite_copy')}
+                </button>
+              </div>
+            </>
+          )}
         </section>
 
         <section className={styles.section}>
@@ -316,6 +431,60 @@ export default function SettingsPage() {
           >
             {t('settings.sign_out')}
           </button>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.sectionTitle}>{t('settings.your_data_title')}</p>
+          <button
+            className={`${styles.pill} ${styles.pillFull}`}
+            onClick={handleExportData}
+            disabled={exporting}
+          >
+            {exporting ? t('settings.exporting_data') : t('settings.export_data')}
+          </button>
+          <div style={{ marginTop: 8 }}>
+            {!deleteConfirm ? (
+              <button
+                className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
+                onClick={() => setDeleteConfirm(true)}
+                disabled={deleting}
+              >
+                {t('settings.delete_account')}
+              </button>
+            ) : (
+              <>
+                <p className={styles.sectionHint} style={{ marginBottom: 8 }}>
+                  {t('settings.delete_account_hint')}
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
+                  >
+                    {deleting
+                      ? t('settings.deleting_account')
+                      : t('settings.delete_account_confirm')}
+                  </button>
+                  <button
+                    className={`${styles.pill} ${styles.pillFull}`}
+                    onClick={() => setDeleteConfirm(false)}
+                    disabled={deleting}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                </div>
+              </>
+            )}
+            {deleteError && (
+              <p
+                className={styles.sectionHint}
+                style={{ color: 'var(--tt-urgency-overdue)', marginTop: 8 }}
+              >
+                {deleteError}
+              </p>
+            )}
+          </div>
         </section>
 
         {isAdmin && (

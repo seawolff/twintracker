@@ -172,6 +172,14 @@ async function migrate() {
       ALTER TABLE babies ADD COLUMN IF NOT EXISTS sex        VARCHAR(10);
     `);
 
+    // Migration 13: Google SSO — google_id for OAuth identity linking.
+    // password_hash becomes nullable so Google-only accounts don't need a password.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS users_google_id ON users(google_id) WHERE google_id IS NOT NULL;
+      ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+    `);
+
     console.log('Migration complete');
   } finally {
     client.release();

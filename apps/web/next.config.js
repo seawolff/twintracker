@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  transpilePackages: ['react-native', 'react-native-web', 'react-native-svg', '@tt/core', '@tt/ui'],
+  transpilePackages: ['react-native', 'react-native-web', 'react-native-svg', '@tt/core', '@tt/ui', '@react-oauth/google'],
   experimental: {
     externalDir: true,
   },

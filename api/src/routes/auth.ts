@@ -262,6 +262,128 @@ router.post('/resend-verification', requireAuth, async (req: AuthRequest, res) =
   res.json({ message: 'Verification email sent' });
 });
 
+// POST /auth/google — sign in or register via Google ID token
+// Verifies the token server-side with Google's tokeninfo endpoint.
+// Creates a new account if the google_id/email is not found; links google_id to
+// an existing email account if the email matches but no google_id is set yet.
+// Optional inviteCode joins an existing household instead of creating one.
+router.post('/google', async (req, res) => {
+  const { idToken, inviteCode } = req.body as { idToken: string; inviteCode?: string };
+  if (!idToken) {
+    res.status(400).json({ message: 'idToken required' });
+    return;
+  }
+
+  // Verify the ID token with Google — this validates the signature and expiry.
+  const tokenInfoRes = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+  );
+  if (!tokenInfoRes.ok) {
+    res.status(401).json({ message: 'Invalid Google token' });
+    return;
+  }
+  const tokenInfo = (await tokenInfoRes.json()) as {
+    sub: string;
+    email: string;
+    name?: string;
+    email_verified?: string;
+  };
+  if (!tokenInfo.sub || !tokenInfo.email) {
+    res.status(401).json({ message: 'Google token missing required fields' });
+    return;
+  }
+
+  const googleId = tokenInfo.sub;
+  const email = tokenInfo.email.toLowerCase();
+  const name = tokenInfo.name ?? null;
+
+  // Look up existing account by google_id first, then by email.
+  const { rows } = await pool.query(
+    `SELECT id, household_id AS "householdId", invite_code AS "inviteCode",
+            is_admin AS "isAdmin", display_name AS "displayName", google_id AS "googleId"
+     FROM users WHERE google_id = $1 OR (lower(email) = $2)
+     ORDER BY (google_id = $1) DESC
+     LIMIT 1`,
+    [googleId, email],
+  );
+  const existing = rows[0];
+
+  if (existing) {
+    // Link google_id if this account was email/password only.
+    if (!existing.googleId) {
+      await pool.query('UPDATE users SET google_id = $1 WHERE id = $2', [googleId, existing.id]);
+    }
+    // Google accounts are always considered email-verified.
+    await pool.query('UPDATE users SET email_verified = true WHERE id = $1', [existing.id]);
+    res.json({
+      ...signTokens(existing.id, existing.householdId, existing.isAdmin ?? false),
+      inviteCode: existing.inviteCode,
+      isAdmin: existing.isAdmin ?? false,
+      displayName: existing.displayName ?? name,
+      emailVerified: true,
+    });
+    return;
+  }
+
+  // New account — determine household.
+  let householdId: string;
+  if (inviteCode) {
+    // Join an existing household.
+    const { rows: hRows } = await pool.query(
+      'SELECT household_id FROM users WHERE invite_code = $1 LIMIT 1',
+      [inviteCode.toUpperCase()],
+    );
+    if (!hRows.length) {
+      res.status(404).json({ message: 'Invalid invite code' });
+      return;
+    }
+    householdId = hRows[0].household_id as string;
+  } else {
+    householdId = (await pool.query('SELECT gen_random_uuid() AS id')).rows[0].id as string;
+  }
+
+  const newInviteCode = (
+    await pool.query(
+      `SELECT upper(substring(replace(gen_random_uuid()::text, '-', ''), 1, 8)) AS code`,
+    )
+  ).rows[0].code as string;
+
+  try {
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO users (email, household_id, invite_code, display_name, google_id, email_verified)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING id, household_id AS "householdId", invite_code AS "inviteCode", is_admin AS "isAdmin", display_name AS "displayName"`,
+      [email, householdId, newInviteCode, name, googleId],
+    );
+    const user = newRows[0];
+    res.status(201).json({
+      ...signTokens(user.id, user.householdId, user.isAdmin ?? false),
+      inviteCode: user.inviteCode,
+      isAdmin: user.isAdmin ?? false,
+      displayName: user.displayName ?? null,
+      emailVerified: true,
+    });
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === '23505') {
+      res.status(409).json({ message: 'Unable to create account. Please try again.' });
+    } else {
+      throw err;
+    }
+  }
+});
+
+// GET /auth/household/members — list all members in the current household
+router.get('/household/members', requireAuth, async (req: AuthRequest, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, display_name AS "displayName", created_at AS "createdAt"
+     FROM users
+     WHERE household_id = (SELECT household_id FROM users WHERE id = $1)
+     ORDER BY created_at ASC`,
+    [req.userId],
+  );
+  res.json(rows);
+});
+
 // GET /auth/me — fetch current user's profile
 router.get('/me', requireAuth, async (req: AuthRequest, res) => {
   const { rows } = await pool.query(
@@ -284,6 +406,44 @@ router.put('/me', requireAuth, async (req: AuthRequest, res) => {
     [name?.trim() || null, req.userId],
   );
   res.json(rows[0]);
+});
+
+// DELETE /auth/me — permanently delete the authenticated user and household data if last member
+router.delete('/me', requireAuth, async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: memberRows } = await client.query(
+      'SELECT id FROM users WHERE household_id = (SELECT household_id FROM users WHERE id = $1)',
+      [req.userId],
+    );
+
+    if (memberRows.length <= 1) {
+      // Last member — wipe all household data
+      await client.query(
+        `DELETE FROM events WHERE household_id = (SELECT household_id FROM users WHERE id = $1)`,
+        [req.userId],
+      );
+      await client.query(
+        `DELETE FROM nap_alarms WHERE household_id = (SELECT household_id FROM users WHERE id = $1)`,
+        [req.userId],
+      );
+      await client.query(
+        `DELETE FROM babies WHERE household_id = (SELECT household_id FROM users WHERE id = $1)`,
+        [req.userId],
+      );
+    }
+
+    await client.query('DELETE FROM users WHERE id = $1', [req.userId]);
+    await client.query('COMMIT');
+    res.status(204).send();
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

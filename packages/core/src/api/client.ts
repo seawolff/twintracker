@@ -94,6 +94,33 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function requestText(path: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  let res = await fetch(`${baseUrl}${path}`, { headers });
+  if (res.status === 401 && refreshToken) {
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    try {
+      await refreshPromise;
+      headers['Authorization'] = `Bearer ${accessToken}`;
+      res = await fetch(`${baseUrl}${path}`, { headers });
+    } catch {
+      accessToken = null;
+      refreshToken = null;
+    }
+  }
+  if (!res.ok) {
+    throw new Error(res.statusText);
+  }
+  return res.text();
+}
+
 export const api = {
   auth: {
     login: (data: LoginRequest) =>
@@ -102,6 +129,8 @@ export const api = {
       request<AuthResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
     join: (data: JoinRequest) =>
       request<AuthResponse>('/api/auth/join', { method: 'POST', body: JSON.stringify(data) }),
+    googleAuth: (data: { idToken: string; inviteCode?: string }) =>
+      request<AuthResponse>('/api/auth/google', { method: 'POST', body: JSON.stringify(data) }),
     refresh: (rToken: string) =>
       request<AuthResponse>('/api/auth/refresh', {
         method: 'POST',
@@ -126,6 +155,11 @@ export const api = {
       }>(`/api/auth/verify-email?token=${encodeURIComponent(token)}`),
     resendVerification: () =>
       request<{ message: string }>('/api/auth/resend-verification', { method: 'POST' }),
+    deleteAccount: () => request<void>('/api/auth/me', { method: 'DELETE' }),
+    householdMembers: () =>
+      request<{ id: string; displayName?: string | null; createdAt: string }[]>(
+        '/api/auth/household/members',
+      ),
   },
   babies: {
     list: () => request<Baby[]>('/api/babies'),
@@ -171,5 +205,6 @@ export const api = {
       request<TrackerEvent>(`/api/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/api/events/${id}`, { method: 'DELETE' }),
     deleteAll: () => request<void>('/api/events', { method: 'DELETE' }),
+    exportCsv: () => requestText('/api/events/export'),
   },
 };

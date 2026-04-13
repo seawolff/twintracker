@@ -91,6 +91,33 @@
   }
 }
 
+.googleBtn {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-bottom: $space-md;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  margin-bottom: $space-md;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--tt-border);
+}
+
+.dividerText {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  white-space: nowrap;
+}
+
 .switchLink {
   display: block;
   width: 100%;

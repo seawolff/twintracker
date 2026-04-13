@@ -237,6 +237,149 @@ describe('GET /api/events?since — parameter safety', () => {
   });
 });
 
+// ── 4. POST /auth/google ──────────────────────────────────────────────────────
+
+describe('POST /api/auth/google', () => {
+  // Mock fetch used by the route to call Google's tokeninfo endpoint.
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('returns 400 when idToken is missing', async () => {
+    const res = await request(app).post('/api/auth/google').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/idToken/);
+  });
+
+  it('returns 401 when Google tokeninfo rejects the token', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({ ok: false });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'bad-token' });
+    expect(res.status).toBe(401);
+    expect(res.body.message).toMatch(/Invalid Google token/);
+  });
+
+  it('returns 401 when tokeninfo response is missing sub or email', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: '', email: '' }),
+    });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'incomplete-token' });
+    expect(res.status).toBe(401);
+  });
+
+  it('signs in an existing Google user and returns tokens', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'google-sub-123', email: 'user@example.com', name: 'Test User' }),
+    });
+
+    const existingUser = {
+      id: 'user-id-1',
+      householdId: 'hh-id-1',
+      inviteCode: 'ABCD1234',
+      isAdmin: false,
+      displayName: 'Test User',
+      googleId: 'google-sub-123',
+    };
+
+    // 1. Look up existing user
+    mockQuery.mockResolvedValueOnce({ rows: [existingUser] });
+    // 2. Update email_verified
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'valid-token' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('accessToken');
+    expect(res.body).toHaveProperty('refreshToken');
+    expect(res.body.emailVerified).toBe(true);
+    expect(res.body.inviteCode).toBe('ABCD1234');
+  });
+
+  it('links google_id to an existing email/password account', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'google-sub-456', email: 'existing@example.com', name: 'Mom' }),
+    });
+
+    const existingUser = {
+      id: 'user-id-2',
+      householdId: 'hh-id-2',
+      inviteCode: 'EFGH5678',
+      isAdmin: false,
+      displayName: 'Mom',
+      googleId: null, // no google_id yet — email/password account
+    };
+
+    // 1. Look up existing user (found by email, no google_id)
+    mockQuery.mockResolvedValueOnce({ rows: [existingUser] });
+    // 2. Link google_id
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 3. Update email_verified
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'valid-token' });
+    expect(res.status).toBe(200);
+    expect(res.body.emailVerified).toBe(true);
+
+    // Confirm the link query was issued
+    const linkCall = mockQuery.mock.calls[1] as [string, unknown[]];
+    expect(linkCall[0]).toMatch(/UPDATE users SET google_id/);
+    expect(linkCall[1][0]).toBe('google-sub-456');
+  });
+
+  it('creates a new account when user does not exist', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'google-sub-789', email: 'new@example.com', name: 'New User' }),
+    });
+
+    // 1. No existing user
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 2. gen_random_uuid for householdId
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'new-hh-id' }] });
+    // 3. gen invite code
+    mockQuery.mockResolvedValueOnce({ rows: [{ code: 'NEWC0DE1' }] });
+    // 4. INSERT new user
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'new-user-id',
+          householdId: 'new-hh-id',
+          inviteCode: 'NEWC0DE1',
+          isAdmin: false,
+          displayName: 'New User',
+        },
+      ],
+    });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'valid-token' });
+    expect(res.status).toBe(201);
+    expect(res.body).toHaveProperty('accessToken');
+    expect(res.body.emailVerified).toBe(true);
+  });
+
+  it('returns 404 when invite code is invalid', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'google-sub-000', email: 'join@example.com' }),
+    });
+
+    // No existing user
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Invite code lookup returns nothing
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/api/auth/google')
+      .send({ idToken: 'valid-token', inviteCode: 'BADCODE' });
+    expect(res.status).toBe(404);
+  });
+});
+
 // ── 4. Input validation ───────────────────────────────────────────────────────
 
 describe('Input validation', () => {

@@ -138,8 +138,17 @@ jobs:
         inputs.service == 'web'
       )
     runs-on: ubuntu-latest
+    outputs:
+      prev_sha: ${{ steps.snapshot.outputs.sha }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need parent commit for rollback
+
+      - name: Record previous commit SHA
+        id: snapshot
+        run: echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
@@ -149,3 +158,66 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+      # Poll the homepage until the new deployment is serving (up to 4 min).
+      # Next.js standalone builds take longer to start than the API, so we
+      # use 30 s intervals with 8 attempts.
+      - name: Health check
+        id: health
+        run: |
+          echo "Polling ${{ secrets.WEB_URL }} …"
+          for i in 1 2 3 4 5 6 7 8; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${{ secrets.WEB_URL }}" 2>/dev/null)
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Web health check failed after 8 attempts — triggering rollback"
+          exit 1
+
+  # ── Auto-rollback if web health check fails ───────────────────────────────
+  rollback-web:
+    name: Rollback Web
+    needs: deploy-web
+    # Run only when deploy-web itself failed (health check step exited non-zero)
+    if: always() && needs.deploy-web.result == 'failure' && needs.deploy-web.outputs.prev_sha != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.deploy-web.outputs.prev_sha }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Redeploy previous version (${{ needs.deploy-web.outputs.prev_sha }})
+        run: railway up --service TwinTracker-Web
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+      - name: Notify rollback
+        if: always()
+        run: |
+          SHA="${{ needs.deploy-web.outputs.prev_sha }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "## ⚠️ Web rollback triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The web health check failed after deployment. The web app has been" >> "$GITHUB_STEP_SUMMARY"
+          echo "automatically rolled back to **\`${SHA:0:7}\`**." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Failed run:** $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+
+          # Optional Slack notification — set SLACK_WEBHOOK_URL secret to enable
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"text\": \"⚠️ *TwinTracker Web rollback* — health check failed after deploy. Rolled back to \`${SHA:0:7}\`. <$RUN_URL|View run>\"
+              }"
+          fi

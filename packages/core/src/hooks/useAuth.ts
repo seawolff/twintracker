@@ -98,6 +98,29 @@ export function useAuth(storage?: StorageInterface) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loginWithGoogle = useCallback(async (idToken: string, inviteCode?: string) => {
+    const tokens = await api.auth.googleAuth({ idToken, inviteCode });
+    const store = getStore();
+    await store?.setItem(TOKEN_KEY, tokens.accessToken);
+    await store?.setItem(REFRESH_KEY, tokens.refreshToken);
+    await store?.setItem(INVITE_KEY, tokens.inviteCode);
+    if (tokens.displayName) {
+      await store?.setItem(DISPLAY_NAME_KEY, tokens.displayName);
+      setDisplayName(tokens.displayName);
+    } else {
+      await store?.removeItem(DISPLAY_NAME_KEY);
+      setDisplayName(null);
+    }
+    await store?.setItem(EMAIL_VERIFIED_KEY, 'true');
+    setEmailVerified(true);
+    setToken(tokens.accessToken, tokens.refreshToken);
+    setInviteCode(tokens.inviteCode);
+    setIsAdmin(tokens.isAdmin ?? false);
+    setUser({ id: '', email: '', createdAt: new Date().toISOString() });
+    return tokens;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const tokens = await api.auth.login({ email, password });
     const store = getStore();
@@ -229,6 +252,24 @@ export function useAuth(storage?: StorageInterface) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Permanently delete the account; clears all local state and storage. */
+  const deleteAccount = useCallback(async () => {
+    await api.auth.deleteAccount();
+    const store = getStore();
+    await store?.removeItem(TOKEN_KEY);
+    await store?.removeItem(REFRESH_KEY);
+    await store?.removeItem(INVITE_KEY);
+    await store?.removeItem(DISPLAY_NAME_KEY);
+    await store?.removeItem(EMAIL_VERIFIED_KEY);
+    setToken(null, null);
+    setUser(null);
+    setInviteCode(null);
+    setDisplayName(null);
+    setIsAdmin(false);
+    setEmailVerified(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const isAuthenticated =
     user !== null ||
     (() => {
@@ -252,6 +293,7 @@ export function useAuth(storage?: StorageInterface) {
     displayName,
     emailVerified,
     login,
+    loginWithGoogle,
     register,
     join,
     logout,
@@ -259,5 +301,6 @@ export function useAuth(storage?: StorageInterface) {
     markEmailVerified,
     refreshEmailVerified,
     resendVerification,
+    deleteAccount,
   };
 }

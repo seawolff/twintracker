@@ -958,6 +958,7 @@ describe('getBabyInsight with learnedStats', () => {
       avgBottleOz: 5.6,
       avgNapDurationMs: null,
       avgAwakeWindowMs: null,
+      avgNapsPerDay: null,
     };
     const insight = getBabyInsight(baby, {}, [], NOW, 0, learned);
     expect(insight.suggestedOz).toBe(6);
@@ -969,6 +970,7 @@ describe('getBabyInsight with learnedStats', () => {
       avgBottleOz: null,
       avgNapDurationMs: null,
       avgAwakeWindowMs: null,
+      avgNapsPerDay: null,
     };
     const insight = getBabyInsight(baby, {}, [], NOW, 0, learned);
     expect(typeof insight.suggestedOz).toBe('number'); // age default, not null
@@ -981,6 +983,7 @@ describe('getBabyInsight with learnedStats', () => {
       avgBottleOz: null,
       avgNapDurationMs: null,
       avgAwakeWindowMs: null,
+      avgNapsPerDay: null,
     };
     const latest: LatestEventMap = {
       [`${BABY_ID}:bottle`]: makeEvent(BABY_ID, 'bottle', msAgo(4 * 3_600_000)),

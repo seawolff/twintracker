@@ -3,7 +3,7 @@
     "name": "TwinTracker",
     "slug": "twintracker",
     "scheme": "twintracker",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.twintracker.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.twintracker.app",
-      "versionCode": 1
+      "versionCode": 2
     },
     "plugins": [
       [
@@ -37,7 +37,13 @@
           "sounds": []
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.540673294140-ridnhd7vkmeqpfmmd7ftp04lffiulkc0"
+        }
+      ]
     ],
     "experiments": {
       "autolinkingModuleResolution": true

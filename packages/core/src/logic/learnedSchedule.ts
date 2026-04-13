@@ -11,6 +11,8 @@ export interface LearnedStats {
   avgNapDurationMs: number | null;
   /** Median awake window: time from nap.endedAt to next nap.startedAt. Null if < 3 pairs. */
   avgAwakeWindowMs: number | null;
+  /** Median completed naps per calendar day. Null if < 3 days have nap data. */
+  avgNapsPerDay: number | null;
 }
 
 import { MAX_BOTTLE_OZ } from '../config';
@@ -80,10 +82,20 @@ export function computeLearnedStats(events: TrackerEvent[], now: Date): LearnedS
     }
   }
 
+  // ── Naps per day (median completed naps per calendar day) ────────────────────
+  // Group completed naps by UTC calendar day, then take median across days.
+  const napsByDay = new Map<number, number>();
+  for (const nap of completedNaps) {
+    const dayKey = Math.floor(nap.startedAtMs / (24 * 60 * 60_000));
+    napsByDay.set(dayKey, (napsByDay.get(dayKey) ?? 0) + 1);
+  }
+  const napsPerDayValues = Array.from(napsByDay.values());
+
   return {
     avgFeedIntervalMs: median(feedIntervals, 3),
     avgBottleOz: median(bottleOzValues, 3),
     avgNapDurationMs: median(napDurations, 3),
     avgAwakeWindowMs: median(awakeWindows, 3),
+    avgNapsPerDay: median(napsPerDayValues, 3),
   };
 }
