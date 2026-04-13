@@ -52,7 +52,11 @@ jobs:
       # Migrations run automatically inside the container at startup
       # (Dockerfile CMD: migrate.js && node dist/index.js).
       - name: Deploy API service
-        run: railway up --service TwinTracker-API
+        run: |
+          # Only upload what the API build needs — exclude frontend apps and UI package
+          printf 'apps/\npackages/ui/\n' > .railwayignore
+          railway up --service TwinTracker-API
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -94,9 +98,13 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Redeploy previous version (${{ needs.deploy-api.outputs.prev_sha }})
-        run: railway up --service TwinTracker-API
+        run: |
+          printf 'apps/\npackages/ui/\n' > .railwayignore
+          railway up --service TwinTracker-API
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
 
       # Notify via GitHub summary and (optionally) a Slack webhook
       - name: Notify rollback
@@ -154,7 +162,11 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy Web service
-        run: railway up --service TwinTracker-Web
+        run: |
+          # Exclude native app — not needed for Next.js web build
+          printf 'apps/native/\n' > .railwayignore
+          railway up --service TwinTracker-Web
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -196,7 +208,10 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Redeploy previous version (${{ needs.deploy-web.outputs.prev_sha }})
-        run: railway up --service TwinTracker-Web
+        run: |
+          printf 'apps/native/\n' > .railwayignore
+          railway up --service TwinTracker-Web
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}

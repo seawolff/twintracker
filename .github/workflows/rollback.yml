@@ -33,7 +33,10 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy API at ${{ inputs.version }}
-        run: railway up --service TwinTracker-API
+        run: |
+          printf 'apps/\npackages/ui/\n' > .railwayignore
+          railway up --service TwinTracker-API
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -67,7 +70,10 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy Web at ${{ inputs.version }}
-        run: railway up --service TwinTracker-Web
+        run: |
+          printf 'apps/native/\n' > .railwayignore
+          railway up --service TwinTracker-Web
+          rm .railwayignore
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
