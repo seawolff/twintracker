@@ -50,13 +50,18 @@ jobs:
       # (Dockerfile CMD: migrate.js && node dist/index.js).
       - name: Deploy API service
         run: |
-          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
               "variables": { "serviceId": "'"$RAILWAY_API_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }'
+            }')
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "::error::Railway API returned an error — check token permissions and service/environment IDs"
+            exit 1
+          fi
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_SERVICE_ID: ${{ secrets.RAILWAY_API_SERVICE_ID }}
@@ -97,13 +102,18 @@ jobs:
 
       - name: Redeploy previous version (${{ needs.deploy-api.outputs.prev_sha }})
         run: |
-          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
               "variables": { "serviceId": "'"$RAILWAY_API_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }'
+            }')
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "::error::Railway API returned an error during rollback"
+            exit 1
+          fi
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_SERVICE_ID: ${{ secrets.RAILWAY_API_SERVICE_ID }}
@@ -163,13 +173,18 @@ jobs:
 
       - name: Deploy Web service
         run: |
-          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
               "variables": { "serviceId": "'"$RAILWAY_WEB_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }'
+            }')
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "::error::Railway API returned an error — check token permissions and service/environment IDs"
+            exit 1
+          fi
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_WEB_SERVICE_ID: ${{ secrets.RAILWAY_WEB_SERVICE_ID }}
@@ -211,13 +226,18 @@ jobs:
 
       - name: Redeploy previous version (${{ needs.deploy-web.outputs.prev_sha }})
         run: |
-          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
               "variables": { "serviceId": "'"$RAILWAY_WEB_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }'
+            }')
+          echo "$RESPONSE"
+          if echo "$RESPONSE" | grep -q '"errors"'; then
+            echo "::error::Railway API returned an error during rollback"
+            exit 1
+          fi
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_WEB_SERVICE_ID: ${{ secrets.RAILWAY_WEB_SERVICE_ID }}
