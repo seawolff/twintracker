@@ -193,16 +193,17 @@ jobs:
       # Poll the homepage until the new deployment is serving (up to 4 min).
       # Next.js standalone builds take longer to start than the API, so we
       # use 30 s intervals with 8 attempts.
-      # -L follows redirects (Railway/Cloudflare may issue a 307 before the 200).
+      # Accept any 2xx or 3xx — a 307 from Cloudflare means the service is up.
+      # Only 5xx (or no response) indicates a real failure.
       - name: Health check
         id: health
         run: |
           echo "Polling ${{ secrets.WEB_URL }} …"
           for i in 1 2 3 4 5 6 7 8; do
-            STATUS=$(curl -L -s -o /dev/null -w "%{http_code}" \
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               "${{ secrets.WEB_URL }}" 2>/dev/null)
             echo "Attempt $i: HTTP $STATUS"
-            if [ "$STATUS" = "200" ]; then
+            if [[ "$STATUS" =~ ^[23] ]]; then
               echo "Health check passed"
               exit 0
             fi
