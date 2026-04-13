@@ -29,14 +29,19 @@ jobs:
         with:
           ref: ${{ inputs.version }}
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
       - name: Deploy API at ${{ inputs.version }}
-        run: railway redeploy --service TwinTracker-API --yes
+        run: |
+          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
+              "variables": { "serviceId": "'"$RAILWAY_API_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
+            }'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_API_SERVICE_ID: ${{ secrets.RAILWAY_API_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
 
       - name: Notify rollback
         if: always()
@@ -63,11 +68,32 @@ jobs:
         with:
           ref: ${{ inputs.version }}
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
       - name: Deploy Web at ${{ inputs.version }}
-        run: railway redeploy --service TwinTracker-Web --yes
+        run: |
+          curl -f -s -X POST "https://backboard.railway.com/graphql/v2" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
+              "variables": { "serviceId": "'"$RAILWAY_WEB_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
+            }'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_WEB_SERVICE_ID: ${{ secrets.RAILWAY_WEB_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+
+      - name: Notify rollback
+        if: always()
+        run: |
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "## ⚠️ Manual Web rollback" >> "$GITHUB_STEP_SUMMARY"
+          echo "Web rolled back to **${{ inputs.version }}** by @${{ github.actor }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run:** $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -sf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"text\": \"⚠️ *TwinTracker Web manual rollback* to \`${{ inputs.version }}\` by @${{ github.actor }}. <$RUN_URL|View run>\"
+              }"
+          fi
