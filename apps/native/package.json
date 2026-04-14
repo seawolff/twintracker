@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "dev:local": "EXPO_PUBLIC_API_URL=http://$(ipconfig getifaddr en0):3000 expo start",
+    "dev:android": "EXPO_PUBLIC_API_URL=http://10.0.2.2:3000 expo start",
     "dev:prod": "EXPO_PUBLIC_API_URL=https://twintracker-production.up.railway.app expo start",
     "dev:tunnel": "EXPO_PUBLIC_API_URL=https://twintracker-production.up.railway.app expo start --tunnel",
     "android": "expo run:android",
@@ -26,6 +27,7 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "2.28.0",
+    "react-native-safe-area-context": "^5.7.0",
     "react-native-svg": "15.15.3"
   },
   "devDependencies": {

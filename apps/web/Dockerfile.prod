@@ -6,7 +6,7 @@ COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
 COPY packages/core/package*.json ./packages/core/
 COPY packages/ui/package*.json ./packages/ui/
-RUN npm install --legacy-peer-deps --no-package-lock
+RUN npm ci --legacy-peer-deps
 
 # Build
 COPY . .
