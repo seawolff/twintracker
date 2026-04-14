@@ -242,9 +242,15 @@ export default function AnalyticsPage() {
   // Schedule stage label shown in header (Stage 1 / 2 / 3 with age)
   const stage = ageWeeks < 15 ? 1 : ageWeeks < 78 ? 2 : 3;
   const stageAge = (() => {
-    if (!baby.birthDate) return null;
-    if (ageWeeks < 8) return `${ageWeeks}w`;
-    if (ageWeeks < 52) return `${Math.round(ageWeeks / 4.33)}mo`;
+    if (!baby.birthDate) {
+      return null;
+    }
+    if (ageWeeks < 8) {
+      return `${ageWeeks}w`;
+    }
+    if (ageWeeks < 52) {
+      return `${Math.round(ageWeeks / 4.33)}mo`;
+    }
     return `${Math.floor(ageWeeks / 52)}y`;
   })();
 
