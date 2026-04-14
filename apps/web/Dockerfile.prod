@@ -10,6 +10,12 @@ RUN npm ci --legacy-peer-deps
 
 # Build
 COPY . .
+# NEXT_PUBLIC_* vars must be declared as ARGs so they are available at build
+# time when Next.js bakes them into the client bundle.
+ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
+ARG NEXT_PUBLIC_APP_DEEP_LINK
+ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+ENV NEXT_PUBLIC_APP_DEEP_LINK=$NEXT_PUBLIC_APP_DEEP_LINK
 RUN npm run build -w @tt/web
 
 # ── Runtime — use Next.js standalone output ───────────────────────────────────
