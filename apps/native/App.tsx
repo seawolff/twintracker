@@ -148,6 +148,7 @@ configure(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000');
 // iosClientId is optional — falls back to webClientId for token verification.
 GoogleSignin.configure({
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
+  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
 });
 
 type Tab = 'home' | 'history' | 'settings';

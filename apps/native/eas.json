@@ -18,7 +18,9 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "540673294140-k449i4jrg8l20e4iqqk29cecmte6vs54.apps.googleusercontent.com"
+        "EXPO_PUBLIC_API_URL": "https://twintracker-production.up.railway.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "540673294140-k449i4jrg8l20e4iqqk29cecmte6vs54.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": ""
       }
     }
   },

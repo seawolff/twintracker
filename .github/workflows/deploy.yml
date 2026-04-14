@@ -2,6 +2,11 @@ name: Deploy to Railway
 
 # Triggered automatically by release.yml after a GitHub Release is created,
 # or manually via workflow_dispatch to deploy/redeploy a single service.
+#
+# IMPORTANT: Railway branch auto-deploy must be DISCONNECTED for both services
+# so this workflow is the only thing that triggers production builds.
+# deploy steps use `railway up` (fresh build from source) not serviceInstanceDeploy
+# (which only redeploys the cached image).
 on:
   release:
     types: [published]
@@ -45,25 +50,17 @@ jobs:
         id: snapshot
         run: echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
 
-      # Deploy and wait for Railway to finish (no --detach).
+      # `railway up` uploads source and triggers a fresh build on Railway.
+      # --detach returns immediately after upload; health check polls for liveness.
       # Migrations run automatically inside the container at startup
       # (Dockerfile CMD: migrate.js && node dist/index.js).
       - name: Deploy API service
         run: |
-          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
-              "variables": { "serviceId": "'"$RAILWAY_API_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }')
-          echo "$RESPONSE"
-          if echo "$RESPONSE" | grep -q '"errors"'; then
-            echo "::error::Railway API returned an error — check token permissions and service/environment IDs"
-            exit 1
-          fi
+          npm install -g @railway/cli
+          railway up --service "$RAILWAY_API_SERVICE_ID" --environment "$RAILWAY_ENVIRONMENT_ID" --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_API_SERVICE_ID: ${{ secrets.RAILWAY_API_SERVICE_ID }}
           RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
 
@@ -173,33 +170,24 @@ jobs:
 
       - name: Deploy Web service
         run: |
-          RESPONSE=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "query": "mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!) { serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId) }",
-              "variables": { "serviceId": "'"$RAILWAY_WEB_SERVICE_ID"'", "environmentId": "'"$RAILWAY_ENVIRONMENT_ID"'" }
-            }')
-          echo "$RESPONSE"
-          if echo "$RESPONSE" | grep -q '"errors"'; then
-            echo "::error::Railway API returned an error — check token permissions and service/environment IDs"
-            exit 1
-          fi
+          npm install -g @railway/cli
+          railway up --service "$RAILWAY_WEB_SERVICE_ID" --environment "$RAILWAY_ENVIRONMENT_ID" --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_WEB_SERVICE_ID: ${{ secrets.RAILWAY_WEB_SERVICE_ID }}
           RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
 
-      # Poll the homepage until the new deployment is serving (up to 4 min).
+      # Poll the homepage until the new deployment is serving (up to 5 min).
       # Next.js standalone builds take longer to start than the API, so we
-      # use 30 s intervals with 8 attempts.
+      # use 30 s intervals with 10 attempts.
       # Accept any 2xx or 3xx — a 307 from Cloudflare means the service is up.
       # Only 5xx (or no response) indicates a real failure.
       - name: Health check
         id: health
         run: |
           echo "Polling ${{ secrets.WEB_URL }} …"
-          for i in 1 2 3 4 5 6 7 8; do
+          for i in 1 2 3 4 5 6 7 8 9 10; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               "${{ secrets.WEB_URL }}" 2>/dev/null)
             echo "Attempt $i: HTTP $STATUS"
@@ -209,7 +197,7 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Web health check failed after 8 attempts — triggering rollback"
+          echo "::error::Web health check failed after 10 attempts — triggering rollback"
           exit 1
 
   # ── Auto-rollback if web health check fails ───────────────────────────────
