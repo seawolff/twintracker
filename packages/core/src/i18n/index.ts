@@ -8,6 +8,10 @@ import fr from './fr.json';
 
 export { useTranslation };
 
+/** Raw translation maps — use server-side where hooks are unavailable (e.g. generateMetadata). */
+export const translations = { en, de, fr, es } as const;
+export type SupportedLocale = keyof typeof translations;
+
 const resources = {
   en: { translation: en },
   es: { translation: es },

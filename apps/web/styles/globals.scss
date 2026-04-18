@@ -74,27 +74,3 @@ textarea,
 select {
   font-family: inherit;
 }
-
-// ── Orientation lock — mobile portrait only ───────────────────────────────────
-// On phones in landscape, nudge the user to rotate back.
-// Tablets (≥$bp-md) and desktop get the full responsive experience instead.
-@media screen and (orientation: landscape) and (max-width: #{$bp-md - 1}) {
-  body > * {
-    display: none !important;
-  }
-
-  body::after {
-    content: 'Rotate your device to portrait';
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    inset: 0;
-    background: var(--tt-bg);
-    color: var(--tt-text-muted);
-    font-family: $font-mono;
-    font-size: 14px;
-    text-align: center;
-    padding: $space-xl;
-  }
-}

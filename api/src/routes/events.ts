@@ -139,8 +139,10 @@ router.post('/', async (req: AuthRequest, res) => {
     res.status(400).json({ message: `type must be one of: ${[...VALID_EVENT_TYPES].join(', ')}` });
     return;
   }
-  if (type === 'bottle' && value != null && value > 16) {
-    res.status(400).json({ message: 'Bottle value cannot exceed 16 oz' });
+  // 16 oz — keep in sync with AAP_MAX_BOTTLE_OZ in packages/core/src/config.ts
+  const MAX_BOTTLE_OZ = 16;
+  if (type === 'bottle' && value != null && value > MAX_BOTTLE_OZ) {
+    res.status(400).json({ message: `Bottle value cannot exceed ${MAX_BOTTLE_OZ} oz` });
     return;
   }
   const { rowCount } = await pool.query('SELECT 1 FROM babies WHERE id=$1 AND household_id=$2', [

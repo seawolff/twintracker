@@ -64,10 +64,11 @@ export function LogSheet({
 }: LogSheetProps) {
   const theme = useThemeContext();
   const isEditing = !!initialEvent;
-  const [selectedOz, setSelectedOz] = useState<number>(initialEvent?.value ?? 4);
+  // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
+  const [selectedOz, setSelectedOz] = useState<number>(Number(initialEvent?.value ?? 4));
   const [ozInput, setOzInput] = useState<string>(String(initialEvent?.value ?? 4));
   const [selectedNursingMinutes, setSelectedNursingMinutes] = useState<number>(
-    initialEvent?.value ?? 15,
+    Number(initialEvent?.value ?? 15),
   );
   const [selectedBreast, setSelectedBreast] = useState<NursingBreast>(
     (initialEvent?.type === 'nursing' ? (initialEvent?.notes as NursingBreast) : null) ?? 'left',
@@ -107,9 +108,9 @@ export function LogSheet({
     setHasEndTime(!!initialEvent?.endedAt);
     setEditEndedAt(initialEvent?.endedAt ?? new Date().toISOString());
     if (initialEvent) {
-      setSelectedOz(initialEvent.value ?? 4);
+      setSelectedOz(Number(initialEvent.value ?? 4));
       setOzInput(String(initialEvent.value ?? 4));
-      setSelectedNursingMinutes(initialEvent.value ?? 15);
+      setSelectedNursingMinutes(Number(initialEvent.value ?? 15));
       setSelectedBreast((initialEvent.notes as NursingBreast) ?? 'left');
       setSelectedDiaper((initialEvent.notes as DiaperOption) ?? 'wet');
       setNotesText(initialEvent.notes ?? '');
@@ -998,8 +999,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
   },
   babyName: {
     fontSize: 24,
@@ -1058,13 +1060,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 2,
   },
   loggedByRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 3,
+    gap: 6,
+    marginTop: spacing.xs,
   },
   loggedByAvatar: {
     width: 16,

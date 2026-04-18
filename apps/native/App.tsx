@@ -68,6 +68,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
 import { DateTimePickerSheet } from './DateTimePickerSheet';
@@ -89,9 +90,10 @@ import {
   computeHeightPercentile,
   formatPercentile,
   ageInMonths,
+  kgToLbs,
+  cmToIn,
   ThemeProvider,
   useThemeContext,
-  i18n,
   initI18n,
   useTranslation,
   NAP_CHECK_MINUTES,
@@ -108,6 +110,7 @@ import {
   isFilterActive,
   getAgeWeeks,
   authorColor,
+  i18n,
 } from '@tt/core';
 import type {
   Baby,
@@ -139,17 +142,28 @@ import {
   PersonIcon,
 } from '@tt/ui';
 import { asyncStorage } from './storage';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import Constants from 'expo-constants';
 
-configure(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000');
+configure(
+  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000',
+  undefined,
+  Platform.OS === 'ios' ? 'ios' : 'android',
+  // Version from app.json — present in both Expo Go and standalone builds.
+  Constants.expoConfig?.version ?? undefined,
+);
 
-// Configure Google Sign-In once at module load.
-// webClientId is the OAuth 2.0 Web client ID from Google Cloud Console.
-// iosClientId is optional — falls back to webClientId for token verification.
-GoogleSignin.configure({
-  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
-  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-});
+// RNGoogleSignin is not bundled in Expo Go — lazy-load to avoid TurboModule crash.
+const IS_EXPO_GO = Constants.executionEnvironment === 'storeClient';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let GoogleSignin: any = null;
+if (!IS_EXPO_GO) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+  GoogleSignin.configure({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  });
+}
 
 type Tab = 'home' | 'history' | 'settings';
 
@@ -165,8 +179,8 @@ function LoginScreen({
   loginWithGoogle,
 }: {
   login: (email: string, password: string) => Promise<unknown>;
-  register: (email: string, password: string, name?: string) => Promise<unknown>;
-  join: (email: string, password: string, code: string, name?: string) => Promise<unknown>;
+  register: (email: string, password: string, name: string) => Promise<unknown>;
+  join: (email: string, password: string, code: string, name: string) => Promise<unknown>;
   loginWithGoogle: (idToken: string, inviteCode?: string) => Promise<unknown>;
 }) {
   const theme = useThemeContext();
@@ -174,12 +188,20 @@ function LoginScreen({
   const [mode, setMode] = useState<'signin' | 'signup' | 'join'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
   const [name, setName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleGoogleSignIn = async () => {
+    if (mode === 'join' && !inviteCode.trim()) {
+      setError(t('auth.join_code_required'));
+      return;
+    }
+    if (IS_EXPO_GO) {
+      setError('Google Sign-In is not available in Expo Go. Use a dev or production build.');
+      return;
+    }
     setError('');
     setSubmitting(true);
     try {
@@ -188,7 +210,7 @@ function LoginScreen({
       if (!data?.idToken) {
         throw new Error('Google sign-in did not return an ID token');
       }
-      await loginWithGoogle(data.idToken, inviteCode || undefined);
+      await loginWithGoogle(data.idToken, inviteCode.trim() || undefined);
     } catch (e: unknown) {
       // User cancelled — no error shown
       const code = (e as { code?: string }).code;
@@ -207,9 +229,9 @@ function LoginScreen({
       if (mode === 'signin') {
         await login(email, password);
       } else if (mode === 'signup') {
-        await register(email, password, name.trim() || undefined);
+        await register(email, password, name);
       } else {
-        await join(email, password, inviteCode, name.trim() || undefined);
+        await join(email, password, inviteCode, name);
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Something went wrong');
@@ -243,6 +265,17 @@ function LoginScreen({
           onChangeText={setEmail}
           accessibilityLabel={t('auth.email')}
         />
+        {mode !== 'signin' && (
+          <TextInput
+            style={inputStyle}
+            placeholder={t('auth.your_name')}
+            placeholderTextColor={theme.textMuted}
+            value={name}
+            onChangeText={setName}
+            accessibilityLabel={t('auth.your_name')}
+            autoCapitalize="words"
+          />
+        )}
         <TextInput
           style={inputStyle}
           placeholder={t('auth.password')}
@@ -262,17 +295,6 @@ function LoginScreen({
             value={inviteCode}
             onChangeText={v => setInviteCode(v.toUpperCase())}
             accessibilityLabel={t('auth.invite_code')}
-          />
-        )}
-        {(mode === 'signup' || mode === 'join') && (
-          <TextInput
-            style={inputStyle}
-            placeholder={t('auth.your_name')}
-            placeholderTextColor={theme.textMuted}
-            autoCapitalize="words"
-            value={name}
-            onChangeText={setName}
-            accessibilityLabel={t('auth.your_name')}
           />
         )}
 
@@ -484,7 +506,7 @@ const skeletonStyles = StyleSheet.create({
 // The primary screen parents use at 3am. Shows baby cards for each child in
 function formatBabyNames(bs: { name: string }[]): string {
   if (bs.length === 0) {
-    return 'your baby';
+    return i18n.t('onboarding.your_baby');
   }
   if (bs.length === 1) {
     return bs[0].name;
@@ -537,6 +559,7 @@ function HomeScreen({
   logEvent,
   closeNap,
   onOpenAnalytics,
+  onOpenProfile,
   onRefresh,
   isTablet = false,
 }: {
@@ -558,6 +581,7 @@ function HomeScreen({
   logEvent: ReturnType<typeof useEventStore>['logEvent'];
   closeNap: ReturnType<typeof useEventStore>['closeNap'];
   onOpenAnalytics: (babyId: string) => void;
+  onOpenProfile: (baby: Baby) => void;
   onRefresh: ReturnType<typeof useEventStore>['poll'];
   isTablet?: boolean;
 }) {
@@ -724,14 +748,12 @@ function HomeScreen({
   const [prefsSubStep, setPrefsSubStep] = useState<1 | 2>(1);
   // Single atomic state — eliminates the split-update race where sheetBaby/sheetType turned
   // visible=true one render before sheetSuggestedOz arrived, making the init useEffect in
-  const [profileBaby, setProfileBaby] = useState<Baby | null>(null);
-
   // LogSheet capture suggestedOz=undefined and default the oz input to 4.
   const [sheet, setSheet] = useState<{ baby: Baby; type: EventType; suggestedOz?: number } | null>(
     null,
   );
   const [syncSuggestion, setSyncSuggestion] = useState<{
-    type: 'nap' | 'bottle' | 'nursing' | 'diaper' | 'food';
+    type: SyncableEventType;
     forBabyId: string;
     suggestedOz?: number;
   } | null>(null);
@@ -838,7 +860,14 @@ function HomeScreen({
       await logEvent(payload);
 
       // Twin sync: if twinSync is on and the other baby's matching event is stale, show a one-tap banner.
-      const syncableTypes: SyncableEventType[] = ['nap', 'bottle', 'nursing', 'diaper', 'food'];
+      const syncableTypes: SyncableEventType[] = [
+        'nap',
+        'sleep',
+        'bottle',
+        'nursing',
+        'diaper',
+        'food',
+      ];
       if (
         twinSync &&
         baby &&
@@ -1180,6 +1209,9 @@ function HomeScreen({
                 onRefresh().finally(() => setRefreshing(false));
               }}
               tintColor={theme.accent}
+              // @ts-expect-error — backgroundColor is a valid iOS UIRefreshControl prop, not yet typed in RN
+              backgroundColor={theme.bg}
+              progressBackgroundColor={theme.bg}
             />
           }
         >
@@ -1191,6 +1223,7 @@ function HomeScreen({
               }
               const SYNC_KEY: Record<string, string> = {
                 nap: 'home.sync_put_down',
+                sleep: 'home.sync_put_to_sleep',
                 bottle: 'home.sync_feed',
                 nursing: 'home.sync_feed',
                 diaper: 'home.sync_diaper',
@@ -1228,7 +1261,7 @@ function HomeScreen({
                             suggestedOz: type === 'bottle' ? oz : undefined,
                           });
                         } else {
-                          // nap: no variable input, safe to log directly
+                          // nap / sleep: no variable input, safe to log directly
                           logEvent({
                             babyId: syncBaby.id,
                             type,
@@ -1262,7 +1295,7 @@ function HomeScreen({
                 latest={latest}
                 events={events}
                 onLog={(type, oz) => handleLog(baby, type, oz)}
-                onOpenProfile={() => setProfileBaby(baby)}
+                onOpenProfile={() => onOpenProfile(baby)}
                 onOpenAnalytics={onOpenAnalytics}
                 resetHour={resetHour}
                 bedtimeHour={bedtimeHour}
@@ -1321,35 +1354,6 @@ function HomeScreen({
         }
         onSubmit={handleSheetSubmit}
         onClose={() => setSheet(null)}
-      />
-
-      <BabyProfileSheet
-        visible={profileBaby !== null}
-        baby={profileBaby}
-        onSave={async (id, data) => {
-          await api.babies.update(id, {
-            name: data.name,
-            birthDate: data.birthDate ?? null,
-            sex: data.sex,
-            weightKg: data.weightKg,
-            heightCm: data.heightCm,
-          });
-          const updated = await api.babies.list();
-          setBabies(updated);
-        }}
-        onClose={() => setProfileBaby(null)}
-        onOpenDatePicker={(current, onConfirm) => {
-          setDtPicker({
-            title: i18n.t('baby_profile.dob_label'),
-            value: current,
-            mode: 'date',
-            maximumDate: new Date(),
-            onConfirm: d => {
-              onConfirm(d);
-              setDtPicker(null);
-            },
-          });
-        }}
       />
 
       {/* DOB picker — outside any Modal so DateTimePickerSheet stacks correctly */}
@@ -2141,10 +2145,11 @@ function AnalyticsScreen({
     if (ageWeeks < 8) {
       return `${ageWeeks}w`;
     }
-    if (ageWeeks < 52) {
-      return `${Math.round(ageWeeks / 4.33)}mo`;
+    const babyMonths = Math.floor(ageInMonths(baby.birthDate, now) ?? 0);
+    if (babyMonths < 24) {
+      return `${babyMonths}mo`;
     }
-    return `${Math.floor(ageWeeks / 52)}y`;
+    return `${Math.floor(babyMonths / 12)}y`;
   })();
 
   // Learned stats for avg naps/day
@@ -2163,10 +2168,10 @@ function AnalyticsScreen({
       : null;
   const showGrowth = baby.weightKg != null || baby.heightCm != null;
   function fmtWeight(kg: number): string {
-    return isImperial ? `${(kg * 2.2046).toFixed(1)} lbs` : `${kg.toFixed(1)} kg`;
+    return isImperial ? `${kgToLbs(kg).toFixed(1)} lbs` : `${kg.toFixed(1)} kg`;
   }
   function fmtHeight(cm: number): string {
-    return isImperial ? `${(cm * 0.3937).toFixed(1)} in` : `${Math.round(cm)} cm`;
+    return isImperial ? `${cmToIn(cm).toFixed(1)} in` : `${Math.round(cm)} cm`;
   }
 
   const a: BabyAnalytics = computeAnalytics(babyEvents, now, period, baby.birthDate);
@@ -3415,6 +3420,16 @@ function AppContent() {
   } = useEventStore(!authLoading && isAuthenticated);
   const theme = useThemeContext();
   const { isTablet, isLarge } = useLayout();
+
+  // Lock phones to portrait; allow all orientations on iPad.
+  useEffect(() => {
+    if (!isTablet) {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+    } else {
+      ScreenOrientation.unlockAsync();
+    }
+  }, [isTablet]);
+
   const [activeTab, setActiveTabRaw] = useState<Tab>('home');
   // Shows a skeleton overlay on the incoming tab immediately on press, cleared once
   // the native thread finishes settling (InteractionManager.runAfterInteractions).
@@ -3465,6 +3480,7 @@ function AppContent() {
   // Processed by the effect below once the store is ready.
   const pendingAlarmNotifRef = useRef<{ alarmId: string; babyId: string } | null>(null);
   const [analyticsBabyId, setAnalyticsBabyId] = useState<string | null>(null);
+  const [profileBaby, setProfileBaby] = useState<Baby | null>(null);
   const [mockMode, setMockMode] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [mockProgress, setMockProgress] = useState<{ done: number; total: number } | null>(null);
@@ -3806,6 +3822,7 @@ function AppContent() {
                     onOpenAnalytics={setAnalyticsBabyId}
                     onRefresh={poll}
                     isTablet={isTablet}
+                    onOpenProfile={baby => setProfileBaby(baby)}
                   />
                   {/* Transition skeleton: covers the remount flash while native settles */}
                   {transitioningTo === 'home' && (
@@ -3898,6 +3915,25 @@ function AppContent() {
           </View>
         </>
       )}
+
+      {/* BabyProfileSheet — rendered at AppContent level so Modal escapes the tab bar */}
+      <BabyProfileSheet
+        visible={profileBaby !== null}
+        baby={profileBaby}
+        units={prefs.units}
+        onSave={async (id, data) => {
+          await api.babies.update(id, {
+            name: data.name,
+            birthDate: data.birthDate ?? null,
+            sex: data.sex,
+            weightKg: data.weightKg,
+            heightCm: data.heightCm,
+          });
+          const updated = await api.babies.list();
+          setBabies(updated);
+        }}
+        onClose={() => setProfileBaby(null)}
+      />
     </SafeAreaView>
   );
 }

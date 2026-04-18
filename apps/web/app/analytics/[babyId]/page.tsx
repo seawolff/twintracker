@@ -15,6 +15,8 @@ import {
   computeHeightPercentile,
   formatPercentile,
   ageInMonths,
+  kgToLbs,
+  cmToIn,
   useTranslation,
   formatMs,
   MIN_DAYS_FOR_MONTH_VIEW,
@@ -33,6 +35,7 @@ import {
 import { BottomTabBar } from '../../../components/BottomTabBar';
 import TrendBars from '../../../components/TrendBars';
 import TrendSparkline from '../../../components/TrendSparkline';
+import WeeklyAnalyticsPanel from '../../../components/WeeklyAnalyticsPanel';
 import styles from './analytics.module.scss';
 
 configure('');
@@ -248,10 +251,11 @@ export default function AnalyticsPage() {
     if (ageWeeks < 8) {
       return `${ageWeeks}w`;
     }
-    if (ageWeeks < 52) {
-      return `${Math.round(ageWeeks / 4.33)}mo`;
+    const months = Math.floor(ageInMonths(baby.birthDate, now) ?? 0);
+    if (months < 24) {
+      return `${months}mo`;
     }
-    return `${Math.floor(ageWeeks / 52)}y`;
+    return `${Math.floor(months / 12)}y`;
   })();
 
   const a: BabyAnalytics = computeAnalytics(babyEvents, now, period, baby.birthDate);
@@ -291,10 +295,10 @@ export default function AnalyticsPage() {
   // Unit conversion helpers — storage always kg/cm, display converts on the fly
   const isImperial = prefs.units === 'imperial';
   function fmtWeight(kg: number): string {
-    return isImperial ? `${(kg * 2.2046).toFixed(1)} lbs` : `${kg.toFixed(1)} kg`;
+    return isImperial ? `${kgToLbs(kg).toFixed(1)} lbs` : `${kg.toFixed(1)} kg`;
   }
   function fmtHeight(cm: number): string {
-    return isImperial ? `${(cm * 0.3937).toFixed(1)} in` : `${Math.round(cm)} cm`;
+    return isImperial ? `${cmToIn(cm).toFixed(1)} in` : `${Math.round(cm)} cm`;
   }
 
   // Trend charts are only shown for Week and Month views (not Day — they are always multi-day).
@@ -309,6 +313,7 @@ export default function AnalyticsPage() {
   const hasSleepTrend =
     showTrends && trend.longestNightByDay.filter(p => p.value !== null).length >= 3;
   const hasOzTrend = showTrends && trend.ozPerDayByDay.filter(p => p.value !== null).length >= 3;
+  const useSharedWeeklyPanel = period === 'week';
 
   return (
     <div className={styles.page}>
@@ -351,267 +356,286 @@ export default function AnalyticsPage() {
           </p>
         )}
 
-        {/* ── Feeding summary ─────────────────────────────────────────────── */}
-        <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding')}>
-          {a.totalOzThisWeek > 0 ? (
-            <>
-              <p className={styles.primaryStat}>{`${Math.round(a.totalOzThisWeek)} oz`}</p>
-              <div className={styles.statsGrid}>
-                {a.avgOzPerFeed != null && (
-                  <StatRow
-                    label={t('analytics.oz_per_feed_label')}
-                    value={t('analytics.avg_oz_per_feed_stat', {
-                      avg: a.avgOzPerFeed.toFixed(1),
-                    })}
-                  />
-                )}
-                {a.avgFeedIntervalMs != null && (
-                  <StatRow
-                    label={t('analytics.feed_interval_label')}
-                    value={t('analytics.avg_interval_stat', {
-                      interval: fmtInterval(a.avgFeedIntervalMs),
-                    })}
-                  />
-                )}
-                <StatRow label="feeds/day" value={`${a.avgFeedsPerDay.toFixed(1)}`} />
-              </div>
-              <p className={styles.benchmark}>
-                {t('analytics.target_oz_feed_stat', { target: a.targetOzPerFeed })}
-                {' · '}
-                {fmtInterval(a.targetFeedIntervalMs)} target interval
-              </p>
-            </>
-          ) : (
-            <p className={styles.empty}>
-              {t('analytics.feeding_empty', { period: 'this period' })}
-            </p>
-          )}
-        </SectionCard>
-
-        {/* ── Feeding trends ──────────────────────────────────────────────── */}
-        {hasFeedTrend && (
-          <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding_trends')}>
-            <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
-            <TrendBlock
-              label={t('analytics.oz_per_feed_label')}
-              sublabel={t('analytics.target_label') + ` ${a.targetOzPerFeed} oz`}
-            >
-              <TrendSparkline
-                data={trend.ozPerFeedByDay}
-                benchmarkValue={a.targetOzPerFeed}
-                ariaLabel={t('analytics.oz_per_feed_label')}
-              />
-            </TrendBlock>
-            <TrendBlock
-              label={t('analytics.feed_interval_label')}
-              sublabel={t('analytics.target_label') + ` ${fmtInterval(trend.targetFeedIntervalMs)}`}
-            >
-              <TrendSparkline
-                data={trend.feedIntervalByDay}
-                benchmarkValue={trend.targetFeedIntervalMs}
-                ariaLabel={t('analytics.feed_interval_label')}
-              />
-            </TrendBlock>
-            <div className={styles.trendAxisRow}>
-              {trendDayLabels
-                .filter((_, i) => i % 2 === 0)
-                .map((l, i) => (
-                  <span key={i} className={styles.axisLabel}>
-                    {l}
-                  </span>
-                ))}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Daily intake vs target ─────────────────────────────────────── */}
-        {hasOzTrend && (
-          <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.daily_intake')}>
-            <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
-            <TrendBlock
-              label={t('analytics.oz_per_day_label')}
-              sublabel={t('analytics.target_label') + ` ${trend.targetOzPerDay} oz`}
-            >
-              <TrendBars
-                data={trend.ozPerDayByDay}
-                benchmarkValue={trend.targetOzPerDay}
-                height={72}
-                ariaLabel={t('analytics.oz_per_day_label')}
-              />
-            </TrendBlock>
-            <div className={styles.trendAxisRow}>
-              {trendDayLabels
-                .filter((_, i) => i % 2 === 0)
-                .map((l, i) => (
-                  <span key={i} className={styles.axisLabel}>
-                    {l}
-                  </span>
-                ))}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── Sleep summary ───────────────────────────────────────────────── */}
-        {isNewborn ? (
-          /* Stage 1: combine nap + night sleep into one "Newborn Sleep" block */
-          <SectionCard icon={<MoonIcon size={14} />} title={t('analytics.newborn_sleep')}>
-            {a.totalSleepMsThisWeek > 0 ? (
-              <>
-                <p className={styles.primaryStat}>{formatMs(a.totalSleepMsThisWeek)}</p>
-                <div className={styles.statsGrid}>
-                  <StatRow
-                    label={t('analytics.nap_count_label')}
-                    value={`${a.napCountThisWeek + a.nightSleepCountThisWeek} sessions`}
-                  />
-                  <StatRow
-                    label={t('analytics.sleep_target_stat', {
-                      min: formatMs(a.targetDailySleepMs.minMs),
-                      max: formatMs(a.targetDailySleepMs.maxMs),
-                    }).replace('target ', '')}
-                    value={formatMs(a.avgDailySleepMs) + '/day avg'}
-                  />
-                </div>
-                <p className={styles.benchmark}>
-                  {`Target: ${formatMs(a.targetDailySleepMs.minMs)}–${formatMs(a.targetDailySleepMs.maxMs)}/day`}
-                </p>
-              </>
-            ) : (
-              <p className={styles.empty}>{t('analytics.naps_empty', { period: 'this period' })}</p>
-            )}
-          </SectionCard>
+        {useSharedWeeklyPanel ? (
+          <WeeklyAnalyticsPanel baby={baby} events={babyEvents} now={now} showHeader={false} />
         ) : (
           <>
-            {/* Stage 2+: separate nap and night sleep cards */}
-            <SectionCard icon={<MoonIcon size={14} />} title={t('analytics.naps')}>
-              {a.napCountThisWeek > 0 ? (
+            {/* ── Feeding summary ─────────────────────────────────────────────── */}
+            <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding')}>
+              {a.totalOzThisWeek > 0 ? (
                 <>
-                  <p className={styles.primaryStat}>{formatMs(a.totalNapMsThisWeek)}</p>
+                  <p className={styles.primaryStat}>{`${Math.round(a.totalOzThisWeek)} oz`}</p>
                   <div className={styles.statsGrid}>
-                    <StatRow
-                      label={t('analytics.nap_count_label')}
-                      value={`${a.napCountThisWeek} naps`}
-                    />
-                    {a.avgNapDurationMs != null && (
+                    {a.avgOzPerFeed != null && (
                       <StatRow
-                        label={t('analytics.naps_avg', { avg: '' }).replace(': ', '')}
-                        value={formatMs(a.avgNapDurationMs) + ' avg'}
+                        label={t('analytics.oz_per_feed_label')}
+                        value={t('analytics.avg_oz_per_feed_stat', {
+                          avg: a.avgOzPerFeed.toFixed(1),
+                        })}
                       />
                     )}
-                    {a.longestNapMs != null && (
+                    {a.avgFeedIntervalMs != null && (
                       <StatRow
-                        label={t('analytics.naps_longest', { longest: '' }).replace(': ', '')}
-                        value={formatMs(a.longestNapMs)}
+                        label={t('analytics.feed_interval_label')}
+                        value={t('analytics.avg_interval_stat', {
+                          interval: fmtInterval(a.avgFeedIntervalMs),
+                        })}
                       />
                     )}
-                    {learnedStats.avgNapsPerDay != null && (
-                      <StatRow
-                        label={t('analytics.avg_naps_per_day_label')}
-                        value={learnedStats.avgNapsPerDay.toFixed(1)}
-                      />
-                    )}
+                    <StatRow label="feeds/day" value={`${a.avgFeedsPerDay.toFixed(1)}`} />
                   </div>
-                  {showTrends && a.napDeltaVsLastWeek != null && (
-                    <div className={styles.deltaRow}>
-                      <DeltaPill
-                        ms={Math.abs(a.napDeltaVsLastWeek)}
-                        positive={a.napDeltaVsLastWeek >= 0}
-                      />
-                      <span className={styles.deltaLabel}>avg nap vs last week</span>
-                    </div>
-                  )}
-                  <p
-                    className={styles.benchmark}
-                  >{`Target nap: ${formatMs(a.targetNapDurationMs)}`}</p>
-                </>
-              ) : (
-                <p className={styles.empty}>
-                  {t('analytics.naps_empty', { period: 'this period' })}
-                </p>
-              )}
-            </SectionCard>
-
-            <SectionCard icon={<HotelIcon size={14} />} title={t('analytics.night_sleep')}>
-              {a.nightSleepCountThisWeek > 0 ? (
-                <>
-                  <p className={styles.primaryStat}>{formatMs(a.totalNightSleepMsThisWeek)}</p>
-                  <div className={styles.statsGrid}>
-                    <StatRow
-                      label={t('analytics.night_stretch_label')}
-                      value={t('analytics.longest_stretch_stat', {
-                        duration: formatMs(a.avgNightSleepDurationMs ?? 0),
-                      })}
-                    />
-                    <StatRow label="avg/night" value={formatMs(a.avgNightSleepDurationMs ?? 0)} />
-                  </div>
-                  {showTrends && a.sleepDeltaVsLastWeek != null && (
-                    <div className={styles.deltaRow}>
-                      <DeltaPill
-                        ms={Math.abs(a.sleepDeltaVsLastWeek)}
-                        positive={a.sleepDeltaVsLastWeek >= 0}
-                      />
-                      <span className={styles.deltaLabel}>total sleep vs last week</span>
-                    </div>
-                  )}
                   <p className={styles.benchmark}>
-                    {`Avg daily: ${formatMs(a.avgDailySleepMs)} · Target: ${formatMs(a.targetDailySleepMs.minMs)}–${formatMs(a.targetDailySleepMs.maxMs)}/day`}
+                    {t('analytics.target_oz_feed_stat', { target: a.targetOzPerFeed })}
+                    {' · '}
+                    {fmtInterval(a.targetFeedIntervalMs)} target interval
                   </p>
                 </>
               ) : (
                 <p className={styles.empty}>
-                  {t('analytics.night_sleep_empty', { period: 'this period' })}
+                  {t('analytics.feeding_empty', { period: 'this period' })}
                 </p>
               )}
             </SectionCard>
-          </>
-        )}
 
-        {/* ── Sleep consolidation charts ───────────────────────────────────── */}
-        {hasSleepTrend && (
-          <SectionCard icon={<HotelIcon size={14} />} title={t('analytics.sleep_consolidation')}>
-            <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
-            <TrendBlock
-              label={t('analytics.night_stretch_label')}
-              sublabel={`target ${formatMs(a.targetDailySleepMs.minMs)}`}
-            >
-              <TrendBars
-                data={trend.longestNightByDay}
-                benchmarkValue={trend.targetDailySleepMs.minMs}
-                height={72}
-                ariaLabel={t('analytics.night_stretch_label')}
-              />
-            </TrendBlock>
-            {trend.napCountByDay.filter(p => p.value !== null).length >= 3 && (
-              <TrendBlock
-                label={t('analytics.nap_count_label')}
-                sublabel={`target ${trend.targetNapsPerDay} naps`}
-              >
-                <TrendBars
-                  data={trend.napCountByDay}
-                  benchmarkValue={trend.targetNapsPerDay}
-                  height={56}
-                  ariaLabel={t('analytics.nap_count_label')}
-                />
-              </TrendBlock>
+            {/* ── Feeding trends ──────────────────────────────────────────────── */}
+            {hasFeedTrend && (
+              <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding_trends')}>
+                <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+                <TrendBlock
+                  label={t('analytics.oz_per_feed_label')}
+                  sublabel={t('analytics.target_label') + ` ${a.targetOzPerFeed} oz`}
+                >
+                  <TrendSparkline
+                    data={trend.ozPerFeedByDay}
+                    benchmarkValue={a.targetOzPerFeed}
+                    benchmarkLabel={`${t('analytics.target_label')} ${a.targetOzPerFeed} oz`}
+                    ariaLabel={t('analytics.oz_per_feed_label')}
+                  />
+                </TrendBlock>
+                <TrendBlock
+                  label={t('analytics.feed_interval_label')}
+                  sublabel={`${t('analytics.target_label')} ${fmtInterval(trend.targetFeedIntervalMs)}`}
+                >
+                  <TrendSparkline
+                    data={trend.feedIntervalByDay}
+                    benchmarkValue={trend.targetFeedIntervalMs}
+                    benchmarkLabel={`${t('analytics.target_label')} ${fmtInterval(trend.targetFeedIntervalMs)}`}
+                    ariaLabel={t('analytics.feed_interval_label')}
+                  />
+                </TrendBlock>
+                <div className={styles.trendAxisRow}>
+                  {trendDayLabels
+                    .filter((_, i) => i % 2 === 0)
+                    .map((l, i) => (
+                      <span key={i} className={styles.axisLabel}>
+                        {l}
+                      </span>
+                    ))}
+                </div>
+              </SectionCard>
             )}
-            <div className={styles.trendAxisRow}>
-              {trendDayLabels
-                .filter((_, i) => i % 2 === 0)
-                .map((l, i) => (
-                  <span key={i} className={styles.axisLabel}>
-                    {l}
-                  </span>
-                ))}
-            </div>
-          </SectionCard>
-        )}
 
-        {/* ── Transition signals ──────────────────────────────────────────── */}
-        {showTrends && signals.length > 0 && (
-          <SectionCard icon={<MilestoneIcon size={14} />} title={t('analytics.transition_signals')}>
-            {signals.map((s, i) => (
-              <SignalCard key={i} signal={s} />
-            ))}
-          </SectionCard>
+            {/* ── Daily intake vs target ─────────────────────────────────────── */}
+            {hasOzTrend && (
+              <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.daily_intake')}>
+                <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+                <TrendBlock
+                  label={t('analytics.oz_per_day_label')}
+                  sublabel={t('analytics.target_label') + ` ${trend.targetOzPerDay} oz`}
+                >
+                  <TrendBars
+                    data={trend.ozPerDayByDay}
+                    benchmarkValue={trend.targetOzPerDay}
+                    height={72}
+                    ariaLabel={t('analytics.oz_per_day_label')}
+                  />
+                </TrendBlock>
+                <div className={styles.trendAxisRow}>
+                  {trendDayLabels
+                    .filter((_, i) => i % 2 === 0)
+                    .map((l, i) => (
+                      <span key={i} className={styles.axisLabel}>
+                        {l}
+                      </span>
+                    ))}
+                </div>
+              </SectionCard>
+            )}
+
+            {/* ── Sleep summary ───────────────────────────────────────────────── */}
+            {isNewborn ? (
+              /* Stage 1: combine nap + night sleep into one "Newborn Sleep" block */
+              <SectionCard icon={<MoonIcon size={14} />} title={t('analytics.newborn_sleep')}>
+                {a.totalSleepMsThisWeek > 0 ? (
+                  <>
+                    <p className={styles.primaryStat}>{formatMs(a.totalSleepMsThisWeek)}</p>
+                    <div className={styles.statsGrid}>
+                      <StatRow
+                        label={t('analytics.nap_count_label')}
+                        value={`${a.napCountThisWeek + a.nightSleepCountThisWeek} sessions`}
+                      />
+                      <StatRow
+                        label={t('analytics.sleep_target_stat', {
+                          min: formatMs(a.targetDailySleepMs.minMs),
+                          max: formatMs(a.targetDailySleepMs.maxMs),
+                        }).replace('target ', '')}
+                        value={formatMs(a.avgDailySleepMs) + '/day avg'}
+                      />
+                    </div>
+                    <p className={styles.benchmark}>
+                      {`Target: ${formatMs(a.targetDailySleepMs.minMs)}–${formatMs(a.targetDailySleepMs.maxMs)}/day`}
+                    </p>
+                  </>
+                ) : (
+                  <p className={styles.empty}>
+                    {t('analytics.naps_empty', { period: 'this period' })}
+                  </p>
+                )}
+              </SectionCard>
+            ) : (
+              <>
+                {/* Stage 2+: separate nap and night sleep cards */}
+                <SectionCard icon={<MoonIcon size={14} />} title={t('analytics.naps')}>
+                  {a.napCountThisWeek > 0 ? (
+                    <>
+                      <p className={styles.primaryStat}>{formatMs(a.totalNapMsThisWeek)}</p>
+                      <div className={styles.statsGrid}>
+                        <StatRow
+                          label={t('analytics.nap_count_label')}
+                          value={`${a.napCountThisWeek} naps`}
+                        />
+                        {a.avgNapDurationMs != null && (
+                          <StatRow
+                            label={t('analytics.naps_avg', { avg: '' }).replace(': ', '')}
+                            value={formatMs(a.avgNapDurationMs) + ' avg'}
+                          />
+                        )}
+                        {a.longestNapMs != null && (
+                          <StatRow
+                            label={t('analytics.naps_longest', { longest: '' }).replace(': ', '')}
+                            value={formatMs(a.longestNapMs)}
+                          />
+                        )}
+                        {learnedStats.avgNapsPerDay != null && (
+                          <StatRow
+                            label={t('analytics.avg_naps_per_day_label')}
+                            value={learnedStats.avgNapsPerDay.toFixed(1)}
+                          />
+                        )}
+                      </div>
+                      {showTrends && a.napDeltaVsLastWeek != null && (
+                        <div className={styles.deltaRow}>
+                          <DeltaPill
+                            ms={Math.abs(a.napDeltaVsLastWeek)}
+                            positive={a.napDeltaVsLastWeek >= 0}
+                          />
+                          <span className={styles.deltaLabel}>avg nap vs last week</span>
+                        </div>
+                      )}
+                      <p
+                        className={styles.benchmark}
+                      >{`Target nap: ${formatMs(a.targetNapDurationMs)}`}</p>
+                    </>
+                  ) : (
+                    <p className={styles.empty}>
+                      {t('analytics.naps_empty', { period: 'this period' })}
+                    </p>
+                  )}
+                </SectionCard>
+
+                <SectionCard icon={<HotelIcon size={14} />} title={t('analytics.night_sleep')}>
+                  {a.nightSleepCountThisWeek > 0 ? (
+                    <>
+                      <p className={styles.primaryStat}>{formatMs(a.totalNightSleepMsThisWeek)}</p>
+                      <div className={styles.statsGrid}>
+                        <StatRow
+                          label={t('analytics.night_stretch_label')}
+                          value={t('analytics.longest_stretch_stat', {
+                            duration: formatMs(a.avgNightSleepDurationMs ?? 0),
+                          })}
+                        />
+                        <StatRow
+                          label="avg/night"
+                          value={formatMs(a.avgNightSleepDurationMs ?? 0)}
+                        />
+                      </div>
+                      {showTrends && a.sleepDeltaVsLastWeek != null && (
+                        <div className={styles.deltaRow}>
+                          <DeltaPill
+                            ms={Math.abs(a.sleepDeltaVsLastWeek)}
+                            positive={a.sleepDeltaVsLastWeek >= 0}
+                          />
+                          <span className={styles.deltaLabel}>total sleep vs last week</span>
+                        </div>
+                      )}
+                      <p className={styles.benchmark}>
+                        {`Avg daily: ${formatMs(a.avgDailySleepMs)} · Target: ${formatMs(a.targetDailySleepMs.minMs)}–${formatMs(a.targetDailySleepMs.maxMs)}/day`}
+                      </p>
+                    </>
+                  ) : (
+                    <p className={styles.empty}>
+                      {t('analytics.night_sleep_empty', { period: 'this period' })}
+                    </p>
+                  )}
+                </SectionCard>
+              </>
+            )}
+
+            {/* ── Sleep consolidation charts ───────────────────────────────────── */}
+            {hasSleepTrend && (
+              <SectionCard
+                icon={<HotelIcon size={14} />}
+                title={t('analytics.sleep_consolidation')}
+              >
+                <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+                <TrendBlock
+                  label={t('analytics.night_stretch_label')}
+                  sublabel={`target ${formatMs(a.targetDailySleepMs.minMs)}`}
+                >
+                  <TrendBars
+                    data={trend.longestNightByDay}
+                    benchmarkValue={trend.targetDailySleepMs.minMs}
+                    height={72}
+                    ariaLabel={t('analytics.night_stretch_label')}
+                  />
+                </TrendBlock>
+                {trend.napCountByDay.filter(p => p.value !== null).length >= 3 && (
+                  <TrendBlock
+                    label={t('analytics.nap_count_label')}
+                    sublabel={`target ${trend.targetNapsPerDay} naps`}
+                  >
+                    <TrendBars
+                      data={trend.napCountByDay}
+                      benchmarkValue={trend.targetNapsPerDay}
+                      height={56}
+                      ariaLabel={t('analytics.nap_count_label')}
+                    />
+                  </TrendBlock>
+                )}
+                <div className={styles.trendAxisRow}>
+                  {trendDayLabels
+                    .filter((_, i) => i % 2 === 0)
+                    .map((l, i) => (
+                      <span key={i} className={styles.axisLabel}>
+                        {l}
+                      </span>
+                    ))}
+                </div>
+              </SectionCard>
+            )}
+
+            {/* ── Transition signals ──────────────────────────────────────────── */}
+            {showTrends && signals.length > 0 && (
+              <SectionCard
+                icon={<MilestoneIcon size={14} />}
+                title={t('analytics.transition_signals')}
+              >
+                {signals.map((s, i) => (
+                  <SignalCard key={i} signal={s} />
+                ))}
+              </SectionCard>
+            )}
+          </>
         )}
 
         {/* ── Growth ──────────────────────────────────────────────────────── */}

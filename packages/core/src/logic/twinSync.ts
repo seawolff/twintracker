@@ -16,7 +16,7 @@ const FOOD_STALE_MS = 2 * 60 * 60_000; // 2 hours (solid food)
 
 export type SyncableEventType = Extract<
   EventType,
-  'nap' | 'bottle' | 'nursing' | 'diaper' | 'food'
+  'nap' | 'sleep' | 'bottle' | 'nursing' | 'diaper' | 'food'
 >;
 
 /**
@@ -48,6 +48,12 @@ export function findUnsyncedBaby(
       // Suggest nap sync any time the other baby's last nap is absent or already ended.
       const napEv = latest[`${b.id}:nap`];
       return !napEv || !!napEv.endedAt;
+    }
+
+    if (type === 'sleep') {
+      // Suggest sleep sync any time the other baby's last sleep event is absent or already ended.
+      const sleepEv = latest[`${b.id}:sleep`];
+      return !sleepEv || !!sleepEv.endedAt;
     }
 
     if (type === 'bottle' || type === 'nursing') {

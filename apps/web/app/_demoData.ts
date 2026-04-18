@@ -9,6 +9,11 @@
  */
 import type { Baby, LatestEventMap, TrackerEvent } from '@tt/core';
 
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+const ANALYTICS_MOCK_DAYS = 21;
+
 // Demo babies born ~6 months before the fixed DEMO_NOW (2026-04-10T18:00:00Z)
 // → Stage 2 (≥16 weeks), bedtime-stretch narrative at 6pm.
 export const DEMO_EMMA: Baby = {
@@ -43,6 +48,20 @@ function mkEvent(
   extra?: Partial<TrackerEvent>,
 ): TrackerEvent {
   return { id, babyId, type, startedAt, createdAt: startedAt, ...extra };
+}
+
+function addDays(ms: number, days: number): number {
+  return ms + days * MS_PER_DAY;
+}
+
+function toIso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+function startOfLocalDayMs(nowMs: number): number {
+  const day = new Date(nowMs);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
 }
 
 /** True when the most-recent nap or sleep event for this baby has no endedAt. */
@@ -200,4 +219,139 @@ export function buildTwinEvents(nowMs: number): TrackerEvent[] {
     mkEvent('a-h-dpr4', DEMO_LUCAS.id, 'diaper', ago(780), { loggedByName: 'Sam' }),
     mkEvent('g-h-dpr4', DEMO_MIA.id, 'diaper', ago(790), { loggedByName: 'Alex' }),
   ];
+}
+
+/**
+ * Build deterministic, trend-rich analytics mock data for the landing page.
+ * Uses stable formulas instead of Math.random so the charts never jitter between renders.
+ */
+export function buildDemoAnalyticsEvents(babies: Baby[], nowMs: number): TrackerEvent[] {
+  const startDayMs = startOfLocalDayMs(nowMs) - (ANALYTICS_MOCK_DAYS - 1) * MS_PER_DAY;
+  const events: TrackerEvent[] = [];
+
+  babies.forEach((baby, babyIdx) => {
+    for (let dayIdx = 0; dayIdx < ANALYTICS_MOCK_DAYS; dayIdx++) {
+      const dayMs = addDays(startDayMs, dayIdx);
+      const isRecentWindow = dayIdx >= ANALYTICS_MOCK_DAYS - 6;
+      const bottleCount = isRecentWindow ? 4 : 5;
+      const napCount = isRecentWindow ? 2 : 3;
+      const bottleBaseOz = babyIdx === 0 ? 5.5 : 5.25;
+      const dayBottleBoost = ((dayIdx + babyIdx) % 3) * 0.25;
+      const firstFeedHour = 6.5 + babyIdx * 0.15;
+
+      for (let feedIdx = 0; feedIdx < bottleCount; feedIdx++) {
+        const feedHour = firstFeedHour + feedIdx * (isRecentWindow ? 3.4 : 3);
+        const feedMs = dayMs + feedHour * MS_PER_HOUR;
+        if (feedMs >= nowMs) {
+          continue;
+        }
+        const oz = bottleBaseOz + dayBottleBoost + (feedIdx % 2 === 0 ? 0.25 : 0);
+        events.push(
+          mkEvent(
+            `demo-analytics-${baby.id}-bottle-${dayIdx}-${feedIdx}`,
+            baby.id,
+            'bottle',
+            toIso(feedMs),
+            {
+              value: Number(oz.toFixed(1)),
+              unit: 'oz',
+            },
+          ),
+        );
+      }
+
+      for (let napIdx = 0; napIdx < napCount; napIdx++) {
+        const napStartHour = 8.9 + napIdx * (isRecentWindow ? 3.15 : 2.55) + babyIdx * 0.08;
+        const napStartMs = dayMs + napStartHour * MS_PER_HOUR;
+        const napDurationMinutes =
+          (isRecentWindow ? 88 : 68) + napIdx * 7 + ((dayIdx + napIdx + babyIdx) % 2) * 8;
+        const napEndMs = napStartMs + napDurationMinutes * MS_PER_MINUTE;
+        if (napEndMs >= nowMs) {
+          continue;
+        }
+        events.push(
+          mkEvent(
+            `demo-analytics-${baby.id}-nap-${dayIdx}-${napIdx}`,
+            baby.id,
+            'nap',
+            toIso(napStartMs),
+            {
+              endedAt: toIso(napEndMs),
+            },
+          ),
+        );
+      }
+
+      const sleepStartHour = 19.4 + babyIdx * 0.08;
+      const sleepStartMs = dayMs + sleepStartHour * MS_PER_HOUR;
+      const sleepDurationHours = (isRecentWindow ? 9.7 : 8.4) + ((dayIdx + babyIdx) % 3) * 0.25;
+      const sleepEndMs = sleepStartMs + sleepDurationHours * MS_PER_HOUR;
+      if (sleepEndMs < nowMs) {
+        events.push(
+          mkEvent(
+            `demo-analytics-${baby.id}-sleep-${dayIdx}`,
+            baby.id,
+            'sleep',
+            toIso(sleepStartMs),
+            {
+              endedAt: toIso(sleepEndMs),
+            },
+          ),
+        );
+      }
+
+      const diaperCount = 6 + ((dayIdx + babyIdx) % 2);
+      for (let diaperIdx = 0; diaperIdx < diaperCount; diaperIdx++) {
+        const diaperMs = dayMs + (7 + diaperIdx * 2.25 + babyIdx * 0.05) * MS_PER_HOUR;
+        if (diaperMs >= nowMs) {
+          continue;
+        }
+        events.push(
+          mkEvent(
+            `demo-analytics-${baby.id}-diaper-${dayIdx}-${diaperIdx}`,
+            baby.id,
+            'diaper',
+            toIso(diaperMs),
+            {
+              notes: diaperIdx === diaperCount - 1 ? 'dirty' : diaperIdx % 3 === 0 ? 'both' : 'wet',
+            },
+          ),
+        );
+      }
+
+      if (dayIdx >= ANALYTICS_MOCK_DAYS - 10) {
+        const foodMs = dayMs + (12.25 + babyIdx * 0.1) * MS_PER_HOUR;
+        if (foodMs < nowMs) {
+          events.push(
+            mkEvent(`demo-analytics-${baby.id}-food-${dayIdx}`, baby.id, 'food', toIso(foodMs), {
+              notes: dayIdx % 2 === 0 ? 'banana puree' : 'sweet potato',
+            }),
+          );
+        }
+      }
+    }
+
+    events.push(
+      mkEvent(
+        `demo-analytics-${baby.id}-milestone-1`,
+        baby.id,
+        'milestone',
+        toIso(addDays(startDayMs, 6) + (11 + babyIdx * 0.2) * MS_PER_HOUR),
+        {
+          notes: 'Rolled over',
+        },
+      ),
+      mkEvent(
+        `demo-analytics-${baby.id}-milestone-2`,
+        baby.id,
+        'milestone',
+        toIso(addDays(startDayMs, 15) + (14 + babyIdx * 0.2) * MS_PER_HOUR),
+        {
+          notes: 'First solid food',
+        },
+      ),
+    );
+  });
+
+  return events.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 }

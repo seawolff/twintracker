@@ -14,6 +14,19 @@
   max-width: 360px;
 }
 
+.logo {
+  width: 56px;
+  height: 56px;
+  display: block;
+  margin-bottom: $space-md;
+  color: var(--tt-text);
+  border-radius: 22%;
+
+  :global([data-theme='night']) & {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.92);
+  }
+}
+
 .wordmark {
   font-family: $font-display;
   font-size: 36px;

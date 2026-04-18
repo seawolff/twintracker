@@ -37,7 +37,7 @@ export type NursingMinutes = (typeof NURSING_MINUTES)[number];
 export const NURSING_BREAST_OPTIONS = ['left', 'right'] as const;
 export type NursingBreast = (typeof NURSING_BREAST_OPTIONS)[number];
 
-export const DIAPER_OPTIONS = ['wet', 'dirty', 'both'] as const;
+export const DIAPER_OPTIONS = ['wet', 'dirty', 'both', 'dry'] as const;
 export type DiaperOption = (typeof DIAPER_OPTIONS)[number];
 
 /** Formats an hour (0–23) as a human-readable 12-hour label: 0 → "12 AM", 19 → "7 PM". */

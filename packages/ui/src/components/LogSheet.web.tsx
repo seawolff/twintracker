@@ -94,11 +94,12 @@ export function LogSheet({
         setStartTime(toDatetimeLocal(initialEvent.startedAt));
         setEndTime(initialEvent.endedAt ? toDatetimeLocal(initialEvent.endedAt) : '');
         if (initialEvent.type === 'bottle') {
-          setSelectedOz(initialEvent.value ?? 4);
+          // Coerce to Number — pg returns NUMERIC columns as strings at runtime.
+          setSelectedOz(Number(initialEvent.value ?? 4));
           setOzInput(String(initialEvent.value ?? 4));
         }
         if (initialEvent.type === 'nursing') {
-          setSelectedNursingMinutes(initialEvent.value ?? 15);
+          setSelectedNursingMinutes(Number(initialEvent.value ?? 15));
           setSelectedBreast((initialEvent.notes as NursingBreast) ?? 'left');
         }
         if (initialEvent.type === 'diaper') {
@@ -547,8 +548,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
   },
   babyName: {
     fontSize: 24,
@@ -604,14 +606,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 2,
   },
   loggedByRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 10,
-    marginBottom: 6,
+    gap: 6,
+    marginTop: spacing.xs,
   },
   loggedByAvatar: {
     width: 16,

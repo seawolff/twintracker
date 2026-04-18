@@ -4,6 +4,7 @@
  * Uses CSS variables so colors automatically flip with the day/night theme.
  */
 'use client';
+import { useEffect, useRef, useState } from 'react';
 import type { TrendPoint } from '@tt/core';
 
 interface TrendSparklineProps {
@@ -12,6 +13,8 @@ interface TrendSparklineProps {
   height?: number;
   /** Optional constant benchmark value drawn as a dashed horizontal line. */
   benchmarkValue?: number;
+  /** Optional label drawn at the right end of the benchmark line. */
+  benchmarkLabel?: string;
   /** Accessible label for the chart. */
   ariaLabel: string;
 }
@@ -20,11 +23,31 @@ export default function TrendSparkline({
   data,
   height = 48,
   benchmarkValue,
+  benchmarkLabel,
   ariaLabel,
 }: TrendSparklineProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [svgWidth, setSvgWidth] = useState(0);
   const nonNull = data.map(p => p.value).filter((v): v is number => v !== null);
-  if (nonNull.length < 2) {
-    return <div style={{ height }} />;
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setSvgWidth(node.getBoundingClientRect().width);
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  if (nonNull.length < 2 || svgWidth <= 0) {
+    return <div ref={containerRef} style={{ width: '100%', height }} />;
   }
 
   const maxVal = Math.max(...nonNull, benchmarkValue ?? 0);
@@ -36,8 +59,8 @@ export default function TrendSparkline({
 
   const count = data.length;
 
-  function xPct(i: number): number {
-    return count > 1 ? (i / (count - 1)) * 100 : 50;
+  function xPx(i: number): number {
+    return count > 1 ? (i / (count - 1)) * svgWidth : svgWidth / 2;
   }
 
   function yPx(val: number): number {
@@ -50,7 +73,7 @@ export default function TrendSparkline({
   for (let i = 0; i < data.length; i++) {
     const v = data[i].value;
     if (v !== null) {
-      current.push(`${xPct(i)}%,${yPx(v)}`);
+      current.push(`${xPx(i)},${yPx(v)}`);
     } else {
       if (current.length >= 2) {
         segments.push(current);
@@ -65,54 +88,60 @@ export default function TrendSparkline({
   const benchmarkY = benchmarkValue !== undefined ? yPx(Math.min(benchmarkValue, maxVal)) : null;
 
   return (
-    <svg
-      width="100%"
-      height={height}
-      viewBox={`0 0 100 ${height}`}
-      preserveAspectRatio="none"
-      aria-label={ariaLabel}
-      role="img"
-    >
-      {benchmarkY !== null && (
-        <line
-          x1="0"
-          y1={benchmarkY}
-          x2="100%"
-          y2={benchmarkY}
-          style={{ stroke: 'var(--tt-text)', opacity: 0.25 }}
-          strokeWidth={1}
-          strokeDasharray="2 3"
-        />
-      )}
-
-      {segments.map((pts, idx) => (
-        <polyline
-          key={idx}
-          points={pts.join(' ')}
-          fill="none"
-          style={{ stroke: 'var(--tt-text)' }}
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-      ))}
-
-      {/* Dots on non-null data points */}
-      {data.map((point, i) => {
-        if (point.value === null) {
-          return null;
-        }
-        return (
-          <circle
-            key={point.dayMs}
-            cx={`${xPct(i)}%`}
-            cy={yPx(point.value)}
-            r={2}
-            style={{ fill: 'var(--tt-text)' }}
+    <div ref={containerRef} style={{ width: '100%', height }}>
+      <svg width={svgWidth} height={height} aria-label={ariaLabel} role="img">
+        {benchmarkY !== null && (
+          <line
+            x1="0"
+            y1={benchmarkY}
+            x2={svgWidth}
+            y2={benchmarkY}
+            style={{ stroke: 'var(--tt-text)', opacity: 0.25 }}
+            strokeWidth={1}
+            strokeDasharray="2 3"
           />
-        );
-      })}
-    </svg>
+        )}
+
+        {benchmarkY !== null && benchmarkLabel && (
+          <text
+            x={svgWidth - 4}
+            y={benchmarkY - 3}
+            textAnchor="end"
+            style={{ fill: 'var(--tt-text)', fontSize: 7, opacity: 0.5 }}
+          >
+            {benchmarkLabel}
+          </text>
+        )}
+
+        {segments.map((pts, idx) => (
+          <polyline
+            key={idx}
+            points={pts.join(' ')}
+            fill="none"
+            style={{ stroke: 'var(--tt-text)' }}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+
+        {/* Dots on non-null data points */}
+        {data.map((point, i) => {
+          if (point.value === null) {
+            return null;
+          }
+          return (
+            <circle
+              key={point.dayMs}
+              cx={xPx(i)}
+              cy={yPx(point.value)}
+              r={2}
+              style={{ fill: 'var(--tt-text)' }}
+            />
+          );
+        })}
+      </svg>
+    </div>
   );
 }

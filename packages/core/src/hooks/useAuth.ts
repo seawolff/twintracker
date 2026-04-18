@@ -145,7 +145,7 @@ export function useAuth(storage?: StorageInterface) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const register = useCallback(async (email: string, password: string, name?: string) => {
+  const register = useCallback(async (email: string, password: string, name: string) => {
     const tokens = await api.auth.register({ email, password, name });
     const store = getStore();
     await store?.setItem(TOKEN_KEY, tokens.accessToken);
@@ -169,7 +169,7 @@ export function useAuth(storage?: StorageInterface) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const join = useCallback(async (email: string, password: string, code: string, name?: string) => {
+  const join = useCallback(async (email: string, password: string, code: string, name: string) => {
     const tokens = await api.auth.join({ email, password, inviteCode: code, name });
     const store = getStore();
     await store?.setItem(TOKEN_KEY, tokens.accessToken);

@@ -1,21 +1,23 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   configure,
   useTranslation,
   useThemeContext,
+  setSleepActive,
   eventLabel,
   formatTimeAgo,
   formatDuration,
   authorColor,
 } from '@tt/core';
-import type { LatestEventMap, TrackerEvent } from '@tt/core';
+import type { Baby, LatestEventMap, TrackerEvent } from '@tt/core';
 import { BabyCard, MoonIcon, SunIcon, BottleIcon, DiaperIcon, CloseIcon } from '@tt/ui';
 
 import {
   DEMO_EMMA,
   DEMO_LUCAS,
   DEMO_MIA,
+  buildDemoAnalyticsEvents,
   buildSingletonLatest,
   buildSingletonEvents,
   buildTwinLatest,
@@ -25,6 +27,9 @@ import {
 import styles from './landing.module.scss';
 import { MarketingNav } from '../components/MarketingNav';
 import { MarketingFooter } from '../components/MarketingFooter';
+import { TwinsIcon } from '../components/TwinsIcon';
+import { WaitlistModal } from '../components/WaitlistModal';
+import WeeklyAnalyticsPanel from '../components/WeeklyAnalyticsPanel';
 
 // Local-time constructor (NOT a UTC ISO string) so now.getHours() === 18 in getBabyInsight
 // regardless of the user's timezone. A UTC string like '...T18:00:00Z' gives getHours() = 11
@@ -41,11 +46,17 @@ configure('');
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type DemoMode = 'singleton' | 'twin';
-type DemoTab = 'home' | 'history';
+type DemoTab = 'home' | 'history' | 'analytics';
+type DemoBaby = Baby;
 
 // Progressive row shading — same formula as HistoryFeed
 const SHADE_PER_ROW = 0.015;
-
+/** Demo phone tab order for the landing-page carousel. */
+const DEMO_TAB_SEQUENCE: DemoTab[] = ['home', 'analytics', 'history'];
+/** How long each landing-page demo tab stays visible before auto-advancing. */
+const DEMO_TAB_AUTO_ROTATE_MS = 3_200;
+/** Pause autoplay after a manual interaction so the mockup does not fight the user. */
+const DEMO_TAB_INTERACTION_PAUSE_MS = 8_000;
 // Token map for demo sub-components. useThemeContext() is time-based (6pm → day) and
 // does NOT react to applyTheme(), so any component that must flip when the user toggles
 // sleep should read from here instead of theme.text/border/etc.
@@ -73,8 +84,14 @@ const DEMO_THEME = {
 export default function LandingPage() {
   const { t } = useTranslation();
   const [landingTheme, setLandingTheme] = useState<'day' | 'night'>('day');
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [demoMode, setDemoMode] = useState<DemoMode>('singleton');
   const [demoTab, setDemoTab] = useState<DemoTab>('home');
+  // Suppress hydration mismatches in BabyCard (useTheme reads new Date() internally).
+  // Render a skeleton on SSR + first client paint; swap to real demo after mount.
+  const [mounted, setMounted] = useState(false);
+  const demoAutoCyclePausedUntilRef = useRef(0);
+  const [demoAutoCycleNonce, setDemoAutoCycleNonce] = useState(0);
   // States initialised synchronously from DEMO_NOW so SSR and client produce identical HTML.
   const [singletonLatest, setSingletonLatest] = useState<LatestEventMap>(() =>
     buildSingletonLatest(DEMO_NOW.getTime()),
@@ -97,8 +114,30 @@ export default function LandingPage() {
     }
   }, []);
 
-  /** Apply a theme to both React state and the CSS data-attribute. */
+  const pauseDemoTabAutoCycle = useCallback(() => {
+    demoAutoCyclePausedUntilRef.current = Date.now() + DEMO_TAB_INTERACTION_PAUSE_MS;
+    setDemoAutoCycleNonce(n => n + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    const pauseRemainingMs = Math.max(0, demoAutoCyclePausedUntilRef.current - Date.now());
+    const delayMs = pauseRemainingMs > 0 ? pauseRemainingMs : DEMO_TAB_AUTO_ROTATE_MS;
+    const timer = window.setTimeout(() => {
+      setDemoTab(prev => {
+        const currentIdx = DEMO_TAB_SEQUENCE.indexOf(prev);
+        return DEMO_TAB_SEQUENCE[(currentIdx + 1) % DEMO_TAB_SEQUENCE.length];
+      });
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [mounted, demoMode, demoTab, demoAutoCycleNonce]);
+
+  /** Apply a theme to React state, the CSS data-attribute, and the module-level sleep flag
+   *  so BabyCard's internal useThemeContext() also flips. */
   const applyTheme = useCallback((next: 'day' | 'night') => {
+    setSleepActive(next === 'night');
     document.documentElement.dataset.theme = next;
     setLandingTheme(next);
   }, []);
@@ -106,6 +145,7 @@ export default function LandingPage() {
   /** Toggle sleep/wake for one demo baby. Pure UI state — no API calls. */
   const handleSleepToggle = useCallback(
     (babyId: string) => {
+      pauseDemoTabAutoCycle();
       const latestMap = demoMode === 'singleton' ? singletonLatest : twinLatest;
       const sleeping = isBabySleeping(babyId, latestMap);
 
@@ -169,26 +209,39 @@ export default function LandingPage() {
         applyTheme('night');
       }
     },
-    [demoMode, singletonLatest, twinLatest, applyTheme],
+    [demoMode, singletonLatest, twinLatest, applyTheme, pauseDemoTabAutoCycle],
   );
 
   /** Reset demo to a fresh initial state and switch modes. */
-  const switchDemoMode = useCallback((mode: DemoMode) => {
-    const nowMs = DEMO_NOW.getTime();
-    setDemoMode(mode);
-    setDemoTab('home');
-    if (mode === 'singleton') {
-      setSingletonLatest(buildSingletonLatest(nowMs));
-      setSingletonEvents(buildSingletonEvents(nowMs));
-    } else {
-      setTwinLatest(buildTwinLatest(nowMs));
-      setTwinEvents(buildTwinEvents(nowMs));
-    }
-  }, []);
+  const switchDemoMode = useCallback(
+    (mode: DemoMode) => {
+      pauseDemoTabAutoCycle();
+      const nowMs = DEMO_NOW.getTime();
+      setDemoMode(mode);
+      setDemoTab('home');
+      // Always start in day mode — clear any sleep state from the previous demo mode.
+      setSleepActive(false);
+      document.documentElement.dataset.theme = 'day';
+      setLandingTheme('day');
+      if (mode === 'singleton') {
+        setSingletonLatest(buildSingletonLatest(nowMs));
+        setSingletonEvents(buildSingletonEvents(nowMs));
+      } else {
+        setTwinLatest(buildTwinLatest(nowMs));
+        setTwinEvents(buildTwinEvents(nowMs));
+      }
+    },
+    [pauseDemoTabAutoCycle],
+  );
 
-  // Suppress hydration mismatches in BabyCard (useTheme reads new Date() internally).
-  // Render a skeleton on SSR + first client paint; swap to real demo after mount.
-  const [mounted, setMounted] = useState(false);
+  const handleDemoTabChange = useCallback(
+    (tab: DemoTab) => {
+      pauseDemoTabAutoCycle();
+      setDemoTab(tab);
+    },
+    [pauseDemoTabAutoCycle],
+  );
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -197,31 +250,32 @@ export default function LandingPage() {
   const currentLatest = isSingleton ? singletonLatest : twinLatest;
   const currentEvents = isSingleton ? singletonEvents : twinEvents;
   const currentBabies = isSingleton ? [DEMO_EMMA] : [DEMO_LUCAS, DEMO_MIA];
+  const currentAnalyticsBaby = currentBabies[0];
+  const currentAnalyticsEvents = useMemo(
+    () => buildDemoAnalyticsEvents(currentBabies, DEMO_NOW.getTime()),
+    [currentBabies],
+  );
 
   return (
     <div className={styles.page}>
       <MarketingNav
         theme={landingTheme}
-        onToggle={() =>
-          setLandingTheme(m => {
-            const next = m === 'day' ? 'night' : 'day';
-            document.documentElement.dataset.theme = next;
-            return next;
-          })
-        }
+        onToggle={() => applyTheme(landingTheme === 'day' ? 'night' : 'day')}
       />
 
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
-          <h1 className={styles.tagline}>{t('landing.tagline')}</h1>
+          <TwinsIcon className={styles.heroLogo} />
+          <h1 className={styles.wordmark}>{t('landing.logo')}</h1>
+          <p className={styles.tagline}>{t('landing.tagline')}</p>
           <p className={styles.heroSub}>{t('landing.hero_sub')}</p>
           <div className={styles.ctas}>
             <a href="/login?mode=register" className={styles.ctaPrimary}>
               {t('landing.cta_web')}
             </a>
-            <a href="#download" className={styles.ctaSecondary}>
+            <button className={styles.ctaSecondary} onClick={() => setWaitlistOpen(true)}>
               {t('landing.cta_app')}
-            </a>
+            </button>
           </div>
         </div>
 
@@ -233,10 +287,12 @@ export default function LandingPage() {
                 tab={demoTab}
                 latest={currentLatest}
                 events={currentEvents}
+                analyticsBaby={currentAnalyticsBaby}
+                analyticsEvents={currentAnalyticsEvents}
                 babies={currentBabies}
                 now={DEMO_NOW}
                 themeMode={landingTheme}
-                onTabChange={setDemoTab}
+                onTabChange={handleDemoTabChange}
                 onSleepToggle={handleSleepToggle}
               />
             ) : (
@@ -276,19 +332,32 @@ export default function LandingPage() {
           title={t('landing.feat_growth_title')}
           desc={t('landing.feat_growth_desc')}
         />
+        <FeatureCard
+          icon="🌐"
+          title={t('landing.feat_i18n_title')}
+          desc={t('landing.feat_i18n_desc')}
+        />
       </section>
 
       <section className={styles.story}>
         <div className={styles.storyInner}>
-          <h2 className={styles.storyTitle}>{t('landing.story_title')}</h2>
-          <p className={styles.storyBody}>{t('landing.story_body')}</p>
-          <a
-            href="/login?mode=register"
-            className={styles.ctaPrimary}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            {t('landing.story_cta')}
-          </a>
+          <img
+            src="/wolff.jpg"
+            alt={t('landing.founder_photo_alt')}
+            className={styles.storyPhoto}
+          />
+          <div className={styles.storyText}>
+            <h2 className={styles.storyTitle}>{t('landing.story_title')}</h2>
+            <p className={styles.storyBody}>{t('landing.story_body')}</p>
+            <p className={styles.storyByline}>{t('landing.founder_byline')}</p>
+            <a
+              href="/login?mode=register"
+              className={styles.ctaPrimary}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {t('landing.story_cta')}
+            </a>
+          </div>
         </div>
       </section>
 
@@ -312,6 +381,8 @@ export default function LandingPage() {
       </section>
 
       <MarketingFooter />
+
+      {waitlistOpen && <WaitlistModal onClose={() => setWaitlistOpen(false)} />}
     </div>
   );
 }
@@ -323,7 +394,9 @@ interface PhoneMockupProps {
   tab: DemoTab;
   latest: LatestEventMap;
   events: TrackerEvent[];
-  babies: ReturnType<typeof Array.from<{ id: string; name: string; color: string }>>;
+  analyticsBaby: DemoBaby;
+  analyticsEvents: TrackerEvent[];
+  babies: DemoBaby[];
   now: Date;
   themeMode: 'day' | 'night';
   onTabChange: (tab: DemoTab) => void;
@@ -335,6 +408,8 @@ function PhoneMockup({
   tab,
   latest,
   events,
+  analyticsBaby,
+  analyticsEvents,
   babies,
   now,
   themeMode,
@@ -417,7 +492,13 @@ function PhoneMockup({
             )}
           </div>
         ) : (
-          <DemoHistory events={events} babies={babies} now={now} themeMode={themeMode} />
+          <>
+            {tab === 'history' ? (
+              <DemoHistory events={events} babies={babies} now={now} themeMode={themeMode} />
+            ) : (
+              <DemoAnalytics baby={analyticsBaby} events={analyticsEvents} now={now} />
+            )}
+          </>
         )}
       </div>
 
@@ -574,7 +655,9 @@ function DemoTabBar({
   const dt = DEMO_THEME[themeMode];
 
   // Tab icons match the real BottomTabBar characters and 20px size.
-  const TAB_ICONS: Record<DemoTab, string> = { home: '⌂', history: '◷' };
+  const TAB_ICONS: Record<'home' | 'history', string> = { home: '⌂', history: '◷' };
+  const visibleTabs: Array<'home' | 'history'> = ['home', 'history'];
+  const activeVisibleTab: 'home' | 'history' = tab === 'history' ? 'history' : 'home';
 
   return (
     <div
@@ -586,12 +669,12 @@ function DemoTabBar({
         background: dt.bg,
       }}
     >
-      {(['home', 'history'] as DemoTab[]).map(key => (
+      {visibleTabs.map(key => (
         <button
           key={key}
           onClick={() => onTabChange(key)}
           aria-label={key === 'home' ? t('landing.demo_tab_home') : t('landing.demo_tab_history')}
-          aria-current={tab === key ? 'page' : undefined}
+          aria-current={activeVisibleTab === key ? 'page' : undefined}
           style={{
             flex: 1,
             display: 'flex',
@@ -601,7 +684,7 @@ function DemoTabBar({
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            color: tab === key ? dt.text : dt.textMuted,
+            color: activeVisibleTab === key ? dt.text : dt.textMuted,
             fontSize: 20,
             lineHeight: 1,
           }}
@@ -609,6 +692,22 @@ function DemoTabBar({
           {TAB_ICONS[key]}
         </button>
       ))}
+    </div>
+  );
+}
+
+function DemoAnalytics({
+  baby,
+  events,
+  now,
+}: {
+  baby: DemoBaby;
+  events: TrackerEvent[];
+  now: Date;
+}) {
+  return (
+    <div style={{ flex: 1, overflowY: 'auto' as const, padding: '12px 10px 16px' }}>
+      <WeeklyAnalyticsPanel baby={baby} events={events} now={now} />
     </div>
   );
 }

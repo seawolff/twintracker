@@ -52,8 +52,8 @@ services:
       API_URL: http://api:3000
       PORT: 3001
       WATCHPACK_POLLING: 'true' # Docker on macOS doesn't propagate fs events; polling enables HMR
-      # Web OAuth 2.0 client ID from Google Cloud Console.
-      NEXT_PUBLIC_GOOGLE_CLIENT_ID: '540673294140-k449i4jrg8l20e4iqqk29cecmte6vs54.apps.googleusercontent.com'
+      # Web OAuth 2.0 client ID from Google Cloud Console (see .env.example).
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ''
     depends_on:
       - api
     volumes:

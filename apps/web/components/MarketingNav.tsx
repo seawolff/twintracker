@@ -1,5 +1,6 @@
 'use client';
 import { useTranslation } from '@tt/core';
+import { TwinsIcon } from './TwinsIcon';
 import styles from './MarketingNav.module.scss';
 
 interface MarketingNavProps {
@@ -12,6 +13,7 @@ export function MarketingNav({ theme, onToggle }: MarketingNavProps) {
   return (
     <nav className={styles.nav}>
       <a href="/" className={styles.logo}>
+        <TwinsIcon className={styles.brandMark} title={t('landing.logo')} />
         {t('landing.logo')}
       </a>
       <div className={styles.navRight}>

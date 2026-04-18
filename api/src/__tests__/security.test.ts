@@ -35,6 +35,7 @@ const mockQuery = pool.query as jest.Mock;
 
 beforeEach(() => {
   mockQuery.mockReset();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
 });
 
 // ── 0. Health endpoint ────────────────────────────────────────────────────────
@@ -362,10 +363,23 @@ describe('POST /api/auth/google', () => {
     expect(res.body.emailVerified).toBe(true);
   });
 
+  it('rejects creating a new Google account without a name', async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sub: 'google-sub-790', email: 'new@example.com' }),
+    });
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app).post('/api/auth/google').send({ idToken: 'valid-token' });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/name required/i);
+  });
+
   it('returns 404 when invite code is invalid', async () => {
     global.fetch = jest.fn().mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ sub: 'google-sub-000', email: 'join@example.com' }),
+      json: async () => ({ sub: 'google-sub-000', email: 'join@example.com', name: 'Joiner' }),
     });
 
     // No existing user
@@ -405,6 +419,43 @@ describe('Input validation', () => {
         .send({ email: 'a@b.com', password: 'short' });
       expect(res.status).toBe(400);
       expect(res.body.message).toMatch(/password/i);
+    });
+
+    it('rejects missing name → 400', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ email: 'a@b.com', password: 'validpassword' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/name required/i);
+    });
+
+    it('rejects blank name → 400', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ email: 'a@b.com', password: 'validpassword', name: '   ' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/name required/i);
+    });
+  });
+
+  describe('POST /api/auth/join', () => {
+    it('rejects missing name → 400', async () => {
+      const res = await request(app)
+        .post('/api/auth/join')
+        .send({ email: 'a@b.com', password: 'validpassword', inviteCode: 'ABC12345' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/name required/i);
+    });
+
+    it('rejects blank name → 400', async () => {
+      const res = await request(app).post('/api/auth/join').send({
+        email: 'a@b.com',
+        password: 'validpassword',
+        inviteCode: 'ABC12345',
+        name: '   ',
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/name required/i);
     });
   });
 
@@ -471,6 +522,33 @@ describe('Input validation', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ bedtimeHour: 20, sleepTraining: true });
       expect(res.status).toBe(200);
+    });
+
+    it('accepts units: metric → 200', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ data: { units: 'metric' } }] });
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ units: 'metric' });
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts units: imperial → 200', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ data: { units: 'imperial' } }] });
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ units: 'imperial' });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects invalid units value → 400', async () => {
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ units: 'cups' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/units must be/i);
     });
   });
 });
@@ -754,7 +832,7 @@ describe('Email verification', () => {
 
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ email: 'new@test.com', password: 'password123' });
+      .send({ email: 'new@test.com', password: 'password123', name: 'New Parent' });
 
     expect(res.status).toBe(201);
     expect(res.body.emailVerified).toBe(false);
@@ -871,7 +949,7 @@ describe('POST /api/auth/register — duplicate email', () => {
 
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ email: 'dupe@test.com', password: 'password123' });
+      .send({ email: 'dupe@test.com', password: 'password123', name: 'Existing Parent' });
 
     expect(res.status).toBe(409);
     // Generic message — must not reveal whether the email is registered (user enumeration)
@@ -893,9 +971,12 @@ describe('POST /api/auth/join', () => {
   it('returns 404 when invite code does not exist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] }); // lookup returns nothing
 
-    const res = await request(app)
-      .post('/api/auth/join')
-      .send({ email: 'j@test.com', password: 'password123', inviteCode: 'BADCODE1' });
+    const res = await request(app).post('/api/auth/join').send({
+      email: 'j@test.com',
+      password: 'password123',
+      inviteCode: 'BADCODE1',
+      name: 'Joiner',
+    });
 
     expect(res.status).toBe(404);
     expect(res.body.message).toMatch(/invalid invite code/i);
@@ -918,9 +999,12 @@ describe('POST /api/auth/join', () => {
         ],
       });
 
-    const res = await request(app)
-      .post('/api/auth/join')
-      .send({ email: 'joiner@test.com', password: 'password123', inviteCode: 'EXISTING' });
+    const res = await request(app).post('/api/auth/join').send({
+      email: 'joiner@test.com',
+      password: 'password123',
+      inviteCode: 'EXISTING',
+      name: 'Joiner',
+    });
 
     expect(res.status).toBe(201);
     expect(res.body.emailVerified).toBe(false);
@@ -938,9 +1022,12 @@ describe('POST /api/auth/join', () => {
       .mockResolvedValueOnce({ rows: [{ code: 'NEWCODE1' }] }) // new invite code
       .mockRejectedValueOnce({ code: '23505' }); // INSERT → unique violation
 
-    const res = await request(app)
-      .post('/api/auth/join')
-      .send({ email: 'dupe@test.com', password: 'password123', inviteCode: 'EXISTING' });
+    const res = await request(app).post('/api/auth/join').send({
+      email: 'dupe@test.com',
+      password: 'password123',
+      inviteCode: 'EXISTING',
+      name: 'Existing Joiner',
+    });
 
     expect(res.status).toBe(409);
     // Generic message — must not reveal whether the email is registered (user enumeration)

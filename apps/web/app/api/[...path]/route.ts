@@ -9,10 +9,7 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
   const headers = new Headers(req.headers);
   headers.delete('host');
 
-  const body =
-    req.method !== 'GET' && req.method !== 'HEAD'
-      ? await req.arrayBuffer()
-      : undefined;
+  const body = req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined;
 
   const response = await fetch(url, { method: req.method, headers, body });
 

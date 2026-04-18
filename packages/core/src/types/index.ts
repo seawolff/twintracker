@@ -105,14 +105,14 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
-  name?: string;
+  name: string;
 }
 
 export interface JoinRequest {
   email: string;
   password: string;
   inviteCode: string;
-  name?: string;
+  name: string;
 }
 
 /** Server-side nap alarm — fires at a specific time, synced across all devices. */

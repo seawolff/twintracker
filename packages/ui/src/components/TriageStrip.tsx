@@ -65,7 +65,7 @@ export function TriageStrip({ insight }: TriageStripProps) {
           style={[styles.value, { color: theme.textDim, fontFamily: fonts.mono }]}
           numberOfLines={1}
         >
-          {insight.sleepStatus ?? '—'}
+          {insight.sleepStatus ? insight.sleepStatus.replace(/^Active · /, '') : '—'}
         </Text>
       </View>
       <View

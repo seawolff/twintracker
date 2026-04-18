@@ -3,6 +3,7 @@ import { Suspense, useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { configure, useAuth, useTranslation } from '@tt/core';
+import { TwinsIcon } from '../../components/TwinsIcon';
 import styles from './login.module.scss';
 
 configure('');
@@ -23,8 +24,8 @@ function LoginPageInner() {
   const { login, register, join, loginWithGoogle, resendVerification } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [inviteCode, setInviteCode] = useState(() => searchParams.get('code') ?? '');
   const [name, setName] = useState('');
+  const [inviteCode, setInviteCode] = useState(() => searchParams.get('code') ?? '');
   const [mode, setMode] = useState<Mode>(() => {
     const m = searchParams.get('mode');
     return m === 'join' || m === 'register' ? m : 'login';
@@ -38,13 +39,17 @@ function LoginPageInner() {
   const [resendSent, setResendSent] = useState(false);
 
   const handleGoogleSuccess = async (credential: string) => {
+    if (mode === 'join' && !inviteCode.trim()) {
+      setError(t('auth.join_code_required'));
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      await loginWithGoogle(credential, inviteCode || undefined);
+      await loginWithGoogle(credential, inviteCode.trim() || undefined);
       router.replace('/home');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : t('common.error_generic'));
     } finally {
       setLoading(false);
     }
@@ -59,14 +64,14 @@ function LoginPageInner() {
         await login(email, password);
         router.replace('/home');
       } else if (mode === 'register') {
-        await register(email, password, name.trim() || undefined);
+        await register(email, password, name);
         setPendingVerificationEmail(email);
       } else {
-        await join(email, password, inviteCode, name.trim() || undefined);
+        await join(email, password, inviteCode, name);
         setPendingVerificationEmail(email);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : t('common.error_generic'));
     } finally {
       setLoading(false);
     }
@@ -90,6 +95,7 @@ function LoginPageInner() {
     return (
       <main className={styles.page}>
         <div className={styles.card}>
+          <TwinsIcon className={styles.logo} />
           <h1 className={styles.wordmark}>{t('auth.check_email_heading')}</h1>
           <p className={styles.tagline}>
             {t('auth.check_email_body', { email: pendingVerificationEmail })}
@@ -114,8 +120,21 @@ function LoginPageInner() {
   return (
     <main className={styles.page}>
       <div className={styles.card}>
+        <TwinsIcon className={styles.logo} />
         <h1 className={styles.wordmark}>{t('auth.title')}</h1>
         <p className={styles.tagline}>{t('auth.tagline')}</p>
+
+        {mode === 'join' && (
+          <input
+            className={styles.inviteInput}
+            type="text"
+            placeholder={t('auth.invite_code').toUpperCase()}
+            value={inviteCode}
+            onChange={e => setInviteCode(e.target.value.toUpperCase())}
+            maxLength={8}
+            autoComplete="off"
+          />
+        )}
 
         <div className={styles.googleBtn}>
           <GoogleLogin
@@ -147,6 +166,17 @@ function LoginPageInner() {
             required
             autoComplete="email"
           />
+          {mode !== 'login' && (
+            <input
+              className={styles.input}
+              type="text"
+              placeholder={t('auth.your_name')}
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              autoComplete="name"
+            />
+          )}
           <input
             className={styles.input}
             type="password"
@@ -166,16 +196,6 @@ function LoginPageInner() {
               required
               maxLength={8}
               autoComplete="off"
-            />
-          )}
-          {(mode === 'register' || mode === 'join') && (
-            <input
-              className={styles.input}
-              type="text"
-              placeholder={t('auth.your_name')}
-              value={name}
-              onChange={e => setName(e.target.value)}
-              autoComplete="name"
             />
           )}
           {error && <p className={styles.error}>{error}</p>}

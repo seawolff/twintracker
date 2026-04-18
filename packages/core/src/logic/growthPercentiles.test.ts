@@ -3,6 +3,10 @@ import {
   computeHeightPercentile,
   formatPercentile,
   ageInMonths,
+  kgToLbs,
+  lbsToKg,
+  cmToIn,
+  inToCm,
 } from './growthPercentiles';
 
 // ── ageInMonths ───────────────────────────────────────────────────────────────
@@ -170,5 +174,35 @@ describe('formatPercentile', () => {
   it('rounds fractional values', () => {
     expect(formatPercentile(49.7)).toBe('50th percentile');
     expect(formatPercentile(74.2)).toBe('74th percentile');
+  });
+});
+
+// ── Unit conversion helpers ───────────────────────────────────────────────────
+
+describe('kgToLbs / lbsToKg', () => {
+  it('converts 1 kg to ~2.205 lbs', () => {
+    expect(kgToLbs(1)).toBeCloseTo(2.205, 2);
+  });
+
+  it('round-trips kg → lbs → kg', () => {
+    expect(lbsToKg(kgToLbs(5.2))).toBeCloseTo(5.2, 4);
+  });
+
+  it('returns 0 for 0 kg', () => {
+    expect(kgToLbs(0)).toBe(0);
+  });
+});
+
+describe('cmToIn / inToCm', () => {
+  it('converts 2.54 cm to exactly 1 inch', () => {
+    expect(cmToIn(2.54)).toBeCloseTo(1, 5);
+  });
+
+  it('round-trips cm → in → cm', () => {
+    expect(inToCm(cmToIn(62))).toBeCloseTo(62, 4);
+  });
+
+  it('returns 0 for 0 cm', () => {
+    expect(cmToIn(0)).toBe(0);
   });
 });

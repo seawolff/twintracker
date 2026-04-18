@@ -12,8 +12,7 @@ const textTabs = [
 export function BottomTabBar() {
   const pathname = usePathname();
 
-  const isSettingsActive =
-    pathname === '/settings' || pathname.startsWith('/settings/');
+  const isSettingsActive = pathname === '/settings' || pathname.startsWith('/settings/');
 
   return (
     <nav className={styles.bar} aria-label="Main navigation">

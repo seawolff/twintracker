@@ -83,8 +83,12 @@ export function getDefaultOzForAge(ageWeeks: number): number {
  * Stage 3 (18m+): one 2–3h afternoon nap starting 12–2pm.
  */
 export function getScheduleStage(ageWeeks: number): 1 | 2 | 3 {
-  if (ageWeeks < 16) return 1;
-  if (ageWeeks < 78) return 2; // 78w ≈ 18 months
+  if (ageWeeks < 16) {
+    return 1;
+  }
+  if (ageWeeks < 78) {
+    return 2;
+  } // 78w ≈ 18 months
   return 3;
 }
 
@@ -105,10 +109,18 @@ export function getScheduleStage(ageWeeks: number): 1 | 2 | 3 {
  * Note: Sleep Training mode will surface this prominently; here it's passive data.
  */
 export function getSelfSoothingMinutes(ageWeeks: number): number {
-  if (ageWeeks < 4) return 5; // 0–4w: 5–10 min (lower end)
-  if (ageWeeks < 12) return 10; // 4–12w: 10–15 min
-  if (ageWeeks < 24) return 20; // 3–6m: 20 min
-  if (ageWeeks < 36) return 30; // 6–9m: 30–45 min (lower end)
+  if (ageWeeks < 4) {
+    return 5;
+  } // 0–4w: 5–10 min (lower end)
+  if (ageWeeks < 12) {
+    return 10;
+  } // 4–12w: 10–15 min
+  if (ageWeeks < 24) {
+    return 20;
+  } // 3–6m: 20 min
+  if (ageWeeks < 36) {
+    return 30;
+  } // 6–9m: 30–45 min (lower end)
   return 45; // 9m+: 45–60 min (lower end)
 }
 
@@ -455,7 +467,7 @@ export function getBabyInsight(
   latest: LatestEventMap,
   events: TrackerEvent[],
   now: Date,
-  resetHour = 0,
+  _resetHour = 0,
   learnedStats?: LearnedStats,
   bedtimeHour = 19,
   wakeHour = 7,
@@ -481,26 +493,33 @@ export function getBabyInsight(
   const effectiveBedtimeHour = scheduleStage === 1 ? STAGE1_BEDTIME_HOUR : bedtimeHour;
   const isNight = nowHour >= effectiveBedtimeHour || nowHour < wakeHour;
 
-  // Total oz today (bottle events for this baby since the daily reset boundary)
-  const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), resetHour, 0, 0, 0);
-  if (reset.getTime() > nowMs) {
-    reset.setDate(reset.getDate() - 1);
-  }
-  const resetMs = reset.getTime();
+  // Total oz and feed count always reset at calendar midnight — independent of wakeHour.
+  // wakeHour only affects the day/night theme and schedule logic, not daily intake totals.
+  const midnightMs = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    0,
+    0,
+    0,
+    0,
+  ).getTime();
   const totalOzToday = events
     .filter(
       e =>
-        e.babyId === baby.id && e.type === 'bottle' && new Date(e.startedAt).getTime() >= resetMs,
+        e.babyId === baby.id &&
+        e.type === 'bottle' &&
+        new Date(e.startedAt).getTime() >= midnightMs,
     )
     // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
     .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
 
-  // Total feeds today (bottle + nursing) for this baby since the daily reset boundary
+  // Total feeds today (bottle + nursing) for this baby since calendar midnight
   const feedCountToday = events.filter(
     e =>
       e.babyId === baby.id &&
       (e.type === 'bottle' || e.type === 'nursing') &&
-      new Date(e.startedAt).getTime() >= resetMs,
+      new Date(e.startedAt).getTime() >= midnightMs,
   ).length;
 
   // Target feeds per day: how many feed intervals fit in 24h at the current schedule
@@ -791,6 +810,19 @@ export function getBabyInsight(
         narrative: i18n.t('schedule.bedtime_in', { remaining: remainingStr, time: bedtimeStr }),
         alarmMs: null,
         urgency: bedtimeRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
+        ...stats,
+      };
+    }
+
+    // Past bedtime and baby not asleep — all nap language suppressed.
+    // isBedtimeStretch already returned above (bedtimeRemainingMs > 0);
+    // once bedtime has passed, isNight=true and we should show sleep urgency, not nap prompts.
+    if (scheduleStage !== 1 && isNight) {
+      return {
+        headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
+        narrative: i18n.t('schedule.past_bedtime_awake', { name: baby.name }),
+        alarmMs: null,
+        urgency: 'overdue',
         ...stats,
       };
     }

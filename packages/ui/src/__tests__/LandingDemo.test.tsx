@@ -12,6 +12,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BabyCard } from '../components/BabyCard';
 import type { Baby, LatestEventMap, TrackerEvent } from '@tt/core';
+import {
+  DEMO_EMMA as PAGE_EMMA,
+  DEMO_LUCAS as PAGE_LUCAS,
+  DEMO_MIA as PAGE_MIA,
+  buildDemoAnalyticsEvents,
+} from '../../../../apps/web/app/_demoData';
 
 // ── Inline fixtures (mirrors apps/web/app/_demoData.ts) ──────────────────────
 // Duplicated here because packages/ui cannot import from apps/web.
@@ -211,5 +217,39 @@ describe('Demo event shape — sleep state detection', () => {
     expect(endedNap.endedAt).toBeDefined();
     const html = renderCard(EMMA, { [`${EMMA.id}:nap`]: endedNap });
     expect(html).toContain('Emma');
+  });
+});
+
+describe('Landing page demo analytics mock data', () => {
+  it('builds deterministic, chronologically sorted analytics events', () => {
+    const first = buildDemoAnalyticsEvents([PAGE_EMMA], NOW.getTime());
+    const second = buildDemoAnalyticsEvents([PAGE_EMMA], NOW.getTime());
+
+    expect(first).toEqual(second);
+    expect(first.length).toBeGreaterThan(50);
+
+    const startedAtTimes = first.map(event => new Date(event.startedAt).getTime());
+    const sortedTimes = [...startedAtTimes].sort((a, b) => a - b);
+    expect(startedAtTimes).toEqual(sortedTimes);
+  });
+
+  it('includes the event types needed for weekly analytics cards and charts', () => {
+    const events = buildDemoAnalyticsEvents([PAGE_LUCAS, PAGE_MIA], NOW.getTime());
+    const types = new Set(events.map(event => event.type));
+
+    expect(types.has('bottle')).toBe(true);
+    expect(types.has('nap')).toBe(true);
+    expect(types.has('sleep')).toBe(true);
+    expect(types.has('diaper')).toBe(true);
+    expect(types.has('food')).toBe(true);
+    expect(types.has('milestone')).toBe(true);
+  });
+
+  it('covers every demo baby passed in', () => {
+    const babies = [PAGE_EMMA, PAGE_LUCAS, PAGE_MIA];
+    const events = buildDemoAnalyticsEvents(babies, NOW.getTime());
+    const babyIds = new Set(events.map(event => event.babyId));
+
+    expect(babyIds).toEqual(new Set(babies.map(baby => baby.id)));
   });
 });

@@ -6,6 +6,14 @@ import { pool } from '../db';
 import type { AuthRequest } from '../middleware/auth';
 import { requireAuth } from '../middleware/auth';
 import { sendVerificationEmail } from '../email';
+import {
+  createCohort,
+  touchLastSeen,
+  markEmailVerified,
+  markDeleted,
+  resolvePlatform,
+  resolveAppVersion,
+} from '../cohorts';
 
 const router = Router();
 
@@ -20,6 +28,14 @@ function validateCredentials(email: string, password: string): { message: string
     return { message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` };
   }
   return null;
+}
+
+function requireDisplayName(name?: string): { value: string } | { message: string } {
+  const trimmed = name?.trim() ?? '';
+  if (!trimmed) {
+    return { message: 'name required' };
+  }
+  return { value: trimmed };
 }
 
 function signTokens(userId: string, householdId: string, isAdmin = false) {
@@ -44,6 +60,11 @@ router.post('/register', async (req, res) => {
     res.status(400).json(credError);
     return;
   }
+  const validatedName = requireDisplayName(name);
+  if ('message' in validatedName) {
+    res.status(400).json(validatedName);
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(password, 12);
   const householdId = (await pool.query('SELECT gen_random_uuid() AS id')).rows[0].id as string;
@@ -66,14 +87,27 @@ router.post('/register', async (req, res) => {
         passwordHash,
         householdId,
         inviteCode,
-        name?.trim() || null,
+        validatedName.value,
         verificationToken,
         verificationExpires,
       ],
     );
     const user = rows[0];
+    // Create analytics cohort row (fire-and-forget).
+    createCohort({
+      registeredAt: new Date(),
+      locale: req.headers['accept-language'],
+      platform: resolvePlatform(req.headers),
+      appVersion: resolveAppVersion(req.headers),
+      usedGoogleSso: false,
+      joinedHousehold: false,
+    })
+      .then(cohortId =>
+        pool.query('UPDATE users SET cohort_id = $1 WHERE id = $2', [cohortId, user.id]),
+      )
+      .catch(err => console.error('[cohorts] register:', err));
     // Fire-and-forget — don't block the response if email fails.
-    sendVerificationEmail(email, verificationToken).catch(err =>
+    sendVerificationEmail(email, verificationToken, req.headers['accept-language']).catch(err =>
       console.error('Failed to send verification email:', err),
     );
     res.status(201).json({
@@ -96,7 +130,8 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body as { email: string; password: string };
   const { rows } = await pool.query(
     `SELECT id, password_hash, household_id AS "householdId", invite_code AS "inviteCode",
-            is_admin AS "isAdmin", display_name AS "displayName", email_verified AS "emailVerified"
+            is_admin AS "isAdmin", display_name AS "displayName", email_verified AS "emailVerified",
+            cohort_id AS "cohortId"
      FROM users WHERE email=$1`,
     [email],
   );
@@ -105,6 +140,7 @@ router.post('/login', async (req, res) => {
     res.status(401).json({ message: 'Invalid credentials' });
     return;
   }
+  touchLastSeen(user.id, user.cohortId ?? null);
   res.json({
     ...signTokens(user.id, user.householdId, user.isAdmin ?? false),
     inviteCode: user.inviteCode,
@@ -148,6 +184,11 @@ router.post('/join', async (req, res) => {
     res.status(400).json(credError);
     return;
   }
+  const validatedName = requireDisplayName(name);
+  if ('message' in validatedName) {
+    res.status(400).json(validatedName);
+    return;
+  }
 
   // Look up the household for this invite code
   const { rows: hRows } = await pool.query(
@@ -182,13 +223,26 @@ router.post('/join', async (req, res) => {
         passwordHash,
         householdId,
         newInviteCode,
-        name?.trim() || null,
+        validatedName.value,
         verificationToken,
         verificationExpires,
       ],
     );
     const user = rows[0];
-    sendVerificationEmail(email, verificationToken).catch(err =>
+    // Create analytics cohort row (fire-and-forget).
+    createCohort({
+      registeredAt: new Date(),
+      locale: req.headers['accept-language'],
+      platform: resolvePlatform(req.headers),
+      appVersion: resolveAppVersion(req.headers),
+      usedGoogleSso: false,
+      joinedHousehold: true,
+    })
+      .then(cohortId =>
+        pool.query('UPDATE users SET cohort_id = $1 WHERE id = $2', [cohortId, user.id]),
+      )
+      .catch(err => console.error('[cohorts] join:', err));
+    sendVerificationEmail(email, verificationToken, req.headers['accept-language']).catch(err =>
       console.error('Failed to send verification email:', err),
     );
     res.status(201).json({
@@ -220,7 +274,8 @@ router.get('/verify-email', async (req, res) => {
      WHERE email_verification_token = $1
        AND email_verification_expires_at > NOW()
      RETURNING id, household_id AS "householdId", is_admin AS "isAdmin",
-               invite_code AS "inviteCode", display_name AS "displayName"`,
+               invite_code AS "inviteCode", display_name AS "displayName",
+               cohort_id AS "cohortId"`,
     [token],
   );
   if (!rows.length) {
@@ -228,6 +283,8 @@ router.get('/verify-email', async (req, res) => {
     return;
   }
   const user = rows[0];
+  markEmailVerified(user.id, user.cohortId ?? null);
+  touchLastSeen(user.id, user.cohortId ?? null);
   res.json({
     verified: true,
     ...signTokens(user.id, user.householdId, user.isAdmin ?? false),
@@ -256,7 +313,7 @@ router.post('/resend-verification', requireAuth, async (req: AuthRequest, res) =
     `UPDATE users SET email_verification_token=$1, email_verification_expires_at=$2 WHERE id=$3`,
     [token, expires, req.userId],
   );
-  sendVerificationEmail(rows[0].email, token).catch(err =>
+  sendVerificationEmail(rows[0].email, token, req.headers['accept-language']).catch(err =>
     console.error('Failed to send verification email:', err),
   );
   res.json({ message: 'Verification email sent' });
@@ -295,12 +352,13 @@ router.post('/google', async (req, res) => {
 
   const googleId = tokenInfo.sub;
   const email = tokenInfo.email.toLowerCase();
-  const name = tokenInfo.name ?? null;
+  const name = tokenInfo.name?.trim() ?? '';
 
   // Look up existing account by google_id first, then by email.
   const { rows } = await pool.query(
     `SELECT id, household_id AS "householdId", invite_code AS "inviteCode",
-            is_admin AS "isAdmin", display_name AS "displayName", google_id AS "googleId"
+            is_admin AS "isAdmin", display_name AS "displayName", google_id AS "googleId",
+            cohort_id AS "cohortId"
      FROM users WHERE google_id = $1 OR (lower(email) = $2)
      ORDER BY (google_id = $1) DESC
      LIMIT 1`,
@@ -315,6 +373,8 @@ router.post('/google', async (req, res) => {
     }
     // Google accounts are always considered email-verified.
     await pool.query('UPDATE users SET email_verified = true WHERE id = $1', [existing.id]);
+    markEmailVerified(existing.id, existing.cohortId ?? null);
+    touchLastSeen(existing.id, existing.cohortId ?? null);
     res.json({
       ...signTokens(existing.id, existing.householdId, existing.isAdmin ?? false),
       inviteCode: existing.inviteCode,
@@ -322,6 +382,11 @@ router.post('/google', async (req, res) => {
       displayName: existing.displayName ?? name,
       emailVerified: true,
     });
+    return;
+  }
+
+  if (!name) {
+    res.status(400).json({ message: 'name required' });
     return;
   }
 
@@ -356,6 +421,19 @@ router.post('/google', async (req, res) => {
       [email, householdId, newInviteCode, name, googleId],
     );
     const user = newRows[0];
+    // Create analytics cohort row (fire-and-forget).
+    createCohort({
+      registeredAt: new Date(),
+      locale: req.headers['accept-language'],
+      platform: resolvePlatform(req.headers),
+      appVersion: resolveAppVersion(req.headers),
+      usedGoogleSso: true,
+      joinedHousehold: !!inviteCode,
+    })
+      .then(cohortId =>
+        pool.query('UPDATE users SET cohort_id = $1 WHERE id = $2', [cohortId, user.id]),
+      )
+      .catch(err => console.error('[cohorts] google register:', err));
     res.status(201).json({
       ...signTokens(user.id, user.householdId, user.isAdmin ?? false),
       inviteCode: user.inviteCode,
@@ -413,6 +491,15 @@ router.delete('/me', requireAuth, async (req: AuthRequest, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Stamp deleted_at on cohort row before wiping the user — cohort row is retained for analytics.
+    const { rows: cohortRows } = await client.query(
+      'SELECT cohort_id AS "cohortId" FROM users WHERE id = $1',
+      [req.userId],
+    );
+    if (cohortRows[0]?.cohortId) {
+      markDeleted(cohortRows[0].cohortId);
+    }
 
     const { rows: memberRows } = await client.query(
       'SELECT id FROM users WHERE household_id = (SELECT household_id FROM users WHERE id = $1)',

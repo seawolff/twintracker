@@ -13,10 +13,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Baby, BabyColor, BabySex } from '@tt/core';
-import { i18n, useThemeContext } from '@tt/core';
+import { i18n, useThemeContext, kgToLbs, lbsToKg, cmToIn, inToCm } from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
 import { PersonIcon } from './icons/BabyIcons';
+
+// Lazy-required so packages/ui doesn't declare a formal dep on a native-only package.
+// Metro resolves it from apps/native/node_modules at bundle time.
+// The .web.tsx sibling never loads this file, so the web build is unaffected.
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const DateTimePicker: any = require('@react-native-community/datetimepicker').default;
+
+const TODAY = new Date();
 
 /** Hex values for each BabyColor — used for the avatar circle. */
 const BABY_COLOR_HEX: Record<BabyColor, string> = {
@@ -41,13 +50,8 @@ interface BabyProfileSheetProps {
   baby: Baby | null;
   onSave: (id: string, data: BabyProfileSaveData) => Promise<void>;
   onClose: () => void;
-  /**
-   * Native-only injection: open the platform date picker.
-   * Called with the current DOB as a Date (or today if not set) and a
-   * callback that receives the confirmed date.
-   * When omitted the DOB field renders as a plain TextInput.
-   */
-  onOpenDatePicker?: (current: Date, onConfirm: (d: Date) => void) => void;
+  /** Controls weight/height display and input units. Storage is always metric (kg/cm). */
+  units?: 'metric' | 'imperial';
 }
 
 /** Format a YYYY-MM-DD string or ISO timestamp for display. */
@@ -81,9 +85,10 @@ export function BabyProfileSheet({
   baby,
   onSave,
   onClose,
-  onOpenDatePicker,
+  units = 'metric',
 }: BabyProfileSheetProps) {
   const theme = useThemeContext();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [sex, setSex] = useState<BabySex>('male');
@@ -92,6 +97,11 @@ export function BabyProfileSheet({
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState('');
   const [dobError, setDobError] = useState('');
+  // Inline DOB picker state
+  const [showDobPicker, setShowDobPicker] = useState(false);
+  const [dobPickerDate, setDobPickerDate] = useState<Date>(TODAY);
+
+  const isImperial = units === 'imperial';
 
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(400)).current;
@@ -105,13 +115,25 @@ export function BabyProfileSheet({
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
-      setWeightStr(baby.weightKg != null ? String(baby.weightKg) : '');
-      setHeightStr(baby.heightCm != null ? String(baby.heightCm) : '');
+      setWeightStr(
+        baby.weightKg != null
+          ? isImperial
+            ? kgToLbs(baby.weightKg).toFixed(1)
+            : String(baby.weightKg)
+          : '',
+      );
+      setHeightStr(
+        baby.heightCm != null
+          ? isImperial
+            ? cmToIn(baby.heightCm).toFixed(1)
+            : String(baby.heightCm)
+          : '',
+      );
       setNameError('');
       setDobError('');
       setSaving(false);
     }
-  }, [visible, baby]);
+  }, [visible, baby, isImperial]);
 
   // Spring-in animation
   useEffect(() => {
@@ -154,12 +176,14 @@ export function BabyProfileSheet({
     setDobError('');
     setSaving(true);
     try {
+      const parsedWeight = parseNumber(weightStr);
+      const parsedHeight = parseNumber(heightStr);
       await onSave(baby.id, {
         name: trimmed,
         birthDate: birthDate || undefined,
         sex,
-        weightKg: parseNumber(weightStr),
-        heightCm: parseNumber(heightStr),
+        weightKg: parsedWeight != null && isImperial ? lbsToKg(parsedWeight) : parsedWeight,
+        heightCm: parsedHeight != null && isImperial ? inToCm(parsedHeight) : parsedHeight,
       });
       dismiss();
     } catch {
@@ -168,11 +192,24 @@ export function BabyProfileSheet({
   }
 
   function handleDOBPress() {
-    if (!onOpenDatePicker || saving) {
+    if (saving) {
       return;
     }
-    const current = birthDate ? new Date(birthDate) : new Date();
-    onOpenDatePicker(current, d => setBirthDate(toYMD(d)));
+    const current = birthDate ? new Date(birthDate) : TODAY;
+    setDobPickerDate(current);
+    setShowDobPicker(true);
+  }
+
+  function handleDobPickerConfirm() {
+    setBirthDate(toYMD(dobPickerDate));
+    setShowDobPicker(false);
+    if (dobError) {
+      setDobError('');
+    }
+  }
+
+  function handleDobPickerCancel() {
+    setShowDobPicker(false);
   }
 
   if (!baby) {
@@ -189,6 +226,7 @@ export function BabyProfileSheet({
       statusBarTranslucent
       onRequestClose={onClose}
     >
+      {/* Backdrop */}
       <Animated.View
         style={[styles.backdrop, { opacity: backdropOpacity }]}
         pointerEvents="box-none"
@@ -196,91 +234,202 @@ export function BabyProfileSheet({
         <Pressable style={styles.backdropPress} onPress={dismiss} />
       </Animated.View>
 
-      <KeyboardAvoidingView
-        style={styles.kvContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        pointerEvents="box-none"
+      {/* Sheet — same pattern as LogSheet: position+bottom on the Animated.View directly */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: theme.surface,
+            borderTopColor: theme.border,
+            paddingBottom: insets.bottom || 34,
+          },
+          { transform: [{ translateY }] },
+        ]}
       >
-        <Animated.View style={[styles.sheetWrap, { transform: [{ translateY }] }]}>
-          <View
-            style={[styles.sheet, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
+        {/* Drag handle */}
+        <View style={[styles.handle, { backgroundColor: theme.border }]} />
+
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            {/* Drag handle */}
-            <View style={[styles.handle, { backgroundColor: theme.border }]} />
+            {/* Avatar circle */}
+            <View style={[styles.avatarCircle, { backgroundColor: accentColor }]}>
+              <PersonIcon size={36} color="#ffffff" />
+            </View>
 
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContent}
+            {/* Name field */}
+            <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
+              {i18n.t('baby_profile.name_label').toUpperCase()}
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.bg,
+                  borderColor: nameError ? '#ef4444' : theme.border,
+                  color: theme.text,
+                  fontFamily: fonts.mono,
+                },
+              ]}
+              value={name}
+              onChangeText={v => {
+                setName(v);
+                if (nameError) {
+                  setNameError('');
+                }
+              }}
+              placeholder={i18n.t('baby_profile.name_placeholder')}
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="words"
+              returnKeyType="done"
+              editable={!saving}
+            />
+            {!!nameError && (
+              <Text style={[styles.errorText, { color: '#ef4444', fontFamily: fonts.mono }]}>
+                {nameError}
+              </Text>
+            )}
+
+            {/* Birth date field */}
+            <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
+              {i18n.t('baby_profile.dob_label').toUpperCase()}
+            </Text>
+            <Pressable
+              onPress={handleDOBPress}
+              disabled={saving}
+              accessibilityLabel={i18n.t('baby_profile.dob_label')}
+              style={({ pressed }) => [
+                styles.input,
+                styles.dobPressable,
+                {
+                  backgroundColor: theme.bg,
+                  borderColor: dobError ? '#ef4444' : theme.border,
+                  opacity: pressed ? 0.6 : 1,
+                },
+              ]}
             >
-              {/* Avatar circle */}
-              <View style={[styles.avatarCircle, { backgroundColor: accentColor }]}>
-                <PersonIcon size={36} color="#ffffff" />
-              </View>
-
-              {/* Name field */}
-              <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-                {i18n.t('baby_profile.name_label').toUpperCase()}
-              </Text>
-              <TextInput
+              <Text
                 style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.bg,
-                    borderColor: nameError ? '#ef4444' : theme.border,
-                    color: theme.text,
-                    fontFamily: fonts.mono,
-                  },
+                  styles.dobText,
+                  { color: birthDate ? theme.text : theme.textMuted, fontFamily: fonts.mono },
                 ]}
-                value={name}
-                onChangeText={v => {
-                  setName(v);
-                  if (nameError) {
-                    setNameError('');
-                  }
-                }}
-                placeholder={i18n.t('baby_profile.name_placeholder')}
-                placeholderTextColor={theme.textMuted}
-                autoCapitalize="words"
-                returnKeyType="done"
-                editable={!saving}
-              />
-              {!!nameError && (
-                <Text style={[styles.errorText, { color: '#ef4444', fontFamily: fonts.mono }]}>
-                  {nameError}
-                </Text>
-              )}
-
-              {/* Birth date field */}
-              <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-                {i18n.t('baby_profile.dob_label').toUpperCase()}
+              >
+                {birthDate ? formatDOB(birthDate) : i18n.t('baby_profile.dob_placeholder')}
               </Text>
-              {onOpenDatePicker ? (
-                <Pressable
-                  onPress={handleDOBPress}
-                  disabled={saving}
-                  accessibilityLabel={i18n.t('baby_profile.dob_label')}
-                  style={({ pressed }) => [
-                    styles.input,
-                    styles.dobPressable,
-                    {
-                      backgroundColor: theme.bg,
-                      borderColor: theme.border,
-                      opacity: pressed ? 0.6 : 1,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.dobText,
-                      { color: birthDate ? theme.text : theme.textMuted, fontFamily: fonts.mono },
+              <Text style={[styles.dobChevron, { color: theme.textMuted }]}>›</Text>
+            </Pressable>
+            {!!dobError && (
+              <Text style={[styles.errorText, { color: '#ef4444', fontFamily: fonts.mono }]}>
+                {dobError}
+              </Text>
+            )}
+
+            {/* Inline DOB spinner — slides open within the sheet */}
+            {showDobPicker && (
+              <View style={[styles.dobPickerWrap, { borderColor: theme.border }]}>
+                <DateTimePicker
+                  value={dobPickerDate}
+                  mode="date"
+                  display="spinner"
+                  maximumDate={TODAY}
+                  onChange={(_: unknown, date?: Date) => {
+                    if (date) {
+                      setDobPickerDate(date);
+                    }
+                  }}
+                  style={styles.dobPicker}
+                  {...(Platform.OS === 'ios'
+                    ? {
+                        textColor: theme.text,
+                        themeVariant: theme.mode === 'night' ? 'dark' : 'light',
+                      }
+                    : {})}
+                />
+                <View style={[styles.dobPickerActions, { borderTopColor: theme.border }]}>
+                  <Pressable
+                    onPress={handleDobPickerCancel}
+                    style={styles.dobPickerBtn}
+                    accessibilityLabel={i18n.t('common.cancel')}
+                  >
+                    <Text
+                      style={[
+                        styles.dobPickerCancelText,
+                        { color: theme.textMuted, fontFamily: fonts.mono },
+                      ]}
+                    >
+                      {i18n.t('common.cancel')}
+                    </Text>
+                  </Pressable>
+                  <View style={[styles.dobPickerDivider, { backgroundColor: theme.border }]} />
+                  <Pressable
+                    onPress={handleDobPickerConfirm}
+                    style={styles.dobPickerBtn}
+                    accessibilityLabel={i18n.t('common.save')}
+                  >
+                    <Text
+                      style={[
+                        styles.dobPickerConfirmText,
+                        { color: theme.text, fontFamily: fonts.mono },
+                      ]}
+                    >
+                      {i18n.t('common.save')}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {/* Sex selector */}
+            <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
+              {i18n.t('baby_profile.sex_label').toUpperCase()}
+            </Text>
+            <View style={styles.sexRow}>
+              {SEX_OPTIONS.map(opt => {
+                const active = sex === opt.value;
+                return (
+                  <Pressable
+                    key={String(opt.value)}
+                    onPress={() => !saving && setSex(opt.value)}
+                    accessibilityLabel={i18n.t(opt.labelKey)}
+                    style={({ pressed }) => [
+                      styles.sexBtn,
+                      {
+                        backgroundColor: active ? theme.text : theme.bg,
+                        borderColor: theme.border,
+                        opacity: pressed ? 0.6 : 1,
+                      },
                     ]}
                   >
-                    {birthDate ? formatDOB(birthDate) : i18n.t('baby_profile.dob_placeholder')}
-                  </Text>
-                  <Text style={[styles.dobChevron, { color: theme.textMuted }]}>›</Text>
-                </Pressable>
-              ) : (
+                    <Text
+                      style={[
+                        styles.sexBtnText,
+                        { color: active ? theme.bg : theme.textDim, fontFamily: fonts.mono },
+                      ]}
+                    >
+                      {i18n.t(opt.labelKey)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Weight + Height */}
+            <View style={styles.measureRow}>
+              <View style={styles.measureField}>
+                <Text
+                  style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}
+                >
+                  {i18n
+                    .t(
+                      isImperial
+                        ? 'baby_profile.weight_label_imperial'
+                        : 'baby_profile.weight_label',
+                    )
+                    .toUpperCase()}
+                </Text>
                 <TextInput
                   style={[
                     styles.input,
@@ -291,127 +440,73 @@ export function BabyProfileSheet({
                       fontFamily: fonts.mono,
                     },
                   ]}
-                  value={birthDate}
-                  onChangeText={setBirthDate}
-                  placeholder={i18n.t('baby_profile.dob_placeholder')}
+                  value={weightStr}
+                  onChangeText={setWeightStr}
+                  placeholder={i18n.t(
+                    isImperial
+                      ? 'baby_profile.weight_placeholder_imperial'
+                      : 'baby_profile.weight_placeholder',
+                  )}
                   placeholderTextColor={theme.textMuted}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   returnKeyType="done"
                   editable={!saving}
                 />
-              )}
-              {!!dobError && (
-                <Text style={[styles.errorText, { color: '#ef4444', fontFamily: fonts.mono }]}>
-                  {dobError}
+              </View>
+              <View style={styles.measureField}>
+                <Text
+                  style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}
+                >
+                  {i18n
+                    .t(
+                      isImperial
+                        ? 'baby_profile.height_label_imperial'
+                        : 'baby_profile.height_label',
+                    )
+                    .toUpperCase()}
                 </Text>
-              )}
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.bg,
+                      borderColor: theme.border,
+                      color: theme.text,
+                      fontFamily: fonts.mono,
+                    },
+                  ]}
+                  value={heightStr}
+                  onChangeText={setHeightStr}
+                  placeholder={i18n.t(
+                    isImperial
+                      ? 'baby_profile.height_placeholder_imperial'
+                      : 'baby_profile.height_placeholder',
+                  )}
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  editable={!saving}
+                />
+              </View>
+            </View>
 
-              {/* Sex selector */}
-              <Text style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-                {i18n.t('baby_profile.sex_label').toUpperCase()}
+            {/* Save button */}
+            <Pressable
+              onPress={handleSave}
+              disabled={saving}
+              accessibilityLabel={i18n.t('baby_profile.edit_profile', { name: baby.name })}
+              style={({ pressed }) => [
+                styles.saveBtn,
+                { backgroundColor: theme.text, opacity: pressed || saving ? 0.6 : 1 },
+              ]}
+            >
+              <Text style={[styles.saveBtnText, { color: theme.bg, fontFamily: fonts.mono }]}>
+                {saving ? i18n.t('baby_profile.saving') : i18n.t('common.save')}
               </Text>
-              <View style={styles.sexRow}>
-                {SEX_OPTIONS.map(opt => {
-                  const active = sex === opt.value;
-                  return (
-                    <Pressable
-                      key={String(opt.value)}
-                      onPress={() => !saving && setSex(opt.value)}
-                      accessibilityLabel={i18n.t(opt.labelKey)}
-                      style={({ pressed }) => [
-                        styles.sexBtn,
-                        {
-                          backgroundColor: active ? theme.text : theme.bg,
-                          borderColor: theme.border,
-                          opacity: pressed ? 0.6 : 1,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.sexBtnText,
-                          { color: active ? theme.bg : theme.textDim, fontFamily: fonts.mono },
-                        ]}
-                      >
-                        {i18n.t(opt.labelKey)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* Weight + Height */}
-              <View style={styles.measureRow}>
-                <View style={styles.measureField}>
-                  <Text
-                    style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}
-                  >
-                    {i18n.t('baby_profile.weight_label').toUpperCase()}
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: theme.bg,
-                        borderColor: theme.border,
-                        color: theme.text,
-                        fontFamily: fonts.mono,
-                      },
-                    ]}
-                    value={weightStr}
-                    onChangeText={setWeightStr}
-                    placeholder={i18n.t('baby_profile.weight_placeholder')}
-                    placeholderTextColor={theme.textMuted}
-                    keyboardType="decimal-pad"
-                    returnKeyType="done"
-                    editable={!saving}
-                  />
-                </View>
-                <View style={styles.measureField}>
-                  <Text
-                    style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}
-                  >
-                    {i18n.t('baby_profile.height_label').toUpperCase()}
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: theme.bg,
-                        borderColor: theme.border,
-                        color: theme.text,
-                        fontFamily: fonts.mono,
-                      },
-                    ]}
-                    value={heightStr}
-                    onChangeText={setHeightStr}
-                    placeholder={i18n.t('baby_profile.height_placeholder')}
-                    placeholderTextColor={theme.textMuted}
-                    keyboardType="decimal-pad"
-                    returnKeyType="done"
-                    editable={!saving}
-                  />
-                </View>
-              </View>
-
-              {/* Save button */}
-              <Pressable
-                onPress={handleSave}
-                disabled={saving}
-                accessibilityLabel={i18n.t('baby_profile.edit_profile', { name: baby.name })}
-                style={({ pressed }) => [
-                  styles.saveBtn,
-                  { backgroundColor: theme.text, opacity: pressed || saving ? 0.6 : 1 },
-                ]}
-              >
-                <Text style={[styles.saveBtnText, { color: theme.bg, fontFamily: fonts.mono }]}>
-                  {saving ? i18n.t('baby_profile.saving') : i18n.t('common.save')}
-                </Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        </Animated.View>
-      </KeyboardAvoidingView>
+            </Pressable>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Animated.View>
     </Modal>
   );
 }
@@ -422,18 +517,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.32)',
   },
   backdropPress: { flex: 1 },
-  kvContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-  },
-  sheetWrap: {
-    width: '100%',
-  },
   sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    paddingBottom: 48,
     overflow: 'hidden',
     maxHeight: '85%',
   },
@@ -521,5 +612,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
+  },
+  dobPickerWrap: {
+    marginTop: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  dobPicker: {
+    width: '100%',
+    height: 216,
+  },
+  dobPickerActions: {
+    flexDirection: 'row',
+    height: 52,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  dobPickerBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dobPickerDivider: {
+    width: StyleSheet.hairlineWidth,
+  },
+  dobPickerCancelText: {
+    fontSize: 16,
+    fontWeight: '400',
+  },
+  dobPickerConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -17,11 +17,30 @@
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: $space-sm;
   font-family: $font-display;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--tt-text-dim);
+  letter-spacing: -0.2px;
+  &:hover {
+    color: var(--tt-text);
+  }
+}
+
+.brandMark {
+  width: 28px;
+  height: 28px;
+  display: block;
   color: var(--tt-text);
-  letter-spacing: -0.3px;
+  border-radius: 22%;
+  flex-shrink: 0;
+
+  :global([data-theme='night']) & {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.92);
+  }
 }
 
 .navRight {

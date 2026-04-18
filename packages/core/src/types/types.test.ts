@@ -163,8 +163,13 @@ describe('User shape', () => {
 
 // ── JoinRequest ───────────────────────────────────────────────────────────────
 describe('JoinRequest', () => {
-  it('requires email, password, and inviteCode', () => {
-    const req: JoinRequest = { email: 'a@b.com', password: 'pw', inviteCode: 'ABCD1234' };
+  it('requires email, password, inviteCode, and name', () => {
+    const req: JoinRequest = {
+      email: 'a@b.com',
+      password: 'pw',
+      inviteCode: 'ABCD1234',
+      name: 'Mom',
+    };
     expect(req.inviteCode).toBeDefined();
   });
 
@@ -186,9 +191,9 @@ describe('RegisterRequest', () => {
     expect(req.name).toBe('Mom');
   });
 
-  it('allows name to be absent', () => {
-    const req: RegisterRequest = { email: 'a@b.com', password: 'pw' };
-    expect(req.name).toBeUndefined();
+  it('requires name for parent attribution', () => {
+    const req: RegisterRequest = { email: 'a@b.com', password: 'pw', name: 'Mom' };
+    expect(req.name).toBe('Mom');
   });
 });
 

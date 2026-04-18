@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Baby, BabyColor, BabySex } from '@tt/core';
-import { i18n, useThemeContext } from '@tt/core';
+import { i18n, useThemeContext, kgToLbs, lbsToKg, cmToIn, inToCm } from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
 import { PersonIcon } from './icons/BabyIcons';
 
@@ -29,6 +29,8 @@ interface BabyProfileSheetProps {
   baby: Baby | null;
   onSave: (id: string, data: BabyProfileSaveData) => Promise<void>;
   onClose: () => void;
+  /** Controls weight/height display and input units. Storage is always metric (kg/cm). */
+  units?: 'metric' | 'imperial';
 }
 
 // Spring-in animation class injected once
@@ -59,7 +61,14 @@ function parseNumber(s: string): number | null {
   return isNaN(v) || v <= 0 ? null : v;
 }
 
-export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfileSheetProps) {
+export function BabyProfileSheet({
+  visible,
+  baby,
+  onSave,
+  onClose,
+  units = 'metric',
+}: BabyProfileSheetProps) {
+  const isImperial = units === 'imperial';
   const theme = useThemeContext();
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -79,8 +88,20 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
-      setWeightStr(baby.weightKg != null ? String(baby.weightKg) : '');
-      setHeightStr(baby.heightCm != null ? String(baby.heightCm) : '');
+      setWeightStr(
+        baby.weightKg != null
+          ? isImperial
+            ? kgToLbs(baby.weightKg).toFixed(1)
+            : String(baby.weightKg)
+          : '',
+      );
+      setHeightStr(
+        baby.heightCm != null
+          ? isImperial
+            ? cmToIn(baby.heightCm).toFixed(1)
+            : String(baby.heightCm)
+          : '',
+      );
       setNameError('');
       setDobError('');
       setSaving(false);
@@ -94,7 +115,7 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
     } else {
       setIsIn(false);
     }
-  }, [visible, baby]);
+  }, [visible, baby, isImperial]);
 
   async function handleSave() {
     if (!baby) {
@@ -114,12 +135,14 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
     setDobError('');
     setSaving(true);
     try {
+      const parsedWeight = parseNumber(weightStr);
+      const parsedHeight = parseNumber(heightStr);
       await onSave(baby.id, {
         name: trimmed,
         birthDate: birthDate.trim() || undefined,
         sex,
-        weightKg: parseNumber(weightStr),
-        heightCm: parseNumber(heightStr),
+        weightKg: parsedWeight != null && isImperial ? lbsToKg(parsedWeight) : parsedWeight,
+        heightCm: parsedHeight != null && isImperial ? inToCm(parsedHeight) : parsedHeight,
       });
       onClose();
     } catch {
@@ -376,7 +399,9 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
                 marginTop: spacing.md,
               }}
             >
-              {i18n.t('baby_profile.weight_label').toUpperCase()}
+              {i18n
+                .t(isImperial ? 'baby_profile.weight_label_imperial' : 'baby_profile.weight_label')
+                .toUpperCase()}
             </label>
             {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
             {/* @ts-ignore — number input */}
@@ -385,7 +410,11 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
               inputMode="decimal"
               value={weightStr}
               onChange={e => setWeightStr(e.target.value)}
-              placeholder={i18n.t('baby_profile.weight_placeholder')}
+              placeholder={i18n.t(
+                isImperial
+                  ? 'baby_profile.weight_placeholder_imperial'
+                  : 'baby_profile.weight_placeholder',
+              )}
               disabled={saving}
               min="0"
               step="0.1"
@@ -404,7 +433,9 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
                 marginTop: spacing.md,
               }}
             >
-              {i18n.t('baby_profile.height_label').toUpperCase()}
+              {i18n
+                .t(isImperial ? 'baby_profile.height_label_imperial' : 'baby_profile.height_label')
+                .toUpperCase()}
             </label>
             {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
             {/* @ts-ignore — number input */}
@@ -413,7 +444,11 @@ export function BabyProfileSheet({ visible, baby, onSave, onClose }: BabyProfile
               inputMode="decimal"
               value={heightStr}
               onChange={e => setHeightStr(e.target.value)}
-              placeholder={i18n.t('baby_profile.height_placeholder')}
+              placeholder={i18n.t(
+                isImperial
+                  ? 'baby_profile.height_placeholder_imperial'
+                  : 'baby_profile.height_placeholder',
+              )}
               disabled={saving}
               min="0"
               step="0.1"

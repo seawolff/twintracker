@@ -10,7 +10,8 @@
     "dismiss": "Dismiss",
     "delete": "Delete",
     "undo": "Undo",
-    "log_confirmed": "{{label}} logged"
+    "log_confirmed": "{{label}} logged",
+    "error_generic": "Something went wrong"
   },
   "onboarding": {
     "welcome": "Welcome",
@@ -36,7 +37,8 @@
     "sleep_training_onboard_desc": "Shows self-soothing wait times during naps. Helps your baby learn to sleep independently. Under 4 months: 5–10 min · 4 months+: 20–45 min.",
     "error_name_required": "Enter at least one name",
     "error_dob_required": "Enter a date of birth for each baby",
-    "error_dob_future": "Date of birth cannot be in the future"
+    "error_dob_future": "Date of birth cannot be in the future",
+    "your_baby": "your baby"
   },
   "home": {
     "invite_label": "Invite your co-parent or family member",
@@ -50,6 +52,7 @@
     "alarm_fired_title": "TwinTracker",
     "alarm_fired_body": "Your alarm for {{name}} went off.",
     "sync_put_down": "Put {{name}} down too?",
+    "sync_put_to_sleep": "Put {{name}} to sleep too?",
     "sync_feed": "Feed {{name}} now too?",
     "sync_diaper": "Change {{name}} too?",
     "sync_food": "Feed {{name}} solids too?",
@@ -124,7 +127,8 @@
     "diaper": {
       "wet": "Wet",
       "dirty": "Dirty",
-      "both": "Both"
+      "both": "Both",
+      "dry": "Dry"
     }
   },
   "analytics": {
@@ -227,7 +231,7 @@
     "clear_logs": "Clear all logs",
     "clearing": "Clearing…",
     "invite_share": "Share invite code",
-    "invite_share_message": "Join my TwinTracker household! Use code {{code}} or tap: https://www.twintracker.app/join?code={{code}}",
+    "invite_share_message": "I've been using TwinTracker to track everything for the baby — tap here to join me so we're both in sync 👶 https://www.twintracker.app/join?code={{code}}",
     "sleep_training_title": "Sleep training",
     "sleep_training_hint": "Shows self-soothing wait times when baby is in the crib. Stage 1: 5–10 min. Stage 2: 20–45 min.",
     "sleep_training_enable": "Enable sleep training",
@@ -263,7 +267,7 @@
     "email": "Email",
     "password": "Password",
     "invite_code": "Invite code",
-    "your_name": "Your name (optional)",
+    "your_name": "Your name",
     "sign_in": "Sign in",
     "sign_in_google": "Continue with Google",
     "sign_up": "Create account",
@@ -271,6 +275,7 @@
     "no_account": "No account? Sign up",
     "join_with_code": "Join with invite code",
     "back_to_sign_in": "Back to sign in",
+    "join_code_required": "Enter an invite code to join",
     "or_divider": "or",
     "check_email_heading": "Check your email",
     "check_email_body": "We sent a verification link to {{email}}. Click it to verify your account.",
@@ -290,6 +295,15 @@
     "verify_error_body": "This verification link has expired or already been used. Request a new one from the app.",
     "verify_error_cta": "Go to app →"
   },
+  "email": {
+    "verify_subject": "Verify your TwinTracker email",
+    "verify_heading": "Verify your email address",
+    "verify_body": "Thanks for signing up. Click the button below to confirm your email address and unlock your account.",
+    "verify_cta": "Verify email address",
+    "verify_expiry": "This link expires in 24 hours. If you didn't create a TwinTracker account, you can safely ignore this email.",
+    "verify_link_fallback": "Or copy this link:",
+    "verify_plain": "Click the link below to verify your email address:\n\n{{link}}\n\nThis link expires in 24 hours."
+  },
   "notifications": {
     "alarm_timer": "Your {{minutes}} min timer is up.",
     "alarm_nap_check": "Your {{minutes}} min timer is up. Do you need to check on {{name}}?",
@@ -304,6 +318,7 @@
     "good_night": "Good night",
     "newborn_wake_narrative": "Wake {{name}} for a feed.",
     "sleeping_night": "{{name}} is sleeping for the night.",
+    "past_bedtime_awake": "It's past {{name}}'s bedtime. Time for sleep.",
     "nap_wake_likely": "Likely awake around {{time}}, in about {{remaining}}.",
     "nap_overdue": "Sleeping a bit longer than usual. Could be awake any minute.",
     "catnap_time": "Possible catnap time.",
@@ -337,8 +352,12 @@
     "sex_female": "Girl",
     "weight_label": "Weight (kg)",
     "weight_placeholder": "e.g. 5.2",
+    "weight_label_imperial": "Weight (lbs)",
+    "weight_placeholder_imperial": "e.g. 11.5",
     "height_label": "Height (cm)",
     "height_placeholder": "e.g. 62",
+    "height_label_imperial": "Height (in)",
+    "height_placeholder_imperial": "e.g. 24.4",
     "saving": "Saving…",
     "edit_profile": "Edit profile for {{name}}",
     "name_required": "Name is required",
@@ -358,13 +377,18 @@
     "settings": "Settings",
     "tab_label": "{{name}} tab"
   },
+  "meta": {
+    "title": "TwinTracker — Twin Baby Tracker App",
+    "description": "The baby tracker built for twins. Track feeds, naps, diapers, and growth for two babies — or one — with smart scheduling, household sync, and no clutter. Free on web, iOS & Android.",
+    "keywords": "twin baby tracker, tracker for twins, twins newborn app, multiples tracker, baby tracker, newborn sleep log, feeding tracker, twin parent app, nap tracker"
+  },
   "landing": {
     "logo": "TwinTracker",
     "toggle_day": "Switch to day mode",
     "toggle_night": "Switch to night mode",
     "sign_in": "Sign in",
-    "tagline": "One thumb. Zero math.",
-    "hero_sub": "Quick and easy baby care tracking.",
+    "tagline": "Built for twins. Works beautifully for one.",
+    "hero_sub": "Baby care in black and white.\nSimple, intuitive, no guessing.\nSee what your baby needs at a glance.",
     "cta_web": "Get started free",
     "cta_app": "Download the app ↗",
     "feat_schedule_title": "Smart Schedule",
@@ -373,9 +397,13 @@
     "feat_sync_desc": "Log one baby and sync the other in a single tap — or track a singleton with the same calm, at-a-glance dashboard.",
     "feat_growth_title": "Growth Tracking",
     "feat_growth_desc": "WHO percentile charts for weight and height. See how your babies are growing over time.",
+    "feat_i18n_title": "Four Languages",
+    "feat_i18n_desc": "English, German, French, and Spanish. TwinTracker speaks your language.",
     "story_title": "Built by a twin parent, for every parent.",
     "story_body": "I was frustrated. Every baby logging app I tried was cluttered, slow, or completely missed what it's like to care for more than one child. So I built TwinTracker — first for my twins, then for any parent who wants a fast, secure, at-a-glance view of what their child needs right now. I use it every day.",
     "story_cta": "Start tracking →",
+    "founder_byline": "— Chris Wolff, founder & twin dad",
+    "founder_photo_alt": "Chris Wolff, founder of TwinTracker",
     "privacy_promise_title": "Built for trust",
     "privacy_promise_intro": "Your baby's data is among the most sensitive you'll ever share. Here's our commitment.",
     "privacy_promise_on_device_title": "Runs on your device",
@@ -391,11 +419,24 @@
     "demo_mode_twin": "Twins",
     "demo_tab_home": "Home",
     "demo_tab_history": "History",
+    "demo_tab_analytics": "Analytics",
     "demo_today": "Today",
     "demo_no_events": "No events yet",
     "demo_sleep": "Sleep",
     "demo_wake": "Wake",
     "demo_sleep_aria": "Sleep {{name}}",
-    "demo_wake_aria": "Wake {{name}}"
+    "demo_wake_aria": "Wake {{name}}",
+    "waitlist_title": "Get notified at launch",
+    "waitlist_body": "TwinTracker for iOS and Android is coming soon. Leave your email and we'll let you know the moment it's live.",
+    "waitlist_email_placeholder": "your@email.com",
+    "waitlist_platform_label": "Which platform are you on?",
+    "waitlist_platform_ios": "iOS",
+    "waitlist_platform_android": "Android",
+    "waitlist_platform_both": "Both",
+    "waitlist_submit": "Notify me",
+    "waitlist_success_title": "You're on the list!",
+    "waitlist_success_body": "We'll email you the moment TwinTracker launches. Thank you for your interest.",
+    "waitlist_error": "Something went wrong. Please try again.",
+    "waitlist_close": "Close"
   }
 }

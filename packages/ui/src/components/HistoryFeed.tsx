@@ -236,6 +236,8 @@ export function HistoryFeed({
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor={theme.accent}
+              // @ts-expect-error — backgroundColor is a valid iOS UIRefreshControl prop, not yet typed in RN
+              backgroundColor={theme.bg}
               colors={[theme.accent]}
               progressBackgroundColor={theme.bg}
             />

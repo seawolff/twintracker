@@ -378,8 +378,8 @@ describe('getBabyInsight', () => {
   });
 
   it('awake, nap overdue: urgency overdue', () => {
-    // Pin to noon UTC so isBedtimeStretch never activates regardless of when CI runs.
-    const noon = new Date('2024-01-15T12:00:00.000Z');
+    // Use local noon — timezone-safe midday so isNight is never true (bedtime=23, wake=6).
+    const noon = new Date(2024, 0, 15, 12, 0, 0);
     const noonMs = noon.getTime();
     const napEndedAt = new Date(noonMs - (AWAKE_DURATION_MS + 10 * 60_000)).toISOString();
     const napStartedAt = new Date(
@@ -439,7 +439,7 @@ describe('getBabyInsight', () => {
     expect(insight.targetOzToday).toBe(32);
   });
 
-  it('feedCountToday counts bottle + nursing events since reset', () => {
+  it('feedCountToday counts bottle + nursing events since calendar midnight', () => {
     const bottle = makeEvent(BABY_ID, 'bottle', new Date().toISOString());
     const nursing = makeEvent(BABY_ID, 'nursing', new Date().toISOString());
     const yesterday = {
@@ -576,24 +576,23 @@ describe('getBabyInsight', () => {
     expect(insight.urgency).toBe('ok');
   });
 
-  it('totalOzToday respects non-zero resetHour: event before reset excluded, event after included', () => {
-    // NOW is a fixed point in time; we build a "now" that is 10:00 AM on some date
+  it('totalOzToday always resets at calendar midnight regardless of wakeHour', () => {
+    // wakeHour = 6 is passed but should have no effect on the reset boundary.
+    // Both bottles are after midnight on the same day — both should count.
     const testNow = new Date(2026, 2, 14, 10, 0, 0); // 10 AM March 14
-    // resetHour = 6: period starts at 6 AM today
-    // bottle at 5:00 AM today → before 6 AM reset → NOT counted
-    const beforeReset: TrackerEvent = {
+    const earlyMorning: TrackerEvent = {
       ...makeEvent(BABY_ID, 'bottle', '2026-03-14T05:00:00'),
       id: 'br1',
       value: 10,
     };
-    // bottle at 7:00 AM today → after 6 AM reset → counted
-    const afterReset: TrackerEvent = {
+    const laterMorning: TrackerEvent = {
       ...makeEvent(BABY_ID, 'bottle', '2026-03-14T07:00:00'),
       id: 'br2',
       value: 4,
     };
-    const insight = getBabyInsight(baby, {}, [beforeReset, afterReset], testNow, 6);
-    expect(insight.totalOzToday).toBe(4); // only afterReset counts
+    // Pass wakeHour=6 — should NOT exclude the 5 AM bottle
+    const insight = getBabyInsight(baby, {}, [earlyMorning, laterMorning], testNow, 6);
+    expect(insight.totalOzToday).toBe(14); // both count — midnight is the boundary
   });
 });
 
@@ -820,6 +819,66 @@ describe('getBabyInsight — too-late-for-nap guard', () => {
     const insight = getBabyInsight(stage1Baby, latest, [], testNow, 0, undefined, 19, 7);
     // Stage 1 should NOT show Bedtime countdown via this guard
     expect(insight.narrative).not.toContain('Bedtime in about');
+  });
+});
+
+describe('getBabyInsight — past-bedtime nap suppression', () => {
+  // After bedtime has passed and baby is not asleep, all nap language should be
+  // suppressed. The narrative should reference sleep/bedtime, not nap suggestions.
+  const baby: Baby = {
+    id: BABY_ID,
+    name: 'John',
+    color: 'sky',
+    birthDate: STAGE2_BIRTH_DATE,
+    createdAt: new Date().toISOString(),
+  };
+
+  it('suppresses nap language and shows past-bedtime narrative at 8 PM (Stage 2)', () => {
+    // 8 PM — past 7 PM bedtime; baby woke from last nap at 4 PM, not yet asleep
+    const testNow = new Date(2026, 2, 14, 20, 0, 0); // 8 PM
+    const napEndedAt = new Date(2026, 2, 14, 16, 0, 0).toISOString(); // 4 PM
+    const napStart = new Date(2026, 2, 14, 14, 0, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative).toContain('past');
+    expect(insight.narrative).toContain('John');
+    expect(insight.narrative.toLowerCase()).not.toContain('nap');
+    expect(insight.urgency).toBe('overdue');
+  });
+
+  it('suppresses nap language before wake hour (e.g. 5 AM, baby awake overnight)', () => {
+    // 5 AM — before 7 AM wakeHour (isNight=true); baby woke from a sleep at 3 AM
+    const testNow = new Date(2026, 2, 14, 5, 0, 0); // 5 AM
+    const sleepEndedAt = new Date(2026, 2, 14, 3, 0, 0).toISOString(); // 3 AM
+    const sleepStart = new Date(2026, 2, 13, 19, 0, 0).toISOString(); // previous night
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:sleep`]: makeEvent(BABY_ID, 'sleep', sleepStart, sleepEndedAt),
+    };
+    const insight = getBabyInsight(baby, latest, [], testNow, 0, undefined, 19, 7);
+    expect(insight.narrative.toLowerCase()).not.toContain('nap');
+    expect(insight.urgency).toBe('overdue');
+  });
+
+  it('does NOT suppress nap language for Stage 1 (no bedtime concept)', () => {
+    const stage1Baby: Baby = {
+      id: BABY_ID,
+      name: 'John',
+      color: 'sky',
+      birthDate: new Date(Date.now() - 3 * 7 * 24 * 60 * 60_000).toISOString(), // 3 weeks old
+      createdAt: new Date().toISOString(),
+    };
+    // 10 PM — past Stage 1 effective bedtime (10 PM) but Stage 1 has no nap suppression
+    const testNow = new Date(2026, 2, 14, 22, 30, 0); // 10:30 PM
+    const napEndedAt = new Date(2026, 2, 14, 20, 0, 0).toISOString(); // 8 PM
+    const napStart = new Date(2026, 2, 14, 18, 30, 0).toISOString();
+    const latest: LatestEventMap = {
+      [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStart, napEndedAt),
+    };
+    const insight = getBabyInsight(stage1Baby, latest, [], testNow, 0, undefined, 19, 7);
+    // Stage 1 should NOT show past-bedtime narrative
+    expect(insight.narrative).not.toContain('past');
   });
 });
 

@@ -6,6 +6,7 @@ import babiesRouter from './routes/babies';
 import eventsRouter from './routes/events';
 import preferencesRouter from './routes/preferences';
 import alarmsRouter from './routes/alarms';
+import waitlistRouter from './routes/waitlist';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/babies', babiesRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/preferences', preferencesRouter);
 app.use('/api/alarms', alarmsRouter);
+app.use('/api/waitlist', waitlistRouter);
 
 // Global error handler
 app.use(

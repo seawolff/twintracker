@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 
-const isRemote = !process.env.DATABASE_URL?.includes('localhost') &&
+const isRemote =
+  !process.env.DATABASE_URL?.includes('localhost') &&
   !process.env.DATABASE_URL?.includes('127.0.0.1') &&
   !process.env.DATABASE_URL?.includes('@db:');
 

@@ -13,9 +13,11 @@ const VALID_PREF_KEYS = new Set([
   'wakeHour',
   'sleepTraining',
   'twinSync',
+  'units',
 ]);
 const HOUR_KEYS = new Set(['resetHour', 'bedtimeHour', 'wakeHour']);
 const BOOLEAN_KEYS = new Set(['sleepTraining', 'twinSync']);
+const VALID_UNITS = new Set(['metric', 'imperial']);
 
 function validatePrefs(body: Record<string, unknown>): { message: string } | null {
   for (const key of Object.keys(body)) {
@@ -41,6 +43,9 @@ function validatePrefs(body: Record<string, unknown>): { message: string } | nul
     if (key in body && typeof body[key] !== 'boolean') {
       return { message: `${key} must be a boolean` };
     }
+  }
+  if ('units' in body && !VALID_UNITS.has(body.units as string)) {
+    return { message: 'units must be "metric" or "imperial"' };
   }
   return null;
 }

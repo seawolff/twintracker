@@ -10,7 +10,8 @@
     "dismiss": "Cerrar",
     "delete": "Eliminar",
     "undo": "Deshacer",
-    "log_confirmed": "{{label}} registrado"
+    "log_confirmed": "{{label}} registrado",
+    "error_generic": "Algo salió mal"
   },
   "onboarding": {
     "welcome": "Bienvenido",
@@ -40,7 +41,8 @@
     "diaper_question": "¿Recordatorios de pañales para {{names}}?",
     "diaper_onboard_desc": "Recibe una notificación ~3 horas después del último cambio de pañal.",
     "feed_question": "¿Recordatorios de alimentación para {{names}}?",
-    "feed_onboard_desc": "Recibe una notificación cuando la próxima toma sea probable."
+    "feed_onboard_desc": "Recibe una notificación cuando la próxima toma sea probable.",
+    "your_baby": "tu bebé"
   },
   "home": {
     "invite_label": "Invita a tu co-padre o familiar",
@@ -54,6 +56,7 @@
     "alarm_fired_title": "TwinTracker",
     "alarm_fired_body": "Tu alarma para {{name}} ha sonado.",
     "sync_put_down": "¿Acostar a {{name}} también?",
+    "sync_put_to_sleep": "¿Poner a dormir a {{name}} también?",
     "sync_feed": "¿Alimentar a {{name}} ahora también?",
     "sync_diaper": "¿Cambiar a {{name}} también?",
     "sync_food": "¿Dar sólidos a {{name}} también?",
@@ -128,7 +131,8 @@
     "diaper": {
       "wet": "Mojado",
       "dirty": "Sucio",
-      "both": "Ambos"
+      "both": "Ambos",
+      "dry": "Seco"
     }
   },
   "analytics": {
@@ -231,7 +235,7 @@
     "clear_logs": "Borrar todos los registros",
     "clearing": "Borrando…",
     "invite_share": "Compartir código de invitación",
-    "invite_share_message": "¡Únete a mi familia en TwinTracker! Usa el código {{code}} o toca: https://www.twintracker.app/join?code={{code}}",
+    "invite_share_message": "Estoy usando TwinTracker para registrar todo lo del bebé — toca aquí para unirte y estar los dos sincronizados 👶 https://www.twintracker.app/join?code={{code}}",
     "diaper_notifications_title": "Recordatorios de pañal",
     "diaper_notifications_hint": "Recibe un recordatorio ~3 horas después del último cambio de pañal.",
     "diaper_notifications_enable": "Activar recordatorios de pañal",
@@ -275,7 +279,7 @@
     "email": "Correo electrónico",
     "password": "Contraseña",
     "invite_code": "Código de invitación",
-    "your_name": "Tu nombre (opcional)",
+    "your_name": "Tu nombre",
     "sign_in": "Iniciar sesión",
     "sign_up": "Crear cuenta",
     "join": "Unirse a la familia",
@@ -300,7 +304,17 @@
     "verify_error_body": "Este enlace de verificación ha expirado o ya fue usado. Solicita uno nuevo desde la app.",
     "verify_error_cta": "Ir a la app →",
     "sign_in_google": "Continuar con Google",
+    "join_code_required": "Introduce un código de invitación para unirte",
     "or_divider": "o"
+  },
+  "email": {
+    "verify_subject": "Verifica tu correo de TwinTracker",
+    "verify_heading": "Verifica tu dirección de correo",
+    "verify_body": "Gracias por registrarte. Haz clic en el botón de abajo para confirmar tu dirección de correo y activar tu cuenta.",
+    "verify_cta": "Verificar dirección de correo",
+    "verify_expiry": "Este enlace expira en 24 horas. Si no creaste una cuenta de TwinTracker, puedes ignorar este correo.",
+    "verify_link_fallback": "O copia este enlace:",
+    "verify_plain": "Haz clic en el enlace de abajo para verificar tu dirección de correo:\n\n{{link}}\n\nEste enlace expira en 24 horas."
   },
   "notifications": {
     "diaper_body": "Han pasado aproximadamente {{interval}}. ¿Es hora de cambiar a {{name}}?",
@@ -318,6 +332,7 @@
     "good_night": "Buenas noches",
     "newborn_wake_narrative": "Despierta a {{name}} para comer.",
     "sleeping_night": "{{name}} está durmiendo por la noche.",
+    "past_bedtime_awake": "Es después de la hora de dormir de {{name}}. Es hora de dormir.",
     "nap_wake_likely": "Probablemente despierto alrededor de {{time}}, en aproximadamente {{remaining}}.",
     "nap_overdue": "Durmiendo un poco más de lo habitual. Podría despertar en cualquier momento.",
     "catnap_time": "Posible siesta corta.",
@@ -351,8 +366,12 @@
     "sex_female": "Niña",
     "weight_label": "Peso (kg)",
     "weight_placeholder": "p.ej. 5.2",
+    "weight_label_imperial": "Peso (lbs)",
+    "weight_placeholder_imperial": "p.ej. 11.5",
     "height_label": "Altura (cm)",
     "height_placeholder": "p.ej. 62",
+    "height_label_imperial": "Altura (in)",
+    "height_placeholder_imperial": "p.ej. 24.4",
     "saving": "Guardando…",
     "edit_profile": "Editar perfil de {{name}}",
     "name_required": "El nombre es obligatorio",
@@ -372,13 +391,18 @@
     "settings": "Ajustes",
     "tab_label": "Pestaña {{name}}"
   },
+  "meta": {
+    "title": "TwinTracker — App de seguimiento para bebés gemelos",
+    "description": "El tracker de bebés diseñado para gemelos. Registra tomas, siestas, pañales y crecimiento para dos bebés — o uno — con planificación inteligente, sincronización familiar y sin complicaciones. Gratis en web, iOS y Android.",
+    "keywords": "seguimiento bebé gemelos, app para gemelos, tracker bebés, aplicación gemelos recién nacidos, registro siestas bebé, seguimiento alimentación bebé, app padres de gemelos"
+  },
   "landing": {
     "logo": "TwinTracker",
     "toggle_day": "Cambiar a modo día",
     "toggle_night": "Cambiar a modo noche",
     "sign_in": "Iniciar sesión",
-    "tagline": "Un dedo. Cero cálculos.",
-    "hero_sub": "Seguimiento del cuidado del bebé, rápido y fácil.",
+    "tagline": "Hecho para gemelos. Funciona perfectamente para uno.",
+    "hero_sub": "El cuidado del bebé en blanco y negro.\nSencillo, intuitivo, sin adivinar.\nVe lo que tu bebé necesita de un vistazo.",
     "cta_web": "Empezar gratis",
     "cta_app": "Descargar la app ↗",
     "feat_schedule_title": "Horario inteligente",
@@ -387,6 +411,8 @@
     "feat_sync_desc": "Registra un bebé y sincroniza al otro con un solo toque — o lleva el seguimiento de un bebé con el mismo panel claro y simple.",
     "feat_growth_title": "Seguimiento del crecimiento",
     "feat_growth_desc": "Gráficas percentiles de la OMS para peso y talla. Observa cómo crecen tus bebés con el tiempo.",
+    "feat_i18n_title": "Cuatro idiomas",
+    "feat_i18n_desc": "Inglés, alemán, francés y español. TwinTracker habla tu idioma.",
     "privacy_promise_title": "Construido con confianza",
     "privacy_promise_intro": "Los datos de tu bebé son de los más sensibles que compartirás. Este es nuestro compromiso.",
     "privacy_promise_on_device_title": "Funciona en tu dispositivo",
@@ -398,6 +424,8 @@
     "story_title": "Creado por un padre de gemelos, para todos los padres.",
     "story_body": "Estaba frustrado. Cada app de registro de bebé que probé era complicada, lenta o ignoraba completamente lo que es cuidar a más de un hijo. Así que creé TwinTracker — primero para mis gemelos, luego para cualquier padre que quiera una vista rápida y segura de lo que su bebé necesita ahora mismo. La uso todos los días.",
     "story_cta": "Empezar →",
+    "founder_byline": "— Chris Wolff, fundador & papá de gemelos",
+    "founder_photo_alt": "Chris Wolff, fundador de TwinTracker",
     "privacy": "Política de privacidad",
     "contact": "Contacto",
     "copyright": "© {{year}} TwinTracker",
@@ -405,11 +433,24 @@
     "demo_mode_twin": "Gemelos",
     "demo_tab_home": "Inicio",
     "demo_tab_history": "Historial",
+    "demo_tab_analytics": "Análisis",
     "demo_today": "Hoy",
     "demo_no_events": "Sin eventos aún",
     "demo_sleep": "Dormir",
     "demo_wake": "Despertar",
     "demo_sleep_aria": "Poner a {{name}} a dormir",
-    "demo_wake_aria": "Despertar a {{name}}"
+    "demo_wake_aria": "Despertar a {{name}}",
+    "waitlist_title": "Recibir notificación al lanzamiento",
+    "waitlist_body": "TwinTracker para iOS y Android llega pronto. Deja tu correo y te avisaremos en cuanto esté disponible.",
+    "waitlist_email_placeholder": "tu@correo.com",
+    "waitlist_platform_label": "¿Qué plataforma usas?",
+    "waitlist_platform_ios": "iOS",
+    "waitlist_platform_android": "Android",
+    "waitlist_platform_both": "Ambas",
+    "waitlist_submit": "Notificarme",
+    "waitlist_success_title": "¡Estás en la lista!",
+    "waitlist_success_body": "Te enviaremos un correo en cuanto TwinTracker se lance. Gracias por tu interés.",
+    "waitlist_error": "Algo salió mal. Por favor, inténtalo de nuevo.",
+    "waitlist_close": "Cerrar"
   }
 }

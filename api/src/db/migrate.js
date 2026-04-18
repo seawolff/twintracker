@@ -180,6 +180,89 @@ async function migrate() {
       ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
     `);
 
+    // Migration 14: analytics — last_seen_at + verified_email_at on users;
+    // user_cohorts table with NO FK so rows survive account deletion.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_email_at TIMESTAMPTZ;
+
+      -- Backfill: treat created_at as last_seen for existing accounts.
+      UPDATE users SET last_seen_at = created_at WHERE last_seen_at IS NULL;
+      -- Backfill: treat created_at as verified_at for accounts already verified.
+      UPDATE users SET verified_email_at = created_at
+        WHERE email_verified = true AND verified_email_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS user_cohorts (
+        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+        -- Temporal bucketing — ISO week (Monday), not exact date, to reduce re-identification risk.
+        cohort_week         DATE NOT NULL,
+
+        -- Acquisition context
+        locale              TEXT,
+        platform            TEXT,          -- 'web' | 'ios' | 'android'
+        used_google_sso     BOOLEAN NOT NULL DEFAULT false,
+        joined_household    BOOLEAN NOT NULL DEFAULT false,
+
+        -- Onboarding signals (set after babies created)
+        baby_count          SMALLINT,
+        has_twins           BOOLEAN,
+        min_baby_stage      SMALLINT,
+
+        -- Lifecycle timestamps
+        registered_at       TIMESTAMPTZ NOT NULL,
+        verified_email_at   TIMESTAMPTZ,
+        first_event_at      TIMESTAMPTZ,
+        last_seen_at        TIMESTAMPTZ,
+        deleted_at          TIMESTAMPTZ,   -- set on DELETE /auth/me; row is retained
+
+        -- D1/D7/D30/D90 retention flags — set true when milestone reached, never unset
+        retained_d1         BOOLEAN NOT NULL DEFAULT false,
+        retained_d7         BOOLEAN NOT NULL DEFAULT false,
+        retained_d30        BOOLEAN NOT NULL DEFAULT false,
+        retained_d90        BOOLEAN NOT NULL DEFAULT false,
+
+        -- Feature adoption flags — set true on first use, never unset
+        used_alarm          BOOLEAN NOT NULL DEFAULT false,
+        used_analytics      BOOLEAN NOT NULL DEFAULT false,
+        used_twin_sync      BOOLEAN NOT NULL DEFAULT false,
+        used_baby_profile   BOOLEAN NOT NULL DEFAULT false,
+        invited_coparent    BOOLEAN NOT NULL DEFAULT false,
+
+        -- Aggregate activity — counts only, no content
+        total_events_logged INT NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS user_cohorts_cohort_week ON user_cohorts(cohort_week);
+      CREATE INDEX IF NOT EXISTS user_cohorts_platform    ON user_cohorts(platform);
+      CREATE INDEX IF NOT EXISTS user_cohorts_deleted_at  ON user_cohorts(deleted_at);
+
+      -- Back-reference so auth routes can look up cohort_id without a JOIN.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS cohort_id UUID;
+
+      -- App version at registration time — populated from X-App-Version header.
+      ALTER TABLE user_cohorts ADD COLUMN IF NOT EXISTS app_version TEXT;
+    `);
+
+    // Migration 15: pre-launch waitlist — email capture with platform interest
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS waitlist (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email       TEXT NOT NULL,
+        platform    TEXT,            -- 'ios' | 'android' | 'both' | NULL (not specified)
+        source      TEXT NOT NULL DEFAULT 'landing',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS waitlist_email ON waitlist(lower(email));
+    `);
+
+    // Migration 16: UTM tracking columns on waitlist
+    await client.query(`
+      ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS utm_source   TEXT;
+      ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS utm_medium   TEXT;
+      ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
+    `);
+
     console.log('Migration complete');
   } finally {
     client.release();

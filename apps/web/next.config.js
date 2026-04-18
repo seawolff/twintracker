@@ -1,7 +1,21 @@
 /** @type {import('next').NextConfig} */
+// Expose the app version to the browser so the API client can send X-App-Version.
+// Set from package.json version at build time.
+const { version } = require('./package.json');
+
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_APP_VERSION: version,
+  },
   output: 'standalone',
-  transpilePackages: ['react-native', 'react-native-web', 'react-native-svg', '@tt/core', '@tt/ui', '@react-oauth/google'],
+  transpilePackages: [
+    'react-native',
+    'react-native-web',
+    'react-native-svg',
+    '@tt/core',
+    '@tt/ui',
+    '@react-oauth/google',
+  ],
   experimental: {
     externalDir: true,
   },

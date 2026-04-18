@@ -1,11 +1,11 @@
 {
   "name": "TwinTracker",
   "short_name": "TwinTracker",
-  "description": "One thumb. Two babies. Zero math.",
-  "start_url": "/dashboard",
+  "description": "The baby tracker built for twins. Track feeds, naps, diapers, and growth — smart scheduling, household sync, privacy-first.",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#1d4ed8",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -16,6 +16,12 @@
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
+    },
+    {
+      "src": "/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

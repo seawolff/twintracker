@@ -270,6 +270,31 @@ export function formatPercentile(p: number): string {
   return `${rounded}th percentile`;
 }
 
+// ── Unit conversion helpers ──────────────────────────────────────────────────
+// These are the sole source of truth for weight/height conversion factors.
+// All callers (analytics, baby profile sheet) must import from here — never
+// inline the raw numbers.
+
+/** Convert kilograms to pounds (1 kg = 2.20462 lbs). */
+export function kgToLbs(kg: number): number {
+  return kg * 2.20462;
+}
+
+/** Convert pounds to kilograms. */
+export function lbsToKg(lbs: number): number {
+  return lbs / 2.20462;
+}
+
+/** Convert centimetres to inches (1 in = 2.54 cm). */
+export function cmToIn(cm: number): number {
+  return cm / 2.54;
+}
+
+/** Convert inches to centimetres. */
+export function inToCm(inches: number): number {
+  return inches * 2.54;
+}
+
 /**
  * Derive age in whole months from a YYYY-MM-DD birth date and a reference date.
  * Returns null when birthDate is absent or invalid.

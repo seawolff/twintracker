@@ -13,11 +13,24 @@ import type {
 let baseUrl = '';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
+let clientPlatform: 'web' | 'ios' | 'android' = 'web';
+let clientAppVersion: string | null = null;
 
-export function configure(url: string, token?: string) {
+export function configure(
+  url: string,
+  token?: string,
+  platform?: 'web' | 'ios' | 'android',
+  appVersion?: string,
+) {
   baseUrl = url;
   if (token) {
     accessToken = token;
+  }
+  if (platform) {
+    clientPlatform = platform;
+  }
+  if (appVersion) {
+    clientAppVersion = appVersion;
   }
 }
 
@@ -56,6 +69,8 @@ async function refreshAccessToken(): Promise<void> {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Platform': clientPlatform,
+    ...(clientAppVersion ? { 'X-App-Version': clientAppVersion } : {}),
     ...(options.headers as Record<string, string>),
   };
   if (accessToken) {
