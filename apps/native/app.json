@@ -3,7 +3,7 @@
     "name": "TwinTracker",
     "slug": "twintracker",
     "scheme": "twintracker",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.twintracker.app",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.twintracker.app",
-      "versionCode": 2
+      "versionCode": 3
     },
     "plugins": [
       [
