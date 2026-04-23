@@ -16,7 +16,7 @@ export {
 } from '../../core/src/logic/historyHelpers';
 export { groupEventsByDay } from '../../core/src/logic/grouping';
 export { authorColor } from '../../core/src/logic/authorUtils';
-export { getBabyInsight, formatMs, formatTime12 } from '../../core/src/logic/schedule';
+export { getBabyInsight, formatMs, formatTime12, getAgeWeeks } from '../../core/src/logic/schedule';
 export { getNapActionType } from '../../core/src/logic/twinSync';
 export { computeLearnedStats } from '../../core/src/logic/learnedSchedule';
 export {
