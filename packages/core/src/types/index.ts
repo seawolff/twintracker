@@ -1,6 +1,7 @@
 export const EVENT_TYPES = [
   'bottle',
   'nursing',
+  'pump',
   'nap',
   'sleep',
   'diaper',
@@ -68,8 +69,8 @@ export interface NextAction {
 }
 
 export interface PredictedAction {
-  type: 'bottle' | 'diaper' | 'nap';
-  /** Human-readable label: "Bottle in 45m", "Change overdue", "Nap in 1h 10m" */
+  type: 'bottle' | 'diaper' | 'nap' | 'sleep';
+  /** Human-readable label: "Bottle in 45m", "Change overdue", "Nap in 1h 10m", "Bedtime in 8m" */
   label: string;
   /** ms until predicted event; negative = overdue */
   remainingMs: number;

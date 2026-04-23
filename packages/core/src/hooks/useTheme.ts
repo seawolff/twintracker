@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { LatestEventMap } from '../types';
 
 export type ThemeMode = 'day' | 'night';
 
@@ -62,9 +63,72 @@ const NIGHT: ThemeTokens = {
 // Defaults match research: 7am wake, 7pm (19:00) bedtime (Stage 2+).
 let _wakeHour = 7;
 let _bedtimeHour = 19;
-// Overrides time-based mode — true while any baby has an active nap/sleep event.
-let _sleepActive = false;
+// Landing/demo can temporarily force a theme regardless of real sleep data.
+let _manualOverride: ThemeMode | null = null;
+// Home/app pages feed these anchors from the latest real 'sleep' events in the household.
+let _latestSleepStartMs = 0;
+let _latestSleepEndMs = 0;
 const _listeners = new Set<() => void>();
+
+function getMostRecentBedtimeBoundaryMs(now: Date, bedtimeHour: number): number {
+  const boundary = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    bedtimeHour,
+    0,
+    0,
+    0,
+  );
+  if (now.getTime() < boundary.getTime()) {
+    boundary.setDate(boundary.getDate() - 1);
+  }
+  return boundary.getTime();
+}
+
+export function getSleepThemeAnchors(
+  babyIds: string[],
+  latest: LatestEventMap,
+): { latestSleepStartMs: number; latestSleepEndMs: number } {
+  let latestSleepStartMs = 0;
+  let latestSleepEndMs = 0;
+
+  for (const babyId of babyIds) {
+    const sleepEvent = latest[`${babyId}:sleep`];
+    if (!sleepEvent) {
+      continue;
+    }
+    const startedAtMs = new Date(sleepEvent.startedAt).getTime();
+    if (startedAtMs > latestSleepStartMs) {
+      latestSleepStartMs = startedAtMs;
+    }
+    if (sleepEvent.endedAt) {
+      const endedAtMs = new Date(sleepEvent.endedAt).getTime();
+      if (endedAtMs > latestSleepEndMs) {
+        latestSleepEndMs = endedAtMs;
+      }
+    }
+  }
+
+  return { latestSleepStartMs, latestSleepEndMs };
+}
+
+export function getSleepThemeOverride(
+  latestSleepStartMs: number,
+  latestSleepEndMs: number,
+  now: Date,
+  bedtimeHour: number,
+): ThemeMode | null {
+  const bedtimeBoundaryMs = getMostRecentBedtimeBoundaryMs(now, bedtimeHour);
+  const hasRecentSleepStart = latestSleepStartMs >= bedtimeBoundaryMs;
+  const hasRecentSleepEnd = latestSleepEndMs >= bedtimeBoundaryMs;
+
+  if (!hasRecentSleepStart && !hasRecentSleepEnd) {
+    return null;
+  }
+
+  return latestSleepEndMs > latestSleepStartMs ? 'day' : 'night';
+}
 
 /**
  * Call from app components when bedtime/wake preferences change.
@@ -79,21 +143,43 @@ export function setNightBoundaries(wakeHour: number, bedtimeHour: number): void 
 }
 
 /**
- * Call from app components when any baby has an active nap or sleep event.
- * Immediately overrides the time-based theme to night mode while true.
+ * Call from landing/demo surfaces that need a direct theme override independent
+ * of the real event stream.
  */
 export function setSleepActive(active: boolean): void {
-  if (_sleepActive !== active) {
-    _sleepActive = active;
+  const next = active ? 'night' : null;
+  if (_manualOverride !== next) {
+    _manualOverride = next;
+    _listeners.forEach(fn => fn());
+  }
+}
+
+/**
+ * Call from the real app after deriving the most recent household sleep start/end timestamps.
+ * `getMode()` uses these anchors together with the current bedtime boundary so an actual
+ * sleep start can force night early, and an actual sleep end can force day early.
+ */
+export function setSleepThemeAnchors(latestSleepStartMs: number, latestSleepEndMs: number): void {
+  if (
+    _latestSleepStartMs !== latestSleepStartMs ||
+    _latestSleepEndMs !== latestSleepEndMs
+  ) {
+    _latestSleepStartMs = latestSleepStartMs;
+    _latestSleepEndMs = latestSleepEndMs;
     _listeners.forEach(fn => fn());
   }
 }
 
 function getMode(): ThemeMode {
-  if (_sleepActive) {
-    return 'night';
+  if (_manualOverride) {
+    return _manualOverride;
   }
-  const h = new Date().getHours();
+  const now = new Date();
+  const sleepOverride = getSleepThemeOverride(_latestSleepStartMs, _latestSleepEndMs, now, _bedtimeHour);
+  if (sleepOverride) {
+    return sleepOverride;
+  }
+  const h = now.getHours();
   return h >= _wakeHour && h < _bedtimeHour ? 'day' : 'night';
 }
 

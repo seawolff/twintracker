@@ -96,7 +96,9 @@ describe('TrendSparkline', () => {
     expect(svg?.getAttribute('width')).toBe('280');
     expect(svg?.getAttribute('viewBox')).toBeNull();
     expect(container.querySelectorAll('circle')).toHaveLength(4);
-    expect(container.querySelector('text')?.textContent).toBe('target 7 oz');
+    const benchmarkText = container.querySelector('text');
+    expect(benchmarkText?.textContent).toBe('target 7 oz');
+    expect(benchmarkText?.getAttribute('style')).toContain('font-size: 9px');
   });
 
   it('renders a placeholder when there are fewer than two points', () => {

@@ -238,7 +238,174 @@ describe('GET /api/events?since — parameter safety', () => {
   });
 });
 
-// ── 4. POST /auth/google ──────────────────────────────────────────────────────
+// ── 4. GET /api/events/export ─────────────────────────────────────────────────
+
+describe('GET /api/events/export', () => {
+  const token = makeToken('user-x', 'hh-export');
+
+  it('requires authentication — no token → 401', async () => {
+    const res = await request(app).get('/api/events/export');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns CSV with correct headers for authenticated user', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .get('/api/events/export')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.headers['content-disposition']).toMatch(/attachment.*filename/);
+    // CSV header row is always present even with no data
+    expect(res.text).toMatch(/^Date,Time,Baby,Type,Value,Unit,Notes,Duration \(min\),Logged By/);
+  });
+
+  it('scopes export to requester household', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    await request(app).get('/api/events/export').set('Authorization', `Bearer ${token}`);
+
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/household_id/);
+    expect(params[0]).toBe('hh-export');
+  });
+
+  it('includes from/to date filters as bound parameters', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const from = '2026-01-01T00:00:00Z';
+    const to = '2026-01-31T23:59:59Z';
+    await request(app)
+      .get(`/api/events/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/timestamptz/); // confirms parameterised date cast
+    expect(params).toContain(from);
+    expect(params).toContain(to);
+    // Raw values must not be interpolated into the SQL string
+    expect(sql).not.toContain(from);
+    expect(sql).not.toContain(to);
+  });
+
+  it('validates babyId against household before query — returns 403 for foreign baby', async () => {
+    // Baby ownership check returns 0 rows → baby not in this household
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request(app)
+      .get('/api/events/export?babyId=baby-from-other-hh')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(403);
+    // The ownership check should use the requester's householdId
+    const [, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(params[1]).toBe('hh-export');
+  });
+
+  it('includes babyId filter as bound parameter when baby is valid', async () => {
+    // First query: baby ownership check passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ '?column?': 1 }], rowCount: 1 });
+    // Second query: events query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const babyId = 'baby-uuid-123';
+    await request(app)
+      .get(`/api/events/export?babyId=${babyId}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    const [sql, params] = mockQuery.mock.calls[1] as [string, unknown[]];
+    expect(params).toContain(babyId);
+    expect(sql).not.toContain(babyId); // bound, not interpolated
+  });
+
+  it('CSV rows include logged_by_name column', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          started_at: new Date('2026-03-01T10:00:00Z'),
+          ended_at: null,
+          baby_name: 'Emma',
+          type: 'bottle',
+          value: 4,
+          unit: 'oz',
+          notes: null,
+          logged_by_name: 'Mom',
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .get('/api/events/export')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.text).toContain('Mom');
+    // Verify 9 columns per row (header + data row)
+    const lines = res.text.trim().split('\n');
+    expect(lines[0].split(',').length).toBe(9);
+    expect(lines[1].split(',').length).toBe(9);
+  });
+});
+
+// ── 5. GET /api/events/export/pdf ────────────────────────────────────────────
+
+describe('GET /api/events/export/pdf', () => {
+  const token = makeToken('user-pdf', 'hh-pdf');
+
+  it('requires authentication — no token → 401', async () => {
+    const res = await request(app).get('/api/events/export/pdf');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns PDF content-type for authenticated user', async () => {
+    // babies query + events query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .get('/api/events/export/pdf')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/pdf/);
+    expect(res.headers['content-disposition']).toMatch(/attachment.*\.pdf/);
+  });
+
+  it('validates babyId against household — returns 403 for foreign baby', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+    const res = await request(app)
+      .get('/api/events/export/pdf?babyId=baby-other-hh')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(403);
+    const [, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(params[1]).toBe('hh-pdf');
+  });
+
+  it('includes date filters as bound parameters', async () => {
+    // babies query + events query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const from = '2026-01-01T00:00:00Z';
+    const to = '2026-01-31T23:59:59Z';
+    await request(app)
+      .get(`/api/events/export/pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    // events query is the second call (after babies)
+    const [sql, params] = mockQuery.mock.calls[1] as [string, unknown[]];
+    expect(sql).toMatch(/timestamptz/);
+    expect(params).toContain(from);
+    expect(params).toContain(to);
+    expect(sql).not.toContain(from);
+    expect(sql).not.toContain(to);
+  });
+});
+
+// ── 6. POST /auth/google ──────────────────────────────────────────────────────
 
 describe('POST /api/auth/google', () => {
   // Mock fetch used by the route to call Google's tokeninfo endpoint.
@@ -487,6 +654,15 @@ describe('Input validation', () => {
         .send({ babyId: 'baby-1', type: 'bottle', startedAt: new Date().toISOString() });
       expect(res.status).toBe(403); // passed type validation, hit household check
     });
+
+    it('accepts pump as a valid event type → proceeds to baby ownership check', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      const res = await request(app)
+        .post('/api/events')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ babyId: 'baby-1', type: 'pump', startedAt: new Date().toISOString() });
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('PUT /api/preferences — schema validation', () => {
@@ -515,12 +691,41 @@ describe('Input validation', () => {
       expect(res.status).toBe(400);
     });
 
+    it('rejects non-boolean liveActivitiesEnabled → 400', async () => {
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ liveActivitiesEnabled: 'yes' });
+      expect(res.status).toBe(400);
+    });
+
     it('accepts valid preferences → 200', async () => {
       mockQuery.mockResolvedValueOnce({ rows: [{ data: { bedtimeHour: 20 } }] });
       const res = await request(app)
         .put('/api/preferences')
         .set('Authorization', `Bearer ${token}`)
         .send({ bedtimeHour: 20, sleepTraining: true });
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts synced native lock-screen preferences → 200', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data: {
+              liveActivitiesEnabled: true,
+              androidLockScreenNotificationsEnabled: true,
+            },
+          },
+        ],
+      });
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          liveActivitiesEnabled: true,
+          androidLockScreenNotificationsEnabled: true,
+        });
       expect(res.status).toBe(200);
     });
 

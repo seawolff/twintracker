@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, setToken } from '../api/client';
+import { api, setToken, setTokenStorage } from '../api/client';
 import type { StorageInterface, User } from '../types';
 
 const TOKEN_KEY = 'tt_access_token';
@@ -31,6 +31,12 @@ export function useAuth(storage?: StorageInterface) {
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
 
   const getStore = () => storage ?? webStorage();
+
+  useEffect(() => {
+    setTokenStorage(getStore());
+    return () => setTokenStorage(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storage]);
 
   // Eagerly set both tokens from sync storage (web localStorage) before any effects run.
   // This fixes the race where API calls fire before the async effect sets the token.

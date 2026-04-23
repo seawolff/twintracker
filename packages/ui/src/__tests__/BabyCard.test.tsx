@@ -41,6 +41,7 @@ function renderCard(
   events: TrackerEvent[],
   latest: LatestEventMap = {},
   baby: Baby = BABY,
+  extraProps: { householdNightMode?: boolean } = {},
 ): string {
   return renderToStaticMarkup(
     <BabyCard
@@ -53,6 +54,7 @@ function renderCard(
       resetHour={0}
       bedtimeHour={20}
       wakeHour={6}
+      {...extraProps}
     />,
   );
 }
@@ -97,6 +99,33 @@ describe('BabyCard — structure', () => {
     const html = renderCard([]);
     expect(html).toContain('———');
   });
+
+  it('does not show milestone history on the baby card when milestone events exist', () => {
+    const milestone = makeEvent({
+      type: 'milestone',
+      notes: 'milestone:key=first_word&detail=with+dada',
+    });
+    const html = renderCard([milestone]);
+    expect(html).not.toContain('home.recent_milestones');
+    expect(html).not.toContain('milestones.items.first_word');
+  });
+
+  it('renders the sleep training badge while baby is sleeping and training is enabled', () => {
+    const sleepEvent = makeEvent({ type: 'sleep' });
+    const latest: LatestEventMap = { 'b1:sleep': sleepEvent };
+    const html = renderToStaticMarkup(
+      <BabyCard
+        baby={BABY}
+        latest={latest}
+        events={[sleepEvent]}
+        onLog={jest.fn()}
+        onSetAlarm={jest.fn()}
+        now={NOW}
+        sleepTraining
+      />,
+    );
+    expect(html).toContain('settings.sleep_training_wait');
+  });
 });
 
 // ── Tests — one per event type ────────────────────────────────────────────────
@@ -105,6 +134,7 @@ describe('BabyCard — renders without crash for each event type', () => {
   const EVENT_TYPES: EventType[] = [
     'bottle',
     'nursing',
+    'pump',
     'nap',
     'sleep',
     'diaper',
@@ -116,6 +146,7 @@ describe('BabyCard — renders without crash for each event type', () => {
   const EVENT_VALUES: Partial<Record<EventType, Partial<TrackerEvent>>> = {
     bottle: { value: 4, unit: 'oz' },
     nursing: { value: 15, unit: 'min' },
+    pump: { value: 4, unit: 'oz', notes: 'both', endedAt: '2026-03-18T09:20:00Z' },
     nap: { endedAt: '2026-03-18T09:45:00Z' },
     sleep: { endedAt: '2026-03-18T09:00:00Z' },
     diaper: { notes: 'wet' },
@@ -209,6 +240,38 @@ describe('BabyCard — event state', () => {
     expect(html).toMatch(/\d+\/\d+ · \d+oz/);
   });
 
+  it('shows nursing minutes in triage strip when only nursing is logged today', () => {
+    const nursingEvent = makeEvent({ type: 'nursing', value: 22, unit: 'min', notes: 'left' });
+    const latest: LatestEventMap = { 'b1:nursing': nursingEvent };
+    const html = renderCard([nursingEvent], latest);
+    expect(html).toMatch(/\d+\/\d+ · 22m/);
+    expect(html).not.toContain('oz');
+  });
+
+  it('keeps both bottle oz and nursing minutes in triage strip when both are logged today', () => {
+    const bottleEvent = makeEvent({
+      id: 'bottle-1',
+      type: 'bottle',
+      value: 10,
+      unit: 'oz',
+      startedAt: '2026-03-18T08:00:00Z',
+      createdAt: '2026-03-18T08:00:00Z',
+    });
+    const nursingEvent = makeEvent({
+      id: 'nursing-1',
+      type: 'nursing',
+      value: 22,
+      unit: 'min',
+      notes: 'left',
+      startedAt: '2026-03-18T10:00:00Z',
+      createdAt: '2026-03-18T10:00:00Z',
+    });
+    const latest: LatestEventMap = { 'b1:bottle': bottleEvent, 'b1:nursing': nursingEvent };
+    const html = renderCard([bottleEvent, nursingEvent], latest);
+    expect(html).toContain('10oz');
+    expect(html).toContain('22m');
+  });
+
   it('reflects active nap in triage strip sleep status', () => {
     const napEvent = makeEvent({ type: 'nap' });
     const latest: LatestEventMap = { 'b1:nap': napEvent };
@@ -221,5 +284,53 @@ describe('BabyCard — event state', () => {
     const latest: LatestEventMap = { 'b1:diaper': diaperEvent };
     const html = renderCard([diaperEvent], latest);
     expect(html).toMatch(/\d+h|\d+m/);
+  });
+});
+
+// ── Tests — household night-mode propagation ─────────────────────────────────
+
+describe('BabyCard — householdNightMode', () => {
+  // NOW is 2pm UTC — daytime, before bedtimeHour=20, so insight.isNight=false
+  // and isBedtimeStretch=false. Without householdNightMode the button shows "Nap".
+
+  it('shows Nap label by default at daytime for Stage 2 baby', () => {
+    const html = renderCard([], {}, STAGE2_BABY);
+    expect(html).toContain('log_sheet.types.nap');
+    expect(html).not.toContain('log_sheet.types.sleep');
+  });
+
+  it('shows Sleep label when householdNightMode=true and baby is not napping', () => {
+    const html = renderCard([], {}, STAGE2_BABY, { householdNightMode: true });
+    expect(html).toContain('log_sheet.types.sleep');
+    expect(html).not.toContain('log_sheet.types.nap');
+  });
+
+  it('shows Wake label (not Sleep) when this baby has an active nap, even with householdNightMode', () => {
+    const napEvent = makeEvent({ type: 'nap' });
+    const latest: LatestEventMap = { 'b1:nap': napEvent };
+    const html = renderCard([napEvent], latest, STAGE2_BABY, { householdNightMode: true });
+    expect(html).toContain('home.action_wake');
+    expect(html).not.toContain('log_sheet.types.sleep');
+  });
+
+  it('shows Wake label (not Sleep) when this baby has an active sleep, even with householdNightMode', () => {
+    const sleepEvent = makeEvent({ type: 'sleep' });
+    const latest: LatestEventMap = { 'b1:sleep': sleepEvent };
+    const html = renderCard([sleepEvent], latest, STAGE2_BABY, { householdNightMode: true });
+    expect(html).toContain('home.action_wake');
+    expect(html).not.toContain('log_sheet.types.sleep');
+  });
+
+  it('keeps Nap label after an early-morning wake when householdNightMode=false', () => {
+    const sleepEvent = makeEvent({
+      type: 'sleep',
+      startedAt: '2026-03-17T23:00:00Z',
+      endedAt: '2026-03-18T05:30:00Z',
+      createdAt: '2026-03-17T23:00:00Z',
+    });
+    const latest: LatestEventMap = { 'b1:sleep': sleepEvent };
+    const html = renderCard([sleepEvent], latest, STAGE2_BABY, { householdNightMode: false });
+    expect(html).toContain('log_sheet.types.nap');
+    expect(html).not.toContain('log_sheet.types.sleep');
   });
 });

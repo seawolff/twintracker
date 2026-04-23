@@ -58,6 +58,31 @@ describe('computeAnalytics', () => {
     expect(a.totalOzThisWeek).toBe(9);
   });
 
+  test('pumping totals and lactation balance are tracked separately from bottle intake', () => {
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'bottle', daysAgo(1), { value: 5, notes: 'source=formula' }),
+      makeEvent('b1', 'bottle', daysAgo(1), { value: 4, notes: 'source=fridge' }),
+      makeEvent('b1', 'pump', daysAgo(1), { value: 7 }),
+      makeEvent('b1', 'pump', daysAgo(2), { value: 3 }),
+    ];
+    const a = computeAnalytics(events, NOW);
+    expect(a.totalOzThisWeek).toBe(9);
+    expect(a.totalPumpedOzThisWeek).toBe(10);
+    expect(a.lactationBalanceOzThisWeek).toBe(6);
+    expect(a.avgPumpedOzPerDay).toBeCloseTo(10 / a.daysInPeriod, 5);
+  });
+
+  test('nursing sessions count as feeds but do not reduce lactation balance', () => {
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'nursing', daysAgo(1), { value: 20, notes: 'left' }),
+      makeEvent('b1', 'pump', daysAgo(1), { value: 8 }),
+    ];
+    const a = computeAnalytics(events, NOW);
+    expect(a.totalFeeds).toBe(1);
+    expect(a.totalPumpedOzThisWeek).toBe(8);
+    expect(a.lactationBalanceOzThisWeek).toBe(8);
+  });
+
   test('avgOzPerFeed is median of bottle oz values', () => {
     const events: TrackerEvent[] = [
       makeEvent('b1', 'bottle', daysAgo(1), { value: 3 }),
@@ -359,6 +384,34 @@ describe('computeAnalytics', () => {
     expect(a.dataSpanDays).toBeLessThanOrEqual(1);
   });
 
+  test('day period starts exactly at midnight and excludes prior-day events', () => {
+    const localMidnight = new Date(NOW);
+    localMidnight.setHours(0, 0, 0, 0);
+    const justBeforeMidnightAtLocalBoundary = new Date(localMidnight.getTime() - 60_000);
+    const justAfterMidnightAtLocalBoundary = new Date(localMidnight.getTime() + 60_000);
+    const morningPump = new Date(localMidnight.getTime() + 3 * 60 * 60_000);
+
+    const justBeforeMidnight = makeEvent(
+      'b1',
+      'bottle',
+      justBeforeMidnightAtLocalBoundary.toISOString(),
+      { value: 4.2 },
+    );
+    const justAfterMidnight = makeEvent(
+      'b1',
+      'bottle',
+      justAfterMidnightAtLocalBoundary.toISOString(),
+      { value: 5.25 },
+    );
+    const pumpEvent = makeEvent('b1', 'pump', morningPump.toISOString(), { value: 3.75 });
+
+    const a = computeAnalytics([justBeforeMidnight, justAfterMidnight, pumpEvent], NOW, 'day');
+
+    expect(a.totalOzThisWeek).toBe(5.25);
+    expect(a.totalPumpedOzThisWeek).toBe(3.75);
+    expect(a.totalFeeds).toBe(1);
+  });
+
   test('targetMinWetDiapersPerDay is 6 for newborn >= 4 days old, null before day 4, null after 13 weeks', () => {
     // < 4 days old: colostrum phase — threshold not yet applicable (AAP)
     const day2Ms = Date.now() - 2 * 24 * 60 * 60_000;
@@ -394,6 +447,8 @@ describe('computeTrendData', () => {
     expect(td.feedIntervalByDay).toHaveLength(TREND_DAYS);
     expect(td.ozPerFeedByDay).toHaveLength(TREND_DAYS);
     expect(td.ozPerDayByDay).toHaveLength(TREND_DAYS);
+    expect(td.pumpedOzPerDay).toHaveLength(TREND_DAYS);
+    expect(td.milkBalanceByDay).toHaveLength(TREND_DAYS);
     expect(td.napCountByDay).toHaveLength(TREND_DAYS);
     expect(td.longestNightByDay).toHaveLength(TREND_DAYS);
   });
@@ -402,6 +457,7 @@ describe('computeTrendData', () => {
     const td = computeTrendData([], NOW);
     td.feedIntervalByDay.forEach(p => expect(p.value).toBeNull());
     td.ozPerDayByDay.forEach(p => expect(p.value).toBeNull());
+    td.pumpedOzPerDay.forEach(p => expect(p.value).toBeNull());
     td.napCountByDay.forEach(p => expect(p.value).toBeNull());
   });
 
@@ -421,6 +477,20 @@ describe('computeTrendData', () => {
     // daysAgo(1) = yesterday → slot index TREND_DAYS - 2
     const yestPoint = td.ozPerDayByDay[TREND_DAYS - 2];
     expect(yestPoint.value).toBeCloseTo(11, 1);
+  });
+
+  test('pump oz is summed per day and milk balance subtracts breastmilk bottle intake only', () => {
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'bottle', daysAgo(1), { value: 4, notes: 'source=fridge' }),
+      makeEvent('b1', 'bottle', daysAgo(1), { value: 3, notes: 'source=formula' }),
+      makeEvent('b1', 'pump', daysAgo(1), { value: 7 }),
+      makeEvent('b1', 'pump', daysAgo(1), { value: 3 }),
+    ];
+    const td = computeTrendData(events, NOW);
+    const yesterdayPump = td.pumpedOzPerDay[TREND_DAYS - 2];
+    const yesterdayBalance = td.milkBalanceByDay[TREND_DAYS - 2];
+    expect(yesterdayPump.value).toBe(10);
+    expect(yesterdayBalance.value).toBe(6);
   });
 
   test('ozPerFeedByDay averages oz per bottle within a day', () => {

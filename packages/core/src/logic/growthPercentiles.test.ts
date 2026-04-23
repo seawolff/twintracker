@@ -165,6 +165,18 @@ describe('formatPercentile', () => {
     expect(formatPercentile(3)).toBe('3rd percentile');
   });
 
+  it('formats 11th / 12th / 13th correctly', () => {
+    expect(formatPercentile(11)).toBe('11th percentile');
+    expect(formatPercentile(12)).toBe('12th percentile');
+    expect(formatPercentile(13)).toBe('13th percentile');
+  });
+
+  it('formats 21st / 22nd / 23rd correctly', () => {
+    expect(formatPercentile(21)).toBe('21st percentile');
+    expect(formatPercentile(22)).toBe('22nd percentile');
+    expect(formatPercentile(23)).toBe('23rd percentile');
+  });
+
   it('formats other values with "th"', () => {
     expect(formatPercentile(50)).toBe('50th percentile');
     expect(formatPercentile(75)).toBe('75th percentile');

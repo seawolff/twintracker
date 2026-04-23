@@ -8,6 +8,7 @@ import {
   i18n,
   formatMs,
   getNapActionType,
+  getAgeWeeks,
 } from '@tt/core';
 import { spacing, radius, fonts } from '../theme/tokens';
 import {
@@ -24,6 +25,7 @@ import { TriageStrip } from './TriageStrip';
 import { NapTimerModal } from './NapTimerModal';
 import { FeedPickerModal } from './FeedPickerModal';
 import { MoreMenuSheet } from './MoreMenuSheet';
+import { SleepTrainingInfoSheet } from './SleepTrainingInfoSheet';
 import { TimerPickerModal } from './TimerPickerModal';
 
 interface BabyCardProps {
@@ -39,6 +41,8 @@ interface BabyCardProps {
   wakeHour?: number;
   sleepTraining?: boolean;
   napCheckMinutes?: number;
+  // True when the household theme has been forced into night mode by a real sleep event.
+  householdNightMode?: boolean;
   // Alarm props
   activeAlarm?: NapAlarm;
   onSetAlarm?: (durationMs: number, isCustomTimer: boolean) => void;
@@ -69,6 +73,7 @@ export function BabyCard({
   wakeHour = 7,
   sleepTraining = false,
   napCheckMinutes = 15,
+  householdNightMode = false,
   activeAlarm,
   onSetAlarm,
   onDismissAlarm,
@@ -80,6 +85,7 @@ export function BabyCard({
   const [timerOpen, setTimerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [timerPickerOpen, setTimerPickerOpen] = useState(false);
+  const [sleepTrainingInfoOpen, setSleepTrainingInfoOpen] = useState(false);
   const [pressedBtn, setPressedBtn] = useState('');
   const [, tick] = useState(0); // 1s re-render for badge countdown
 
@@ -107,6 +113,7 @@ export function BabyCard({
   }, [activeAlarm]);
 
   const babyEvents = useMemo(() => events.filter(e => e.babyId === baby.id), [events, baby.id]);
+  const ageWeeks = useMemo(() => getAgeWeeks(baby.birthDate), [baby.birthDate]);
   const learnedStats = useMemo(() => computeLearnedStats(babyEvents, now), [babyEvents, now]);
   const insight = useMemo(
     () => getBabyInsight(baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour),
@@ -141,7 +148,11 @@ export function BabyCard({
   const napActionType: EventType = getNapActionType(napIsActive, sleepIsActive, isSleepMode);
   // Stage 1 shows "Nap" label (same as daytime Stage 2) — logs as 'sleep' type behind the scenes.
   // Night mode and bedtime stretch show "Sleep" label; Stage 1 does not.
-  const isSleepLabel = insight.isNight || insight.isBedtimeStretch;
+  // Also show "Sleep" when the household is currently in night mode because a real sleep event
+  // flipped the theme before the configured bedtime. Guard against napWaking so we don't relabel
+  // an actively sleeping baby.
+  const isSleepLabel =
+    insight.isNight || insight.isBedtimeStretch || (householdNightMode && !napWaking);
   const napLabel = napWaking
     ? i18n.t('home.action_wake')
     : isSleepLabel
@@ -273,13 +284,18 @@ export function BabyCard({
 
       {/* ── Sleep training badge — shown while nap/sleep is active ── */}
       {sleepTraining && napWaking && (
-        <View style={[styles.sleepTrainingBadge, { borderColor: theme.border }]}>
+        <Pressable
+          onPress={() => setSleepTrainingInfoOpen(true)}
+          accessibilityLabel={`Sleep training information for ${baby.name}`}
+          accessibilityRole="button"
+          style={[styles.sleepTrainingBadge, { borderColor: theme.border }]}
+        >
           <Text
             style={[styles.sleepTrainingText, { color: theme.textDim, fontFamily: fonts.mono }]}
           >
             {i18n.t('settings.sleep_training_wait', { minutes: insight.selfSoothingMinutes })}
           </Text>
-        </View>
+        </Pressable>
       )}
 
       {/* ── Predictions — bottle and diaper hidden during sleep ── */}
@@ -302,6 +318,10 @@ export function BabyCard({
                 ? due
                   ? i18n.t('home.pred_bottle_due')
                   : i18n.t('home.pred_bottle_in', { time: formatMs(p.remainingMs) })
+                : p.type === 'sleep'
+                  ? due
+                    ? i18n.t('home.pred_sleep_due')
+                    : i18n.t('home.pred_sleep_in', { time: formatMs(p.remainingMs) })
                 : p.type === 'diaper'
                   ? due
                     ? i18n.t('home.pred_change_due')
@@ -431,6 +451,14 @@ export function BabyCard({
         onLog={type => onLog(type)}
         onOpenTimer={() => setTimerPickerOpen(true)}
         onClose={() => setMoreOpen(false)}
+      />
+
+      <SleepTrainingInfoSheet
+        visible={sleepTrainingInfoOpen}
+        babyName={baby.name}
+        scheduleStage={insight.scheduleStage}
+        ageWeeks={ageWeeks}
+        onClose={() => setSleepTrainingInfoOpen(false)}
       />
 
       {/* ── Custom timer picker ── */}

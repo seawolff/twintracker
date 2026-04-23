@@ -22,6 +22,10 @@ import {
   scheduleAlarmAt,
   setupNotificationChannel,
 } from './notifications';
+import {
+  clearAndroidLockScreenNotifications,
+  syncAndroidLockScreenNotifications,
+} from './androidLockScreenBridge';
 
 // Tell Expo how to display notifications while the app is foregrounded.
 // Must be set before any notification is delivered.
@@ -52,10 +56,12 @@ import {
   Alert,
   Animated,
   AppState,
+  Image,
   InteractionManager,
   KeyboardAvoidingView,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -70,7 +76,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { DateTimePickerSheet } from './DateTimePickerSheet';
 import {
   configure,
@@ -79,7 +85,9 @@ import {
   usePreferences,
   useAlarms,
   setNightBoundaries,
-  setSleepActive,
+  setSleepThemeAnchors,
+  getSleepThemeAnchors,
+  getSleepThemeOverride,
   api,
   generateMockEvents,
   computeAnalytics,
@@ -101,16 +109,27 @@ import {
   WAKE_HOURS,
   hourLabel,
   findUnsyncedBaby,
+  shouldDismissSyncSuggestion,
   getActiveEvent,
   findSyncedNapBaby,
   MIN_DAYS_FOR_MONTH_VIEW,
   EVENT_TYPES,
   applyHistoryFilters,
   emptyFilters,
+  getEventSide,
   isFilterActive,
+  getEventStashOz,
+  parseBottleNotes,
+  summarizeStashInventory,
   getAgeWeeks,
+  formatMilestoneText,
   authorColor,
   i18n,
+  buildLiveActivitySnapshots,
+  buildAndroidLockScreenNotificationPayload,
+  defaultQuickAddDateForHistoryDay,
+  formatLocalDateInputValue,
+  isFutureLocalDateInputValue,
 } from '@tt/core';
 import type {
   Baby,
@@ -137,15 +156,18 @@ import {
   DiaperIcon,
   FoodIcon,
   MilestoneIcon,
+  PumpIcon,
   SettingsIcon,
   FilterIcon,
   PersonIcon,
 } from '@tt/ui';
 import { asyncStorage } from './storage';
+import { clearLiveActivities, syncLiveActivities } from './liveActivityBridge';
 import Constants from 'expo-constants';
 
 configure(
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000',
+  process.env.EXPO_PUBLIC_API_URL ??
+    (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000'),
   undefined,
   Platform.OS === 'ios' ? 'ios' : 'android',
   // Version from app.json — present in both Expo Go and standalone builds.
@@ -166,6 +188,65 @@ if (!IS_EXPO_GO) {
 }
 
 type Tab = 'home' | 'history' | 'settings';
+
+function TwinTrackerAuthMark({ inverted }: { inverted: boolean }) {
+  const background = inverted ? '#ffffff' : '#000000';
+  const foreground = inverted ? '#000000' : '#ffffff';
+
+  return (
+    <View
+      style={[
+        loginStyles.logoFrame,
+        inverted ? loginStyles.logoFrameInverted : null,
+        { backgroundColor: background },
+      ]}
+    >
+      <Svg width={120} height={120} viewBox="0 0 1024 1024" accessibilityLabel="TwinTracker icon">
+        <Rect width="1024" height="1024" rx="220" fill={background} />
+        <Path
+          d="M 345 160 L 383 142 L 413 133 L 444 128 L 491 128 L 540 137 L 573 149 L 606 167 L 625 181 L 630 187 L 632 187 L 656 212 L 680 247 L 694 277 L 705 315 L 710 349 L 709 394 L 700 436 L 688 466 L 658 461 L 620 461 L 580 468 L 541 482 L 507 501 L 491 515 L 489 515 L 483 522 L 481 522 L 455 550 L 444 565 L 435 582 L 401 577 L 357 563 L 330 549 L 301 528 L 278 505 L 278 503 L 263 486 L 247 460 L 235 432 L 216 432 L 205 429 L 192 422 L 183 414 L 172 393 L 170 370 L 176 350 L 189 334 L 196 329 L 211 323 L 232 323 L 242 284 L 248 269 L 267 234 L 273 228 L 274 224 L 281 217 L 281 215 L 286 211 L 286 209 L 303 191 L 305 191 L 322 175 Z"
+          fill={foreground}
+        />
+        <Path
+          d="M 584 895 L 552 888 L 510 871 L 485 855 L 457 829 L 434 795 L 424 772 L 419 753 L 401 747 L 387 733 L 379 710 L 380 686 L 386 671 L 396 660 L 410 653 L 424 653 L 427 638 L 435 617 L 453 583 L 475 553 L 497 531 L 499 531 L 511 520 L 549 498 L 575 488 L 599 482 L 621 479 L 658 479 L 684 483 L 718 494 L 743 507 L 773 529 L 795 552 L 815 582 L 827 608 L 835 634 L 839 665 L 851 666 L 865 672 L 874 680 L 881 692 L 884 702 L 883 729 L 873 750 L 860 762 L 844 769 L 823 768 L 812 790 L 788 822 L 761 847 L 727 870 L 701 882 L 657 894 L 633 897 L 600 897 Z"
+          fill={foreground}
+        />
+        <Path
+          d="M 483 228 L 494 223 L 502 215 L 505 209 L 507 203 L 507 192 L 502 181 L 495 175 L 493 166 L 499 159 L 508 159 L 522 173 L 527 187 L 528 203 L 525 216 L 520 226 L 507 240 L 488 249 L 462 250 L 442 244 L 436 237 L 436 230 L 443 223 L 450 223 L 452 225 L 467 229 Z"
+          fill={background}
+        />
+        <Path
+          d="M 393 374 L 403 368 L 414 354 L 422 353 L 425 354 L 431 362 L 428 373 L 412 388 L 402 393 L 390 396 L 368 395 L 351 388 L 334 372 L 330 361 L 335 353 L 345 352 L 361 370 L 369 374 L 379 376 Z"
+          fill={background}
+        />
+        <Path
+          d="M 563 398 L 544 391 L 526 375 L 523 370 L 523 362 L 528 356 L 538 355 L 550 370 L 567 378 L 582 377 L 591 373 L 607 356 L 615 356 L 621 361 L 621 371 L 616 378 L 601 391 L 581 398 Z"
+          fill={background}
+        />
+        <Path
+          d="M 464 478 L 448 472 L 433 459 L 430 454 L 430 446 L 434 441 L 444 441 L 453 452 L 468 459 L 484 459 L 490 457 L 497 453 L 507 441 L 513 440 L 519 443 L 521 447 L 520 455 L 506 470 L 487 478 Z"
+          fill={background}
+        />
+        <Path
+          d="M 599 557 L 608 566 L 622 569 L 632 565 L 639 557 L 648 556 L 654 562 L 654 570 L 645 581 L 628 589 L 611 589 L 604 587 L 592 580 L 584 572 L 576 553 L 575 544 L 577 529 L 581 520 L 587 512 L 591 510 L 591 508 L 599 503 L 608 503 L 613 508 L 613 517 L 605 523 L 598 532 L 596 548 Z"
+          fill={background}
+        />
+        <Path
+          d="M 482 687 L 489 672 L 497 665 L 508 660 L 523 660 L 534 665 L 543 674 L 548 684 L 549 696 L 544 703 L 536 704 L 530 699 L 528 687 L 520 681 L 512 680 L 506 683 L 502 688 L 499 700 L 494 704 L 489 704 L 482 699 Z"
+          fill={background}
+        />
+        <Path
+          d="M 700 681 L 704 688 L 705 700 L 704 703 L 697 708 L 692 708 L 686 703 L 683 690 L 673 683 L 665 684 L 659 688 L 655 695 L 654 703 L 650 707 L 641 707 L 635 699 L 638 684 L 643 676 L 650 669 L 660 664 L 678 663 L 685 665 L 698 676 Z"
+          fill={background}
+        />
+        <Path
+          d="M 636 781 L 624 793 L 609 800 L 599 802 L 579 802 L 570 800 L 550 790 L 538 778 L 530 761 L 530 753 L 534 748 L 543 747 L 549 752 L 552 762 L 562 773 L 576 780 L 593 782 L 611 777 L 623 767 L 629 754 L 633 750 L 642 750 L 647 755 L 647 764 L 642 775 Z"
+          fill={background}
+        />
+      </Svg>
+    </View>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // LoginScreen
@@ -252,6 +333,7 @@ function LoginScreen({
     >
       <StatusBar style={theme.mode === 'night' ? 'light' : 'dark'} />
       <View style={loginStyles.inner}>
+        <TwinTrackerAuthMark inverted={theme.mode === 'night'} />
         <Text style={[loginStyles.title, { color: theme.text }]}>{t('auth.title')}</Text>
         <Text style={[loginStyles.tagline, { color: theme.textMuted }]}>{t('auth.tagline')}</Text>
 
@@ -641,6 +723,22 @@ function HomeScreen({
 
   const { alarms, createAlarm, dismissAlarm, rescheduleAlarm, getAlarmForBaby } = useAlarms();
 
+  const sleepThemeAnchors = useMemo(
+    () => getSleepThemeAnchors(babies.map(baby => baby.id), latest),
+    [babies, latest],
+  );
+  const sleepThemeOverride = useMemo(
+    () =>
+      getSleepThemeOverride(
+        sleepThemeAnchors.latestSleepStartMs,
+        sleepThemeAnchors.latestSleepEndMs,
+        new Date(),
+        bedtimeHour,
+      ),
+    [sleepThemeAnchors, bedtimeHour],
+  );
+  const householdNightMode = sleepThemeOverride === 'night';
+
   // Set up notification channel (Android) and request permission once on mount
   useEffect(() => {
     setupNotificationChannel().catch(console.error);
@@ -768,8 +866,7 @@ function HomeScreen({
       setCreateError(t('onboarding.error_dob_required'));
       return;
     }
-    const today = new Date().toISOString().split('T')[0];
-    if (entries.some(en => en.name.trim() && en.birthDate > today)) {
+    if (entries.some(en => en.name.trim() && isFutureLocalDateInputValue(en.birthDate))) {
       setCreateError(t('onboarding.error_dob_future'));
       return;
     }
@@ -859,6 +956,10 @@ function HomeScreen({
     try {
       await logEvent(payload);
 
+      if (shouldDismissSyncSuggestion(syncSuggestion, payload)) {
+        setSyncSuggestion(null);
+      }
+
       // Twin sync: if twinSync is on and the other baby's matching event is stale, show a one-tap banner.
       const syncableTypes: SyncableEventType[] = [
         'nap',
@@ -945,7 +1046,7 @@ function HomeScreen({
                       mode: 'date',
                       maximumDate: new Date(),
                       onConfirm: (d: Date) => {
-                        const iso = d.toISOString().split('T')[0];
+                        const iso = formatLocalDateInputValue(d);
                         setEntries(prev =>
                           prev.map((e, j) => (j === i ? { ...e, birthDate: iso } : e)),
                         );
@@ -1302,6 +1403,7 @@ function HomeScreen({
                 wakeHour={wakeHour}
                 sleepTraining={sleepTraining}
                 napCheckMinutes={napCheckMinutes}
+                householdNightMode={householdNightMode}
                 activeAlarm={getAlarmForBaby(baby.id)}
                 onSetAlarm={(durationMs, isCustomTimer) =>
                   handleSetAlarm(baby, durationMs, isCustomTimer)
@@ -1515,12 +1617,77 @@ function HistoryScreen({
   const [quickType, setQuickType] = useState<EventType | null>(null);
   const [filters, setFilters] = useState<HistoryFilters>(emptyFilters());
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const filterSheetTranslateY = useRef(new Animated.Value(320)).current;
+  const filterSheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onPanResponderMove: (_, gs) => {
+        if (gs.dy > 0) {
+          filterSheetTranslateY.setValue(gs.dy);
+        }
+      },
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dy > 80 || gs.vy > 0.5) {
+          filterSheetTranslateY.setValue(320);
+          setFilterSheetOpen(false);
+        } else {
+          Animated.spring(filterSheetTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 200,
+            mass: 0.85,
+          }).start();
+        }
+      },
+    }),
+  ).current;
+
+  useEffect(() => {
+    if (!filterSheetOpen) {
+      return;
+    }
+    filterSheetTranslateY.setValue(320);
+    Animated.spring(filterSheetTranslateY, {
+      toValue: 0,
+      useNativeDriver: true,
+      damping: 20,
+      stiffness: 200,
+      mass: 0.85,
+    }).start();
+  }, [filterSheetOpen, filterSheetTranslateY]);
 
   // Derive authors from the full unfiltered list so pills don't disappear mid-filter
   const availableAuthors = useMemo(
     () => [...new Set(events.map(e => e.loggedByName).filter((n): n is string => Boolean(n)))],
     [events],
   );
+  const availableSides = useMemo(
+    () =>
+      [
+        ...new Set(
+          events
+            .map(getEventSide)
+            .filter((side): side is 'left' | 'right' | 'both' => Boolean(side)),
+        ),
+      ].sort((a, b) => {
+        const order = { left: 0, right: 1, both: 2 };
+        return order[a] - order[b];
+      }),
+    [events],
+  );
+  const availableStashOz = useMemo(
+    () =>
+      [...new Set(events.map(getEventStashOz).filter((oz): oz is number => oz > 0))].sort(
+        (a, b) => a - b,
+      ),
+    [events],
+  );
+  const stashInventory = useMemo(() => summarizeStashInventory(events), [events]);
+  const showStashInventory = stashInventory.totalOz > 0;
 
   const filteredEvents = useMemo(() => applyHistoryFilters(events, filters), [events, filters]);
 
@@ -1550,16 +1717,35 @@ function HistoryScreen({
     });
   }
 
+  function toggleSide(side: 'left' | 'right' | 'both') {
+    setFilters(f => {
+      const next = new Set(f.sides);
+      next.has(side) ? next.delete(side) : next.add(side);
+      return { ...f, sides: next };
+    });
+  }
+
+  function toggleStashOz(oz: number) {
+    setFilters(f => {
+      const next = new Set(f.stashOz);
+      next.has(oz) ? next.delete(oz) : next.add(oz);
+      return { ...f, stashOz: next };
+    });
+  }
+
+  function stashLocationLabel(location: 'fridge' | 'freezer' | 'unknown'): string {
+    if (location === 'fridge') {
+      return t('log_sheet.stash_fridge');
+    }
+    if (location === 'freezer') {
+      return t('log_sheet.stash_freezer');
+    }
+    return location;
+  }
+
   function handleAddForDay(date: Date) {
-    const now = new Date();
-    // Current period: period start is within last 24h → use current time
-    // Past period: use noon of that calendar day (sensible default to adjust from)
-    const isCurrentPeriod = date.getTime() + 24 * 60 * 60 * 1000 > now.getTime();
-    const adjusted = isCurrentPeriod
-      ? now
-      : new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
     setFilterSheetOpen(false);
-    setQuickAddDate(adjusted);
+    setQuickAddDate(defaultQuickAddDateForHistoryDay(date, new Date()));
     setQuickBaby(null);
     setQuickType(null);
   }
@@ -1577,6 +1763,63 @@ function HistoryScreen({
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {showStashInventory && (
+        <View
+          style={[
+            historyStashStyles.card,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[historyStashStyles.label, { color: theme.textMuted }]}>
+            {t('history.stash_inventory_title')}
+          </Text>
+          <Text style={[historyStashStyles.value, { color: theme.text }]}>
+            {t('history.stash_inventory_total', { oz: String(stashInventory.totalOz) })}
+          </Text>
+          <Text style={[historyStashStyles.subhead, { color: theme.textMuted }]}>
+            {t('history.stash_inventory_subtitle')}
+          </Text>
+          <Text style={[historyStashStyles.detail, { color: theme.textDim }]}>
+            {t('history.stash_inventory_detail', {
+              bottles: String(stashInventory.totalBottles),
+              sessions: String(stashInventory.totalSessions),
+            })}
+          </Text>
+          <Text style={[historyStashStyles.detail, { color: theme.textDim }]}>
+            {t('history.stash_inventory_breakdown', {
+              fridgeOz: String(stashInventory.fridgeOz),
+              freezerOz: String(stashInventory.freezerOz),
+            })}
+          </Text>
+          {stashInventory.expiredBottles > 0 ? (
+            <Text style={[historyStashStyles.note, { color: theme.textMuted }]}>
+              {t('history.stash_inventory_expired', {
+                count: stashInventory.expiredBottles,
+              })}
+            </Text>
+          ) : stashInventory.expiringSoonBottles > 0 ? (
+            <Text style={[historyStashStyles.note, { color: theme.textMuted }]}>
+              {t('history.stash_inventory_expiring', {
+                count: stashInventory.expiringSoonBottles,
+              })}
+            </Text>
+          ) : stashInventory.oldestAgeDays != null && stashInventory.oldestLocation != null ? (
+            <Text style={[historyStashStyles.note, { color: theme.textMuted }]}>
+              {t('history.stash_inventory_fifo', {
+                location: stashLocationLabel(stashInventory.oldestLocation),
+                days: String(stashInventory.oldestAgeDays),
+              })}
+            </Text>
+          ) : null}
+          {stashInventory.unmatchedUsageOz > 0 && (
+            <Text style={[historyStashStyles.note, { color: theme.textMuted }]}>
+              {t('history.stash_inventory_unmatched', {
+                oz: String(stashInventory.unmatchedUsageOz),
+              })}
+            </Text>
+          )}
+        </View>
+      )}
       <HistoryFeed
         events={filteredEvents}
         babies={babies}
@@ -1686,7 +1929,7 @@ function HistoryScreen({
       <Modal
         visible={filterSheetOpen}
         transparent
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setFilterSheetOpen(false)}
       >
         <Pressable style={filterStyles.backdrop} onPress={() => setFilterSheetOpen(false)} />
@@ -1703,12 +1946,16 @@ function HistoryScreen({
             )}
           </Pressable>
         </View>
-        <View
+        <Animated.View
           style={[
             filterStyles.sheet,
             { backgroundColor: theme.surface, borderTopColor: theme.border },
+            { transform: [{ translateY: filterSheetTranslateY }] },
           ]}
         >
+          <View style={filterStyles.dragHeader} {...filterSheetPanResponder.panHandlers}>
+            <View style={[filterStyles.handle, { backgroundColor: theme.border }]} />
+          </View>
           <ScrollView showsVerticalScrollIndicator={false}>
             {babies.length > 1 && (
               <>
@@ -1796,6 +2043,66 @@ function HistoryScreen({
               </>
             )}
 
+            {availableSides.length > 0 && (
+              <>
+                <Text style={[filterStyles.sectionLabel, { color: theme.textMuted }]}>
+                  {t('history.filter_sides')}
+                </Text>
+                <View style={filterStyles.pillRow}>
+                  {availableSides.map(side => (
+                    <Pressable
+                      key={side}
+                      onPress={() => toggleSide(side)}
+                      style={[
+                        filterStyles.pill,
+                        { borderColor: filters.sides.has(side) ? theme.accent : theme.border },
+                        filters.sides.has(side) && { backgroundColor: theme.accent },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          filterStyles.pillText,
+                          { color: filters.sides.has(side) ? theme.bg : theme.text },
+                        ]}
+                      >
+                        {t(side === 'both' ? 'log_sheet.pump_both' : `log_sheet.nursing_${side}`)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {availableStashOz.length > 0 && (
+              <>
+                <Text style={[filterStyles.sectionLabel, { color: theme.textMuted }]}>
+                  {t('history.filter_stash')}
+                </Text>
+                <View style={filterStyles.pillRow}>
+                  {availableStashOz.map(oz => (
+                    <Pressable
+                      key={oz}
+                      onPress={() => toggleStashOz(oz)}
+                      style={[
+                        filterStyles.pill,
+                        { borderColor: filters.stashOz.has(oz) ? theme.accent : theme.border },
+                        filters.stashOz.has(oz) && { backgroundColor: theme.accent },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          filterStyles.pillText,
+                          { color: filters.stashOz.has(oz) ? theme.bg : theme.text },
+                        ]}
+                      >
+                        {oz}oz
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+
             <Pressable
               onPress={() => {
                 setFilters(emptyFilters());
@@ -1808,7 +2115,7 @@ function HistoryScreen({
               </Text>
             </Pressable>
           </ScrollView>
-        </View>
+        </Animated.View>
       </Modal>
     </View>
   );
@@ -1929,11 +2236,13 @@ function NativeTrendSparkline({
   data,
   height = 48,
   benchmarkValue,
+  benchmarkLabel,
   color,
 }: {
   data: TrendPoint[];
   height?: number;
   benchmarkValue?: number;
+  benchmarkLabel?: string;
   color: string;
 }) {
   const nonNull = data.map(p => p.value).filter((v): v is number => v !== null);
@@ -1990,6 +2299,18 @@ function NativeTrendSparkline({
           strokeDasharray="3 3"
           opacity={0.4}
         />
+      )}
+      {benchmarkY !== null && benchmarkLabel && (
+        <SvgText
+          x={WIDTH - 4}
+          y={benchmarkY - 3}
+          textAnchor="end"
+          fill={color}
+          fontSize={9}
+          opacity={0.6}
+        >
+          {benchmarkLabel}
+        </SvgText>
       )}
       {segments.map((pts, idx) => (
         <Polyline
@@ -2326,7 +2647,7 @@ function AnalyticsScreen({
         {a.totalOzThisWeek > 0 ? (
           <>
             <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
-              {`${Math.round(a.totalOzThisWeek)} oz`}
+              {`${formatExactTotal(a.totalOzThisWeek)} oz`}
             </Text>
             <View style={analyticsStyles.statsGrid}>
               {a.avgOzPerFeed != null && (
@@ -2353,6 +2674,33 @@ function AnalyticsScreen({
           </Text>
         )}
       </Card>
+
+      {(a.totalPumpedOzThisWeek > 0 ||
+        trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3) && (
+        <Card icon={<PumpIcon size={14} color={theme.textMuted} />} title={t('analytics.pumping')}>
+          {a.totalPumpedOzThisWeek > 0 ? (
+            <>
+              <Text style={[analyticsStyles.primaryStat, { color: theme.text }]}>
+                {`${formatExactTotal(a.totalPumpedOzThisWeek)} oz`}
+              </Text>
+              <View style={analyticsStyles.statsGrid}>
+                <StatRow
+                  label={t('analytics.pumped_oz_per_day_label')}
+                  value={`${a.avgPumpedOzPerDay.toFixed(1)} oz/day`}
+                />
+                <StatRow
+                  label={t('analytics.milk_balance_label')}
+                  value={`${formatExactTotal(a.lactationBalanceOzThisWeek)} oz`}
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={[analyticsStyles.empty, { color: theme.textMuted }]}>
+              {t('analytics.pumping_empty', { period: 'this period' })}
+            </Text>
+          )}
+        </Card>
+      )}
 
       {/* ── Sleep ───────────────────────────────────────────────────────────── */}
       {isNewborn ? (
@@ -2478,6 +2826,7 @@ function AnalyticsScreen({
                 ? Math.round(86400000 / trend.targetFeedIntervalMs)
                 : 6)
             }
+            benchmarkLabel={`${t('analytics.target_label')} ${a.targetOzPerFeed} oz`}
             color={theme.text}
             height={52}
           />
@@ -2487,6 +2836,32 @@ function AnalyticsScreen({
           <NativeTrendSparkline
             data={trend.feedIntervalByDay}
             benchmarkValue={trend.targetFeedIntervalMs}
+            benchmarkLabel={`${t('analytics.target_label')} ${fmtMs(trend.targetFeedIntervalMs)}`}
+            color={theme.text}
+            height={52}
+          />
+          <Text style={[analyticsStyles.trendNote, { color: theme.textMuted, marginTop: 6 }]}>
+            {t('analytics.last_14_days')}
+          </Text>
+        </Card>
+      )}
+
+      {showTrends && trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3 && (
+        <Card
+          icon={<PumpIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.pumping_trends')}
+        >
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim }]}>
+            {t('analytics.pumped_oz_per_day_label')}
+          </Text>
+          <NativeTrendBars data={trend.pumpedOzPerDay} color={theme.text} height={72} />
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim, marginTop: 10 }]}>
+            {t('analytics.milk_balance_label')}
+          </Text>
+          <NativeTrendSparkline
+            data={trend.milkBalanceByDay}
+            benchmarkValue={0}
+            benchmarkLabel={`${t('analytics.target_label')} 0`}
             color={theme.text}
             height={52}
           />
@@ -2693,7 +3068,10 @@ function AnalyticsScreen({
         >
           {a.milestones.map(m => (
             <Text key={m.id} style={[analyticsStyles.milestone, { color: theme.text }]}>
-              {t('analytics.milestone_row', { notes: m.notes, date: fmtDate(m.startedAt) })}
+              {t('analytics.milestone_row', {
+                notes: formatMilestoneText(m.notes),
+                date: fmtDate(m.startedAt),
+              })}
             </Text>
           ))}
         </Card>
@@ -2719,6 +3097,10 @@ function SettingsScreen({
   setWakeHour,
   sleepTraining,
   setSleepTraining,
+  liveActivitiesEnabled,
+  setLiveActivitiesEnabled,
+  androidLockScreenNotificationsEnabled,
+  setAndroidLockScreenNotificationsEnabled,
   units,
   setUnits,
   babiesCount,
@@ -2745,6 +3127,10 @@ function SettingsScreen({
   setWakeHour: (h: number) => void;
   sleepTraining: boolean;
   setSleepTraining: (v: boolean) => void;
+  liveActivitiesEnabled: boolean;
+  setLiveActivitiesEnabled: (v: boolean) => void;
+  androidLockScreenNotificationsEnabled: boolean;
+  setAndroidLockScreenNotificationsEnabled: (v: boolean) => void;
   units: 'metric' | 'imperial';
   setUnits: (u: 'metric' | 'imperial') => void;
   babiesCount: number;
@@ -2903,6 +3289,86 @@ function SettingsScreen({
           </View>
         </Pressable>
       </View>
+
+      {Platform.OS === 'ios' ? (
+        <View style={section}>
+          <Pressable
+            onPress={() => setLiveActivitiesEnabled(!liveActivitiesEnabled)}
+            style={[
+              switchRowStyles.row,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: liveActivitiesEnabled }}
+          >
+            <View style={switchRowStyles.content}>
+              <Text style={[switchRowStyles.label, { color: theme.text }]}>
+                {t('settings.ios_live_activities_title')}
+              </Text>
+              <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+                {t('settings.ios_live_activities_hint')}
+              </Text>
+            </View>
+            <View
+              style={[
+                switchRowStyles.track,
+                { backgroundColor: liveActivitiesEnabled ? theme.accent : theme.border },
+              ]}
+            >
+              <View
+                style={[
+                  switchRowStyles.thumb,
+                  { backgroundColor: theme.bg },
+                  liveActivitiesEnabled && switchRowStyles.thumbOn,
+                ]}
+              />
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {Platform.OS === 'android' ? (
+        <View style={section}>
+          <Pressable
+            onPress={() =>
+              setAndroidLockScreenNotificationsEnabled(!androidLockScreenNotificationsEnabled)
+            }
+            style={[
+              switchRowStyles.row,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: androidLockScreenNotificationsEnabled }}
+          >
+            <View style={switchRowStyles.content}>
+              <Text style={[switchRowStyles.label, { color: theme.text }]}>
+                {t('settings.android_lock_screen_title')}
+              </Text>
+              <Text style={[switchRowStyles.hint, { color: theme.textMuted }]}>
+                {t('settings.android_lock_screen_hint')}
+              </Text>
+            </View>
+            <View
+              style={[
+                switchRowStyles.track,
+                {
+                  backgroundColor: androidLockScreenNotificationsEnabled
+                    ? theme.accent
+                    : theme.border,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  switchRowStyles.thumb,
+                  { backgroundColor: theme.bg },
+                  androidLockScreenNotificationsEnabled && switchRowStyles.thumbOn,
+                ]}
+              />
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* ── Units ───────────────────────────────────────────────────────────── */}
       <View style={section}>
@@ -3239,6 +3705,10 @@ function TabBar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab:
     <View style={[tabStyles.bar, { backgroundColor: theme.bg, borderTopColor: theme.border }]}>
       {textTabs.map(tab => {
         const active = activeTab === tab.key;
+        const historyIconStyle =
+          Platform.OS === 'android' && tab.key === 'history'
+            ? tabStyles.historyIconAndroid
+            : null;
         return (
           <Pressable
             key={tab.key}
@@ -3248,7 +3718,13 @@ function TabBar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab:
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
           >
-            <Text style={[tabStyles.icon, { color: active ? theme.text : theme.textMuted }]}>
+            <Text
+              style={[
+                tabStyles.icon,
+                historyIconStyle,
+                { color: active ? theme.text : theme.textMuted },
+              ]}
+            >
               {tab.icon}
             </Text>
           </Pressable>
@@ -3274,6 +3750,10 @@ function TabBar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab:
 //   isLarge   ≥ 1024pt — iPad landscape+   (side nav rail replaces bottom bar)
 // ---------------------------------------------------------------------------
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function formatExactTotal(value: number): string {
+  return Number(value.toFixed(6)).toString();
+}
 /** iPad portrait+ — baby cards go side-by-side. */
 const TABLET_BREAKPOINT_PX = 768;
 /** iPad landscape+ — side nav rail replaces the bottom tab bar. */
@@ -3397,8 +3877,10 @@ function AppContent() {
     setBedtimeHour,
     setWakeHour,
     setSleepTraining,
+    setLiveActivitiesEnabled,
+    setAndroidLockScreenNotificationsEnabled,
     setUnits,
-  } = usePreferences(asyncStorage);
+  } = usePreferences(asyncStorage, !authLoading && isAuthenticated);
 
   const { t } = useTranslation();
 
@@ -3452,11 +3934,9 @@ function AppContent() {
   const [babiesLoading, setBabiesLoading] = useState(true);
   const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
 
-  // Flip to night mode while any baby has an active sleep (night) event.
-  // Naps do not trigger night mode.
   useEffect(() => {
-    const anySleepActive = babies.some(baby => getActiveEvent(baby.id, 'sleep', latest) != null);
-    setSleepActive(anySleepActive);
+    const anchors = getSleepThemeAnchors(babies.map(baby => baby.id), latest);
+    setSleepThemeAnchors(anchors.latestSleepStartMs, anchors.latestSleepEndMs);
   }, [babies, latest]);
 
   // Refs so the notification response handler always sees current state without re-subscribing
@@ -3484,6 +3964,39 @@ function AppContent() {
   const [mockMode, setMockMode] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [mockProgress, setMockProgress] = useState<{ done: number; total: number } | null>(null);
+  const lastLiveActivitiesPayloadRef = useRef<string | null>(null);
+  const lastAndroidLockScreenPayloadRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const handleOpenHomeLink = (url: string | null | undefined) => {
+      if (!url) {
+        return;
+      }
+      try {
+        const parsed = new URL(url);
+        const shouldOpenHome =
+          parsed.protocol === 'twintracker:' &&
+          (parsed.hostname === 'home' ||
+            parsed.pathname === '/home' ||
+            parsed.pathname === '');
+        if (shouldOpenHome) {
+          setActiveTab('home');
+          setAnalyticsBabyId(null);
+        }
+      } catch (error) {
+        console.error('[DeepLink] failed to parse URL', url, error);
+      }
+    };
+
+    Linking.getInitialURL().then(handleOpenHomeLink).catch(console.error);
+    const sub = Linking.addEventListener('url', event => {
+      handleOpenHomeLink(event.url);
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, []);
 
   // Load persisted mock mode on mount
   useEffect(() => {
@@ -3563,6 +4076,124 @@ function AppContent() {
       });
     api.auth.householdMembers().then(setMembers).catch(console.error);
   }, [authLoading, isAuthenticated]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+    if (authLoading) {
+      return;
+    }
+    if (!isAuthenticated) {
+      lastLiveActivitiesPayloadRef.current = null;
+      clearLiveActivities().catch(console.error);
+      return;
+    }
+    if (!prefs.liveActivitiesEnabled) {
+      lastLiveActivitiesPayloadRef.current = null;
+      clearLiveActivities().catch(console.error);
+      return;
+    }
+    if (babiesLoading || eventsLoading) {
+      return;
+    }
+
+    const snapshots = buildLiveActivitySnapshots(babies, latest, events, {
+      wakeHour: prefs.wakeHour,
+      bedtimeHour: prefs.bedtimeHour,
+    });
+    const payload = JSON.stringify(snapshots);
+    if (payload === lastLiveActivitiesPayloadRef.current) {
+      return;
+    }
+    lastLiveActivitiesPayloadRef.current = payload;
+    if (snapshots.length === 0) {
+      clearLiveActivities().catch(console.error);
+      return;
+    }
+    syncLiveActivities(snapshots).catch(console.error);
+  }, [
+    authLoading,
+    isAuthenticated,
+    babiesLoading,
+    eventsLoading,
+    babies,
+    latest,
+    events,
+    prefs.wakeHour,
+    prefs.bedtimeHour,
+    prefs.liveActivitiesEnabled,
+  ]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+    if (authLoading) {
+      console.log('[AndroidLockScreen] skipping sync: auth still loading');
+      return;
+    }
+    if (!isAuthenticated) {
+      console.log('[AndroidLockScreen] clearing: user not authenticated');
+      lastAndroidLockScreenPayloadRef.current = null;
+      clearAndroidLockScreenNotifications().catch(console.error);
+      return;
+    }
+    if (!prefs.androidLockScreenNotificationsEnabled) {
+      console.log('[AndroidLockScreen] clearing: setting disabled');
+      lastAndroidLockScreenPayloadRef.current = null;
+      clearAndroidLockScreenNotifications().catch(console.error);
+      return;
+    }
+    if (babiesLoading || eventsLoading) {
+      console.log('[AndroidLockScreen] skipping sync: data still loading', {
+        babiesLoading,
+        eventsLoading,
+      });
+      return;
+    }
+
+    const snapshots = buildLiveActivitySnapshots(babies, latest, events, {
+      wakeHour: prefs.wakeHour,
+      bedtimeHour: prefs.bedtimeHour,
+    });
+    const payload = buildAndroidLockScreenNotificationPayload(snapshots);
+    const payloadJson = JSON.stringify(payload);
+    console.log('[AndroidLockScreen] evaluated payload', {
+      babiesCount: babies.length,
+      eventsCount: events.length,
+      snapshotsCount: snapshots.length,
+      payloadPresent: Boolean(payload),
+      childCount: payload?.children.length ?? 0,
+      childTitles: payload?.children.map(child => child.title) ?? [],
+    });
+    if (payloadJson === lastAndroidLockScreenPayloadRef.current) {
+      console.log('[AndroidLockScreen] skipping sync: payload unchanged');
+      return;
+    }
+    lastAndroidLockScreenPayloadRef.current = payloadJson;
+    if (!payload) {
+      console.log('[AndroidLockScreen] clearing: no payload after snapshot build');
+      clearAndroidLockScreenNotifications().catch(console.error);
+      return;
+    }
+    console.log('[AndroidLockScreen] syncing notifications', {
+      summaryText: payload.summaryText,
+      childTitles: payload.children.map(child => child.title),
+    });
+    syncAndroidLockScreenNotifications(payload).catch(console.error);
+  }, [
+    authLoading,
+    isAuthenticated,
+    babiesLoading,
+    eventsLoading,
+    babies,
+    latest,
+    events,
+    prefs.wakeHour,
+    prefs.bedtimeHour,
+    prefs.androidLockScreenNotificationsEnabled,
+  ]);
 
   useEffect(() => {
     // Shared handler for when an alarm fires while the app is open (foregrounded)
@@ -3710,12 +4341,7 @@ function AppContent() {
   }, [babies, events, eventsLoading, prefs.twinSync, deleteEvent, t]);
 
   if (authLoading) {
-    return (
-      <SafeAreaView style={[appStyles.container, { backgroundColor: theme.bg }]}>
-        <StatusBar style={theme.mode === 'night' ? 'light' : 'dark'} />
-        <ActivityIndicator color={theme.text} size="large" />
-      </SafeAreaView>
-    );
+    return <BrandedLoadingScreen />;
   }
 
   if (!isAuthenticated) {
@@ -3875,20 +4501,24 @@ function AppContent() {
                   ]}
                   pointerEvents={activeTab === 'settings' ? 'auto' : 'none'}
                 >
-                  <SettingsScreen
-                    napCheckMinutes={prefs.napCheckMinutes}
-                    setNapCheckMinutes={setNapCheckMinutes}
-                    twinSync={prefs.twinSync}
-                    setTwinSync={setTwinSync}
-                    bedtimeHour={prefs.bedtimeHour}
-                    setBedtimeHour={setBedtimeHour}
-                    wakeHour={prefs.wakeHour}
-                    setWakeHour={setWakeHour}
-                    sleepTraining={prefs.sleepTraining}
-                    setSleepTraining={setSleepTraining}
-                    units={prefs.units}
-                    setUnits={setUnits}
-                    babiesCount={babies.length}
+        <SettingsScreen
+          napCheckMinutes={prefs.napCheckMinutes}
+          setNapCheckMinutes={setNapCheckMinutes}
+          twinSync={prefs.twinSync}
+          setTwinSync={setTwinSync}
+          bedtimeHour={prefs.bedtimeHour}
+          setBedtimeHour={setBedtimeHour}
+          wakeHour={prefs.wakeHour}
+          setWakeHour={setWakeHour}
+          sleepTraining={prefs.sleepTraining}
+          setSleepTraining={setSleepTraining}
+          liveActivitiesEnabled={prefs.liveActivitiesEnabled}
+          setLiveActivitiesEnabled={setLiveActivitiesEnabled}
+          androidLockScreenNotificationsEnabled={prefs.androidLockScreenNotificationsEnabled}
+          setAndroidLockScreenNotificationsEnabled={setAndroidLockScreenNotificationsEnabled}
+          units={prefs.units}
+          setUnits={setUnits}
+          babiesCount={babies.length}
                     isAdmin={isAdmin}
                     clearAllEvents={clearAllEvents}
                     onLogout={() => {
@@ -3938,6 +4568,29 @@ function AppContent() {
   );
 }
 
+function BrandedLoadingScreen() {
+  const theme = useThemeContext();
+
+  return (
+    <SafeAreaView style={[appStyles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar style={theme.mode === 'night' ? 'light' : 'dark'} />
+      <View style={loadingStyles.inner}>
+        <Image
+          source={require('./assets/icon.png')}
+          style={[loadingStyles.logo, theme.mode === 'night' ? loadingStyles.logoNight : null]}
+          accessibilityIgnoresInvertColors
+        />
+        <Text style={[loadingStyles.title, { color: theme.text }]}>TwinTracker</Text>
+        <Text style={[loadingStyles.subtitle, { color: theme.textMuted }]}>baby tracker app</Text>
+        <Text style={[loadingStyles.tagline, { color: theme.textMuted }]}>
+          Built for twins. Works beautifully for one.
+        </Text>
+        <ActivityIndicator color={theme.text} size="large" style={loadingStyles.spinner} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
 import { registerRootComponent } from 'expo';
 
 // ---------------------------------------------------------------------------
@@ -3947,6 +4600,20 @@ import { registerRootComponent } from 'expo';
 // ---------------------------------------------------------------------------
 function App() {
   const [fontsLoaded] = useFonts({ Nunito: Nunito_700Bold });
+  const [showAndroidLaunchScreen, setShowAndroidLaunchScreen] = useState(Platform.OS === 'android');
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !fontsLoaded) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowAndroidLaunchScreen(false);
+    }, 900);
+
+    return () => clearTimeout(timer);
+  }, [fontsLoaded]);
+
   if (!fontsLoaded) {
     return null;
   }
@@ -3955,7 +4622,7 @@ function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AppContent />
+          {showAndroidLaunchScreen ? <BrandedLoadingScreen /> : <AppContent />}
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -3970,6 +4637,23 @@ registerRootComponent(App);
 const loginStyles = StyleSheet.create({
   container: { flex: 1 },
   inner: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  logoFrame: {
+    width: 148,
+    height: 148,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 26,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    elevation: 8,
+  },
+  logoFrameInverted: {
+    shadowColor: '#fff',
+    shadowOpacity: 0.12,
+  },
   title: { fontSize: 36, fontWeight: '700', marginBottom: 8 },
   tagline: { fontSize: 13, marginBottom: 40, letterSpacing: 0.5 },
   input: {
@@ -4067,6 +4751,7 @@ const tabStyles = StyleSheet.create({
   item: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   itemPressed: { opacity: 0.5 },
   icon: { fontSize: 22 },
+  historyIconAndroid: { fontSize: 27, lineHeight: 27 },
 });
 
 const sideNavStyles = StyleSheet.create({
@@ -4122,6 +4807,53 @@ const appStyles = StyleSheet.create({
   },
 });
 
+const loadingStyles = StyleSheet.create({
+  inner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  logo: {
+    width: 96,
+    height: 96,
+    borderRadius: 22,
+    marginBottom: 20,
+  },
+  logoNight: {
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.92)',
+  },
+  title: {
+    fontFamily: 'Nunito',
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: -0.8,
+  },
+  subtitle: {
+    marginTop: 6,
+    fontFamily: 'Nunito',
+    fontSize: 16,
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
+  tagline: {
+    marginTop: 6,
+    fontFamily: 'DM Mono',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 280,
+  },
+  spinner: {
+    marginTop: 24,
+  },
+});
+
 const filterStyles = StyleSheet.create({
   // FAB appearance (shared between floating and in-modal states)
   fab: {
@@ -4166,6 +4898,17 @@ const filterStyles = StyleSheet.create({
     padding: 16,
     paddingBottom: 32,
   },
+  dragHeader: {
+    alignItems: 'center',
+    paddingTop: 2,
+    paddingBottom: 14,
+    marginHorizontal: -16,
+  },
+  handle: {
+    width: 32,
+    height: 4,
+    borderRadius: 2,
+  },
   sectionLabel: {
     fontFamily: 'DMMonoRegular',
     fontSize: 11,
@@ -4194,6 +4937,46 @@ const filterStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   clearAllText: { fontFamily: 'DMMonoRegular', fontSize: 12 },
+});
+
+const historyStashStyles = StyleSheet.create({
+  card: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 24,
+  },
+  label: {
+    fontFamily: 'DMMonoRegular',
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  value: {
+    fontFamily: 'Fraunces_72pt-Bold',
+    fontSize: 34,
+    lineHeight: 36,
+    marginBottom: 6,
+  },
+  subhead: {
+    fontFamily: 'DMMonoRegular',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  detail: {
+    fontFamily: 'DMMonoRegular',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  note: {
+    fontFamily: 'DMMonoRegular',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
 });
 
 const quickStyles = StyleSheet.create({

@@ -33,42 +33,45 @@ import { TimerPickerModal as TimerPickerModalWeb } from '../components/TimerPick
 // ── FeedPickerModal — native ───────────────────────────────────────────────────
 
 describe('FeedPickerModal — native', () => {
-  it('renders Bottle, Nursing, Solids when visible', () => {
+  it('renders bottle, nursing, pump, and food options when visible', () => {
     const html = renderToStaticMarkup(
       <FeedPickerModal visible babyName="Leo" onSelect={jest.fn()} onClose={jest.fn()} />,
     );
-    expect(html).toContain('Bottle');
-    expect(html).toContain('Nursing');
-    expect(html).toContain('Solids');
+    expect(html).toContain('log_sheet.types.bottle');
+    expect(html).toContain('log_sheet.types.nursing');
+    expect(html).toContain('log_sheet.types.pump');
+    expect(html).toContain('log_sheet.types.food');
   });
 
   it('renders nothing when not visible', () => {
     const html = renderToStaticMarkup(
       <FeedPickerModal visible={false} babyName="Leo" onSelect={jest.fn()} onClose={jest.fn()} />,
     );
-    expect(html).not.toContain('Bottle');
-    expect(html).not.toContain('Nursing');
-    expect(html).not.toContain('Solids');
+    expect(html).not.toContain('log_sheet.types.bottle');
+    expect(html).not.toContain('log_sheet.types.nursing');
+    expect(html).not.toContain('log_sheet.types.pump');
+    expect(html).not.toContain('log_sheet.types.food');
   });
 
-  it('includes baby name in title when visible', () => {
+  it('includes feed picker title key when visible', () => {
     const html = renderToStaticMarkup(
       <FeedPickerModal visible babyName="Mia" onSelect={jest.fn()} onClose={jest.fn()} />,
     );
-    expect(html).toContain('Mia');
+    expect(html).toContain('home.feed_picker_title');
   });
 });
 
 // ── FeedPickerModal — web ──────────────────────────────────────────────────────
 
 describe('FeedPickerModal — web', () => {
-  it('renders Bottle, Nursing, Solids when visible', () => {
+  it('renders bottle, nursing, pump, and food options when visible', () => {
     const html = renderToStaticMarkup(
       <FeedPickerModalWeb visible babyName="Leo" onSelect={jest.fn()} onClose={jest.fn()} />,
     );
-    expect(html).toContain('Bottle');
-    expect(html).toContain('Nursing');
-    expect(html).toContain('Solids');
+    expect(html).toContain('log_sheet.types.bottle');
+    expect(html).toContain('log_sheet.types.nursing');
+    expect(html).toContain('log_sheet.types.pump');
+    expect(html).toContain('log_sheet.types.food');
   });
 
   it('renders nothing when not visible', () => {
@@ -80,16 +83,17 @@ describe('FeedPickerModal — web', () => {
         onClose={jest.fn()}
       />,
     );
-    expect(html).not.toContain('Bottle');
-    expect(html).not.toContain('Nursing');
-    expect(html).not.toContain('Solids');
+    expect(html).not.toContain('log_sheet.types.bottle');
+    expect(html).not.toContain('log_sheet.types.nursing');
+    expect(html).not.toContain('log_sheet.types.pump');
+    expect(html).not.toContain('log_sheet.types.food');
   });
 
-  it('includes baby name in title when visible', () => {
+  it('includes feed picker title key when visible', () => {
     const html = renderToStaticMarkup(
       <FeedPickerModalWeb visible babyName="Mia" onSelect={jest.fn()} onClose={jest.fn()} />,
     );
-    expect(html).toContain('Mia');
+    expect(html).toContain('home.feed_picker_title');
   });
 });
 

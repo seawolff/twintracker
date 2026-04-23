@@ -12,10 +12,15 @@ export function MarketingNav({ theme, onToggle }: MarketingNavProps) {
   const { t } = useTranslation();
   return (
     <nav className={styles.nav}>
-      <a href="/" className={styles.logo}>
-        <TwinsIcon className={styles.brandMark} title={t('landing.logo')} />
-        {t('landing.logo')}
-      </a>
+      <div className={styles.navLeft}>
+        <a href="/" className={styles.logo}>
+          <TwinsIcon className={styles.brandMark} title={t('landing.logo')} />
+          {t('landing.logo')}
+        </a>
+        <a href="/posts" className={styles.navLink}>
+          {t('landing.posts')}
+        </a>
+      </div>
       <div className={styles.navRight}>
         <button
           className={styles.themeBtn}
@@ -24,7 +29,12 @@ export function MarketingNav({ theme, onToggle }: MarketingNavProps) {
         >
           {theme === 'day' ? '◑' : '◐'}
         </button>
-        <a href="/login" className={styles.signIn}>
+        <a
+          href="/login"
+          className={styles.signIn}
+          data-umami-event="auth_sign_in_click"
+          data-umami-event-location="marketing_nav"
+        >
           {t('landing.sign_in')}
         </a>
       </div>

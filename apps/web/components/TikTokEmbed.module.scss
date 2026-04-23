@@ -1,0 +1,36 @@
+@use '../styles/variables' as *;
+
+.wrap {
+  display: grid;
+  gap: $space-sm;
+  margin: $space-xl 0;
+  justify-items: center;
+}
+
+.frame {
+  width: min(100%, 420px);
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-lg;
+  overflow: hidden;
+  background: var(--tt-surface);
+}
+
+.frame iframe {
+  display: block;
+  width: 100%;
+  min-height: 740px;
+  border: 0;
+}
+
+.caption {
+  width: min(100%, 420px);
+  font-family: $font-mono;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--tt-text-muted);
+}
+
+.caption a {
+  color: var(--tt-text);
+  border-bottom: 1px solid var(--tt-accent);
+}

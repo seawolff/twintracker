@@ -19,14 +19,28 @@ import type { Baby, EventType, LogEventPayload, TrackerEvent } from '@tt/core';
 import {
   useThemeContext,
   BOTTLE_OZ,
+  BOTTLE_SOURCE_OPTIONS,
   MAX_BOTTLE_OZ,
+  MAX_PUMP_OZ,
   NURSING_MINUTES,
   NURSING_BREAST_OPTIONS,
+  PUMP_MINUTES,
+  PUMP_SIDE_OPTIONS,
+  STASH_LOCATION_OPTIONS,
+  STASH_BOTTLE_COUNTS,
   DIAPER_OPTIONS,
   i18n,
   authorColor,
+  getSuggestedMilestones,
+  milestoneLabel,
+  parseMilestoneNotes,
+  parseBottleNotes,
+  parsePumpNotes,
+  serializeMilestoneNotes,
+  serializeBottleNotes,
+  serializePumpNotes,
 } from '@tt/core';
-import type { DiaperOption, NursingBreast } from '@tt/core';
+import type { BottleSource, DiaperOption, NursingBreast, PumpSide, StashLocation } from '@tt/core';
 import { spacing, radius, fonts } from '../theme/tokens';
 import { CloseIcon } from './icons/BabyIcons';
 
@@ -66,6 +80,9 @@ export function LogSheet({
   const isEditing = !!initialEvent;
   // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
   const [selectedOz, setSelectedOz] = useState<number>(Number(initialEvent?.value ?? 4));
+  const [selectedBottleSource, setSelectedBottleSource] = useState<BottleSource>(
+    initialEvent?.type === 'bottle' ? (parseBottleNotes(initialEvent.notes).source ?? 'formula') : 'formula',
+  );
   const [ozInput, setOzInput] = useState<string>(String(initialEvent?.value ?? 4));
   const [selectedNursingMinutes, setSelectedNursingMinutes] = useState<number>(
     Number(initialEvent?.value ?? 15),
@@ -73,13 +90,35 @@ export function LogSheet({
   const [selectedBreast, setSelectedBreast] = useState<NursingBreast>(
     (initialEvent?.type === 'nursing' ? (initialEvent?.notes as NursingBreast) : null) ?? 'left',
   );
+  const [selectedPumpMinutes, setSelectedPumpMinutes] = useState<number>(15);
+  const [selectedPumpSide, setSelectedPumpSide] = useState<PumpSide>(
+    initialEvent?.type === 'pump' ? parsePumpNotes(initialEvent.notes).side : 'both',
+  );
+  const [selectedStashCount, setSelectedStashCount] = useState<number>(
+    initialEvent?.type === 'pump' ? parsePumpNotes(initialEvent.notes).stashCount : 0,
+  );
+  const [selectedStashOz, setSelectedStashOz] = useState<number>(
+    initialEvent?.type === 'pump' ? (parsePumpNotes(initialEvent.notes).stashOzPerBottle ?? 4) : 4,
+  );
+  const [selectedStashLocation, setSelectedStashLocation] = useState<StashLocation>(
+    initialEvent?.type === 'pump'
+      ? (parsePumpNotes(initialEvent.notes).stashLocation ?? 'fridge')
+      : 'fridge',
+  );
   const [selectedDiaper, setSelectedDiaper] = useState<DiaperOption>(
     (initialEvent?.notes as DiaperOption) ?? 'wet',
   );
   const [notesText, setNotesText] = useState<string>(
-    eventType === 'food' || eventType === 'milestone' || eventType === 'medicine'
+    eventType === 'food' || eventType === 'medicine'
       ? (initialEvent?.notes ?? '')
+      : eventType === 'milestone'
+        ? ((parseMilestoneNotes(initialEvent?.notes).detail ??
+            parseMilestoneNotes(initialEvent?.notes).legacyText ??
+            '') as string)
       : '',
+  );
+  const [selectedMilestoneKey, setSelectedMilestoneKey] = useState<string | null>(
+    initialEvent?.type === 'milestone' ? parseMilestoneNotes(initialEvent.notes).key : null,
   );
   const [editStartedAt, setEditStartedAt] = useState<string>(
     initialEvent?.startedAt ?? initialStartedAt ?? new Date().toISOString(),
@@ -110,16 +149,50 @@ export function LogSheet({
     if (initialEvent) {
       setSelectedOz(Number(initialEvent.value ?? 4));
       setOzInput(String(initialEvent.value ?? 4));
+      setSelectedBottleSource(
+        initialEvent.type === 'bottle' ? (parseBottleNotes(initialEvent.notes).source ?? 'formula') : 'formula',
+      );
       setSelectedNursingMinutes(Number(initialEvent.value ?? 15));
       setSelectedBreast((initialEvent.notes as NursingBreast) ?? 'left');
+      setSelectedPumpMinutes(
+        initialEvent.type === 'pump' && initialEvent.endedAt
+          ? Math.max(
+              1,
+              Math.round(
+                (new Date(initialEvent.endedAt).getTime() -
+                  new Date(initialEvent.startedAt).getTime()) /
+                  60000,
+              ),
+            )
+          : 15,
+      );
+      const pump = parsePumpNotes(initialEvent.notes);
+      setSelectedPumpSide(pump.side);
+      setSelectedStashCount(pump.stashCount);
+      setSelectedStashOz(pump.stashOzPerBottle ?? 4);
+      setSelectedStashLocation(pump.stashLocation ?? 'fridge');
       setSelectedDiaper((initialEvent.notes as DiaperOption) ?? 'wet');
-      setNotesText(initialEvent.notes ?? '');
+      if (initialEvent.type === 'milestone') {
+        const milestone = parseMilestoneNotes(initialEvent.notes);
+        setSelectedMilestoneKey(milestone.key);
+        setNotesText(milestone.detail ?? milestone.legacyText ?? '');
+      } else {
+        setSelectedMilestoneKey(null);
+        setNotesText(initialEvent.notes ?? '');
+      }
     } else {
       setSelectedOz(suggestedOz ?? 4);
       setOzInput(String(suggestedOz ?? 4));
+      setSelectedBottleSource('formula');
       setSelectedNursingMinutes(15);
       setSelectedBreast(suggestedBreast ?? 'left');
+      setSelectedPumpMinutes(15);
+      setSelectedPumpSide('both');
+      setSelectedStashCount(0);
+      setSelectedStashOz(4);
+      setSelectedStashLocation('fridge');
       setSelectedDiaper('wet');
+      setSelectedMilestoneKey(null);
       setNotesText('');
     }
     setPicker(null);
@@ -187,6 +260,7 @@ export function LogSheet({
   }
 
   const typeLabel = i18n.t(`log_sheet.types.${eventType}`);
+  const suggestedMilestones = eventType === 'milestone' ? getSuggestedMilestones(baby.birthDate) : [];
 
   function adjustTime(deltaMinutes: number) {
     setEditStartedAt(prev => {
@@ -246,14 +320,29 @@ export function LogSheet({
     if (eventType === 'bottle') {
       payload.value = Math.min(parseFloat(ozInput) || selectedOz, MAX_BOTTLE_OZ);
       payload.unit = 'oz';
+      payload.notes = serializeBottleNotes({ source: selectedBottleSource });
     } else if (eventType === 'nursing') {
       payload.value = selectedNursingMinutes;
       payload.unit = 'min';
       payload.notes = selectedBreast;
+    } else if (eventType === 'pump') {
+      payload.value = Math.min(parseFloat(ozInput) || selectedOz, MAX_PUMP_OZ);
+      payload.unit = 'oz';
+      payload.notes = serializePumpNotes({
+        side: selectedPumpSide,
+        stashCount: selectedStashCount,
+        stashOzPerBottle: selectedStashCount > 0 ? selectedStashOz : null,
+        stashLocation: selectedStashCount > 0 ? selectedStashLocation : null,
+      });
+      payload.endedAt = new Date(
+        new Date(editStartedAt).getTime() + selectedPumpMinutes * 60_000,
+      ).toISOString();
     } else if (eventType === 'diaper') {
       payload.notes = selectedDiaper;
-    } else if (eventType === 'food' || eventType === 'milestone' || eventType === 'medicine') {
+    } else if (eventType === 'food' || eventType === 'medicine') {
       payload.notes = notesText.trim();
+    } else if (eventType === 'milestone') {
+      payload.notes = serializeMilestoneNotes(selectedMilestoneKey, notesText.trim());
     } else if (eventType === 'nap' || eventType === 'sleep') {
       if ((isEditing || !!initialStartedAt) && hasEndTime) {
         const endMs = new Date(editEndedAt).getTime();
@@ -437,6 +526,40 @@ export function LogSheet({
                     },
                   ]}
                 />
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
+                >
+                  {i18n.t('log_sheet.bottle_source')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {BOTTLE_SOURCE_OPTIONS.map(source => {
+                    const active = selectedBottleSource === source;
+                    return (
+                      <Pressable
+                        key={source}
+                        onPress={() => setSelectedBottleSource(source)}
+                        accessibilityLabel={i18n.t(`log_sheet.bottle_${source}`)}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {i18n.t(`log_sheet.bottle_${source}`)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
@@ -512,15 +635,346 @@ export function LogSheet({
               </View>
             )}
 
+            {eventType === 'pump' && (
+              <View>
+                <Text
+                  style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t('log_sheet.pump_side')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {PUMP_SIDE_OPTIONS.map(side => {
+                    const active = selectedPumpSide === side;
+                    return (
+                      <Pressable
+                        key={side}
+                        onPress={() => setSelectedPumpSide(side)}
+                        accessibilityLabel={i18n.t(`log_sheet.pump_${side}`)}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {i18n.t(`log_sheet.pump_${side}`)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
+                >
+                  {i18n.t('log_sheet.amount_oz')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {BOTTLE_OZ.map(oz => {
+                    const active = selectedOz === oz;
+                    return (
+                      <Pressable
+                        key={oz}
+                        onPress={() => {
+                          setSelectedOz(oz);
+                          setOzInput(String(oz));
+                        }}
+                        accessibilityLabel={`${oz} oz`}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {oz}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
+                >
+                  {i18n.t('log_sheet.custom_amount_oz')}
+                </Text>
+                <TextInput
+                  value={ozInput}
+                  onChangeText={(v: string) => {
+                    const n = parseFloat(v);
+                    if (!isNaN(n) && n > MAX_PUMP_OZ) {
+                      setOzInput(String(MAX_PUMP_OZ));
+                      setSelectedOz(MAX_PUMP_OZ);
+                    } else {
+                      setOzInput(v);
+                      if (!isNaN(n) && n > 0) {
+                        setSelectedOz(n);
+                      }
+                    }
+                  }}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  placeholderTextColor={theme.textMuted}
+                  style={[
+                    styles.notesInput,
+                    {
+                      borderColor: theme.border,
+                      backgroundColor: theme.bg,
+                      color: theme.text,
+                      fontFamily: fonts.mono,
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
+                >
+                  {i18n.t('log_sheet.duration_min')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {PUMP_MINUTES.map(m => {
+                    const active = selectedPumpMinutes === m;
+                    return (
+                      <Pressable
+                        key={m}
+                        onPress={() => setSelectedPumpMinutes(m)}
+                        accessibilityLabel={`${m} minutes`}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {m}m
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[
+                    styles.contentLabel,
+                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                  ]}
+                >
+                  {i18n.t('log_sheet.pump_stash_bottles')}
+                </Text>
+                <View style={styles.pillRow}>
+                  <Pressable
+                    key="none"
+                    onPress={() => setSelectedStashCount(0)}
+                    accessibilityLabel={i18n.t('log_sheet.pump_stash_none')}
+                    style={[
+                      styles.pill,
+                      { borderColor: theme.border },
+                      selectedStashCount === 0 && {
+                        backgroundColor: theme.accent,
+                        borderColor: theme.accent,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        {
+                          color: selectedStashCount === 0 ? theme.bg : theme.text,
+                          fontFamily: fonts.mono,
+                        },
+                      ]}
+                    >
+                      {i18n.t('log_sheet.pump_stash_none')}
+                    </Text>
+                  </Pressable>
+                  {STASH_BOTTLE_COUNTS.map(count => {
+                    const active = selectedStashCount === count;
+                    return (
+                      <Pressable
+                        key={count}
+                        onPress={() => setSelectedStashCount(count)}
+                        accessibilityLabel={`${count} ${i18n.t('log_sheet.pump_stash_bottles')}`}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {count}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {selectedStashCount > 0 && (
+                  <View>
+                    <Text
+                      style={[
+                        styles.contentLabel,
+                        { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                      ]}
+                    >
+                      {i18n.t('log_sheet.pump_stash_location')}
+                    </Text>
+                    <View style={styles.pillRow}>
+                      {STASH_LOCATION_OPTIONS.map(location => {
+                        const active = selectedStashLocation === location;
+                        return (
+                          <Pressable
+                            key={location}
+                            onPress={() => setSelectedStashLocation(location)}
+                            accessibilityLabel={i18n.t(`log_sheet.stash_${location}`)}
+                            style={[
+                              styles.pill,
+                              { borderColor: theme.border },
+                              active && {
+                                backgroundColor: theme.accent,
+                                borderColor: theme.accent,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.pillText,
+                                {
+                                  color: active ? theme.bg : theme.text,
+                                  fontFamily: fonts.mono,
+                                },
+                              ]}
+                            >
+                              {i18n.t(`log_sheet.stash_${location}`)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <Text
+                      style={[
+                        styles.contentLabel,
+                        { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
+                      ]}
+                    >
+                      {i18n.t('log_sheet.pump_stash_oz_per_bottle')}
+                    </Text>
+                    <View style={styles.pillRow}>
+                      {BOTTLE_OZ.map(oz => {
+                        const active = selectedStashOz === oz;
+                        return (
+                          <Pressable
+                            key={oz}
+                            onPress={() => setSelectedStashOz(oz)}
+                            accessibilityLabel={`${oz} oz`}
+                            style={[
+                              styles.pill,
+                              { borderColor: theme.border },
+                              active && {
+                                backgroundColor: theme.accent,
+                                borderColor: theme.accent,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.pillText,
+                                {
+                                  color: active ? theme.bg : theme.text,
+                                  fontFamily: fonts.mono,
+                                },
+                              ]}
+                            >
+                              {oz}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             {(eventType === 'food' || eventType === 'milestone' || eventType === 'medicine') && (
               <View>
+                {eventType === 'milestone' && suggestedMilestones.length > 0 && (
+                  <View style={{ marginBottom: spacing.md }}>
+                    <Text
+                      style={[
+                        styles.contentLabel,
+                        { color: theme.textDim, fontFamily: fonts.mono },
+                      ]}
+                    >
+                      {i18n.t('log_sheet.milestone_suggestions')}
+                    </Text>
+                    <View style={styles.pillRow}>
+                      {suggestedMilestones.map(item => {
+                        const active = selectedMilestoneKey === item.key;
+                        return (
+                          <Pressable
+                            key={item.key}
+                            onPress={() => setSelectedMilestoneKey(prev => (prev === item.key ? null : item.key))}
+                            accessibilityLabel={milestoneLabel(item.key)}
+                            style={[
+                              styles.pill,
+                              { borderColor: theme.border },
+                              active && {
+                                backgroundColor: theme.accent,
+                                borderColor: theme.accent,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.pillText,
+                                {
+                                  color: active ? theme.bg : theme.text,
+                                  fontFamily: fonts.mono,
+                                },
+                              ]}
+                            >
+                              {milestoneLabel(item.key)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
                 <Text
                   style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
                 >
                   {eventType === 'food'
                     ? i18n.t('log_sheet.what_did_they_eat')
                     : eventType === 'milestone'
-                      ? i18n.t('log_sheet.describe_milestone')
+                      ? selectedMilestoneKey
+                        ? i18n.t('log_sheet.milestone_custom_note')
+                        : i18n.t('log_sheet.describe_milestone')
                       : i18n.t('log_sheet.medicine_notes')}
                 </Text>
                 <TextInput
@@ -530,7 +984,9 @@ export function LogSheet({
                     eventType === 'food'
                       ? i18n.t('log_sheet.food_placeholder')
                       : eventType === 'milestone'
-                        ? i18n.t('log_sheet.milestone_placeholder')
+                        ? selectedMilestoneKey
+                          ? i18n.t('log_sheet.milestone_note_placeholder')
+                          : i18n.t('log_sheet.milestone_placeholder')
                         : i18n.t('log_sheet.medicine_placeholder')
                   }
                   placeholderTextColor={theme.textMuted}
@@ -580,6 +1036,7 @@ export function LogSheet({
             )}
 
             {eventType !== 'bottle' &&
+              eventType !== 'pump' &&
               eventType !== 'diaper' &&
               eventType !== 'nap' &&
               eventType !== 'sleep' &&
@@ -954,6 +1411,7 @@ LogSheet.propTypes = {
   eventType: PropTypes.oneOf([
     'bottle',
     'nursing',
+    'pump',
     'nap',
     'sleep',
     'diaper',

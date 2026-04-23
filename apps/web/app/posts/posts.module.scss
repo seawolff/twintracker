@@ -1,0 +1,524 @@
+@use '../../styles/variables' as *;
+
+.shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(0, 0, 0, 0.08), transparent 28%),
+    linear-gradient(180deg, #f3f3f3 0%, var(--tt-bg) 22%),
+    var(--tt-bg);
+
+  :global([data-theme='night']) & {
+    background:
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.1), transparent 28%),
+      linear-gradient(180deg, #0f0f0f 0%, var(--tt-bg) 22%),
+      var(--tt-bg);
+  }
+}
+
+.container {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: $space-xl $space-lg $space-xxl;
+
+  @media (min-width: $bp-md) {
+    padding: $space-xxl $space-xl;
+  }
+}
+
+.hero {
+  display: grid;
+  gap: $space-lg;
+  padding: $space-md 0 $space-xxl;
+}
+
+.heroPanel {
+  display: grid;
+  gap: $space-xl;
+  padding: $space-xl;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(0, 0, 0, 0.14), transparent 42%),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.05), transparent 58%),
+    #f1f1f1;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+
+  :global([data-theme='night']) & {
+    background:
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.12), transparent 42%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 58%),
+      #141414;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  }
+
+  @media (min-width: $bp-md) {
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+    align-items: end;
+    padding: $space-xxl;
+  }
+}
+
+.heroCopy {
+  display: grid;
+  gap: $space-lg;
+}
+
+.heroAside {
+  display: grid;
+  gap: $space-sm;
+  align-content: start;
+  padding: $space-lg;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: $radius-lg;
+  background: rgba(255, 255, 255, 0.72);
+
+  :global([data-theme='night']) & {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.heroStatLabel {
+  font-family: $font-mono;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text-muted);
+}
+
+.heroStatValue {
+  font-family: $font-display;
+  font-size: 28px;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: var(--tt-text);
+}
+
+.heroStatBody {
+  font-family: $font-mono;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--tt-text-dim);
+}
+
+.eyebrow {
+  font-family: $font-mono;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text-muted);
+}
+
+.heroTitle {
+  max-width: 15ch;
+  font-family: $font-display;
+  font-size: clamp(42px, 8vw, 78px);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.heroBody {
+  max-width: 54rem;
+  font-family: $font-mono;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--tt-text-dim);
+}
+
+.grid {
+  display: grid;
+  gap: $space-xl;
+}
+
+.featuredSection {
+  margin-bottom: $space-xxl;
+}
+
+.featuredCard {
+  display: grid;
+  gap: $space-lg;
+  padding: $space-xxl;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 32px;
+  background:
+    linear-gradient(135deg, rgba(0, 0, 0, 0.05), transparent 52%),
+    #fcfcfc;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.09);
+
+  :global([data-theme='night']) & {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 52%),
+      #101010;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+  }
+}
+
+.featuredTitle {
+  max-width: 15ch;
+  font-family: $font-display;
+  font-size: clamp(40px, 5vw, 64px);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+}
+
+.featuredExcerpt {
+  max-width: 52rem;
+  font-family: $font-mono;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--tt-text-dim);
+}
+
+.featuredLink {
+  width: fit-content;
+  min-height: $tap-min;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 $space-lg;
+  border-radius: $radius-full;
+  background: var(--tt-accent);
+  color: var(--tt-bg);
+  font-family: $font-mono;
+  font-size: 13px;
+  border: 1px solid var(--tt-accent);
+
+  &:hover {
+    opacity: 0.92;
+  }
+}
+
+.card {
+  display: grid;
+  gap: $space-md;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 24px;
+  background: #f5f5f5;
+  padding: $space-xl;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+
+  :global([data-theme='night']) & {
+    background: #151515;
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+  }
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cardTitle {
+  font-family: $font-display;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.cardExcerpt {
+  max-width: 52rem;
+  font-family: $font-mono;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--tt-text-dim);
+}
+
+.cardLink {
+  width: fit-content;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+  border-bottom: 1px solid var(--tt-accent);
+  padding-bottom: 4px;
+}
+
+.article {
+  display: grid;
+  gap: $space-xl;
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.breadcrumbs a:hover {
+  color: var(--tt-text);
+}
+
+.articleHero {
+  display: grid;
+  gap: $space-lg;
+  padding: $space-xxl;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 32px;
+  background:
+    linear-gradient(135deg, rgba(0, 0, 0, 0.05), transparent 58%),
+    #f7f7f7;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
+
+  :global([data-theme='night']) & {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 58%),
+      #101010;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+  }
+}
+
+.articleTitle {
+  max-width: 14ch;
+  font-family: $font-display;
+  font-size: clamp(40px, 7vw, 72px);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+}
+
+.byline {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+}
+
+.bylineAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--tt-border);
+}
+
+.bylineName {
+  margin: 0;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text);
+}
+
+.bylineMeta {
+  margin: 2px 0 0;
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+}
+
+.articleDeck {
+  max-width: 54rem;
+  font-family: $font-mono;
+  font-size: 16px;
+  line-height: 1.85;
+  color: var(--tt-text-dim);
+}
+
+.articleMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-md;
+  font-family: $font-mono;
+  font-size: 12px;
+  color: var(--tt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.articleMeta span,
+.cardMeta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-full;
+  background: rgba(255, 255, 255, 0.7);
+
+  :global([data-theme='night']) & {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.heroNote {
+  max-width: 52rem;
+  border-left: 2px solid var(--tt-text);
+  padding-left: $space-md;
+  font-family: $font-mono;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--tt-text-dim);
+}
+
+.content {
+  display: grid;
+  gap: $space-xxl;
+  padding: $space-xxl;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 32px;
+  background: #fbfbfb;
+
+  :global([data-theme='night']) & {
+    background: #0d0d0d;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.intro {
+  display: grid;
+  gap: $space-md;
+  max-width: 48rem;
+}
+
+.content p,
+.content li {
+  font-family: $font-mono;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--tt-text-dim);
+}
+
+.content a {
+  color: var(--tt-text);
+  border-bottom: 1px solid var(--tt-accent);
+}
+
+.section {
+  display: grid;
+  gap: $space-md;
+  max-width: 52rem;
+  padding-top: $space-lg;
+  border-top: 1px solid var(--tt-border);
+}
+
+.sectionTitle {
+  font-family: $font-display;
+  font-size: clamp(28px, 3.4vw, 40px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.bullets {
+  display: grid;
+  gap: $space-sm;
+  padding-left: 1.4rem;
+}
+
+.callout {
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: $radius-md;
+  background: #f0f0f0;
+  padding: $space-lg;
+
+  :global([data-theme='night']) & {
+    background: #151515;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.callout p {
+  color: var(--tt-text);
+}
+
+.featureCallout {
+  display: grid;
+  gap: $space-sm;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: $radius-md;
+  background:
+    linear-gradient(135deg, rgba(0, 0, 0, 0.05), transparent 62%),
+    #eeeeee;
+  padding: $space-lg;
+
+  :global([data-theme='night']) & {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 62%),
+      #161616;
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+}
+
+.featureLabel {
+  margin: 0;
+  font-family: $font-mono;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tt-text);
+}
+
+.featureCallout p:not(.featureLabel) {
+  color: var(--tt-text-dim);
+}
+
+.faqBlock {
+  display: grid;
+  gap: $space-lg;
+  margin-top: $space-md;
+}
+
+.faqItem {
+  display: grid;
+  gap: $space-sm;
+  border-top: 1px solid var(--tt-border);
+  padding-top: $space-lg;
+  max-width: 52rem;
+}
+
+.imageFigure {
+  display: grid;
+  gap: $space-md;
+  max-width: 460px;
+  justify-self: center;
+  justify-items: center;
+}
+
+.imageFrame {
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 28px;
+  background: #f5f5f5;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+
+  :global([data-theme='night']) & {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #101010;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+  }
+}
+
+.imageCaption {
+  max-width: 44rem;
+  font-family: $font-mono;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--tt-text-muted);
+  text-align: center;
+}
+
+.faqQuestion {
+  font-family: $font-display;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.backLink {
+  width: fit-content;
+  font-family: $font-mono;
+  font-size: 13px;
+  border-bottom: 1px solid var(--tt-accent);
+  padding-bottom: 4px;
+}

@@ -2,7 +2,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Baby, BabyColor, BabySex } from '@tt/core';
-import { i18n, useThemeContext, kgToLbs, lbsToKg, cmToIn, inToCm } from '@tt/core';
+import {
+  i18n,
+  useThemeContext,
+  kgToLbs,
+  lbsToKg,
+  cmToIn,
+  inToCm,
+  todayLocalDateInputValue,
+  isFutureLocalDateInputValue,
+} from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
 import { PersonIcon } from './icons/BabyIcons';
 
@@ -61,6 +70,14 @@ function parseNumber(s: string): number | null {
   return isNaN(v) || v <= 0 ? null : v;
 }
 
+function formatEditableWeight(weightKg: number, isImperial: boolean): string {
+  return isImperial ? kgToLbs(weightKg).toFixed(1) : weightKg.toFixed(1);
+}
+
+function formatEditableHeight(heightCm: number, isImperial: boolean): string {
+  return isImperial ? cmToIn(heightCm).toFixed(1) : String(Math.round(heightCm));
+}
+
 export function BabyProfileSheet({
   visible,
   baby,
@@ -88,20 +105,8 @@ export function BabyProfileSheet({
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
-      setWeightStr(
-        baby.weightKg != null
-          ? isImperial
-            ? kgToLbs(baby.weightKg).toFixed(1)
-            : String(baby.weightKg)
-          : '',
-      );
-      setHeightStr(
-        baby.heightCm != null
-          ? isImperial
-            ? cmToIn(baby.heightCm).toFixed(1)
-            : String(baby.heightCm)
-          : '',
-      );
+      setWeightStr(baby.weightKg != null ? formatEditableWeight(baby.weightKg, isImperial) : '');
+      setHeightStr(baby.heightCm != null ? formatEditableHeight(baby.heightCm, isImperial) : '');
       setNameError('');
       setDobError('');
       setSaving(false);
@@ -128,7 +133,7 @@ export function BabyProfileSheet({
     }
     setNameError('');
     const dob = birthDate.trim();
-    if (dob && dob > new Date().toISOString().split('T')[0]) {
+    if (isFutureLocalDateInputValue(dob)) {
       setDobError(i18n.t('baby_profile.dob_future'));
       return;
     }
@@ -314,7 +319,7 @@ export function BabyProfileSheet({
         <input
           type="date"
           value={birthDate}
-          max={new Date().toISOString().split('T')[0]}
+          max={todayLocalDateInputValue()}
           onChange={e => {
             setBirthDate(e.target.value);
             if (dobError) {

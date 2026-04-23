@@ -7,6 +7,7 @@ import type {
   LoginRequest,
   NapAlarm,
   RegisterRequest,
+  StorageInterface,
   TrackerEvent,
 } from '../types';
 
@@ -15,6 +16,7 @@ let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let clientPlatform: 'web' | 'ios' | 'android' = 'web';
 let clientAppVersion: string | null = null;
+let tokenStorage: StorageInterface | null = null;
 
 export function configure(
   url: string,
@@ -23,6 +25,9 @@ export function configure(
   appVersion?: string,
 ) {
   baseUrl = url;
+  if (platform === 'android' || platform === 'ios') {
+    console.log('[api.configure]', { baseUrl: url, platform, appVersion: appVersion ?? null });
+  }
   if (token) {
     accessToken = token;
   }
@@ -38,6 +43,34 @@ export function setToken(access: string | null, refresh?: string | null) {
   accessToken = access;
   if (refresh !== undefined) {
     refreshToken = refresh;
+  }
+}
+
+export function setTokenStorage(storage: StorageInterface | null) {
+  tokenStorage = storage;
+}
+
+async function persistTokens(access: string, refresh: string): Promise<void> {
+  if (tokenStorage) {
+    await tokenStorage.setItem('tt_access_token', access);
+    await tokenStorage.setItem('tt_refresh_token', refresh);
+    return;
+  }
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('tt_access_token', access);
+    localStorage.setItem('tt_refresh_token', refresh);
+  }
+}
+
+async function clearPersistedTokens(): Promise<void> {
+  if (tokenStorage) {
+    await tokenStorage.removeItem('tt_access_token');
+    await tokenStorage.removeItem('tt_refresh_token');
+    return;
+  }
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('tt_access_token');
+    localStorage.removeItem('tt_refresh_token');
   }
 }
 
@@ -59,11 +92,7 @@ async function refreshAccessToken(): Promise<void> {
   const tokens = (await res.json()) as { accessToken: string; refreshToken: string };
   accessToken = tokens.accessToken;
   refreshToken = tokens.refreshToken;
-  // Persist new tokens to storage
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('tt_access_token', tokens.accessToken);
-    localStorage.setItem('tt_refresh_token', tokens.refreshToken);
-  }
+  await persistTokens(tokens.accessToken, tokens.refreshToken);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -77,7 +106,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
-  let res = await fetch(`${baseUrl}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, { ...options, headers });
+  } catch (error) {
+    console.error('[api.request] network failure', {
+      baseUrl,
+      path,
+      method: options.method ?? 'GET',
+      platform: clientPlatform,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   // Auto-refresh on 401 if we have a refresh token
   if (res.status === 401 && refreshToken && !path.includes('/auth/')) {
@@ -94,6 +135,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       accessToken = null;
       refreshToken = null;
+      await clearPersistedTokens();
     }
   }
 
@@ -114,7 +156,18 @@ async function requestText(path: string): Promise<string> {
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
-  let res = await fetch(`${baseUrl}${path}`, { headers });
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, { headers });
+  } catch (error) {
+    console.error('[api.requestText] network failure', {
+      baseUrl,
+      path,
+      platform: clientPlatform,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   if (res.status === 401 && refreshToken) {
     if (!refreshPromise) {
       refreshPromise = refreshAccessToken().finally(() => {
@@ -128,12 +181,52 @@ async function requestText(path: string): Promise<string> {
     } catch {
       accessToken = null;
       refreshToken = null;
+      await clearPersistedTokens();
     }
   }
   if (!res.ok) {
     throw new Error(res.statusText);
   }
   return res.text();
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, { headers });
+  } catch (error) {
+    console.error('[api.requestBlob] network failure', {
+      baseUrl,
+      path,
+      platform: clientPlatform,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  if (res.status === 401 && refreshToken) {
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    try {
+      await refreshPromise;
+      headers['Authorization'] = `Bearer ${accessToken}`;
+      res = await fetch(`${baseUrl}${path}`, { headers });
+    } catch {
+      accessToken = null;
+      refreshToken = null;
+      await clearPersistedTokens();
+    }
+  }
+  if (!res.ok) {
+    throw new Error(res.statusText);
+  }
+  return res.blob();
 }
 
 export const api = {
@@ -220,6 +313,33 @@ export const api = {
       request<TrackerEvent>(`/api/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/api/events/${id}`, { method: 'DELETE' }),
     deleteAll: () => request<void>('/api/events', { method: 'DELETE' }),
-    exportCsv: () => requestText('/api/events/export'),
+    exportCsv: (opts?: { from?: string; to?: string; babyId?: string }) => {
+      const qs = new URLSearchParams();
+      if (opts?.from) {
+        qs.set('from', opts.from);
+      }
+      if (opts?.to) {
+        qs.set('to', opts.to);
+      }
+      if (opts?.babyId) {
+        qs.set('babyId', opts.babyId);
+      }
+      const query = qs.toString();
+      return requestText(`/api/events/export${query ? `?${query}` : ''}`);
+    },
+    exportPdf: (opts?: { from?: string; to?: string; babyId?: string }) => {
+      const qs = new URLSearchParams();
+      if (opts?.from) {
+        qs.set('from', opts.from);
+      }
+      if (opts?.to) {
+        qs.set('to', opts.to);
+      }
+      if (opts?.babyId) {
+        qs.set('babyId', opts.babyId);
+      }
+      const query = qs.toString();
+      return requestBlob(`/api/events/export/pdf${query ? `?${query}` : ''}`);
+    },
   },
 };

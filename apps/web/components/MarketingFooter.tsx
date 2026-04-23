@@ -5,6 +5,10 @@ export function MarketingFooter() {
   const { t } = useTranslation();
   return (
     <footer className={styles.footer}>
+      <a href="/posts" className={styles.link}>
+        {t('landing.posts')}
+      </a>
+      <span className={styles.sep}>·</span>
       <a href="/privacy" className={styles.link}>
         {t('landing.privacy')}
       </a>

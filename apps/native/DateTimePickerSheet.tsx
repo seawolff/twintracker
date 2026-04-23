@@ -9,10 +9,13 @@
  *
  * NOT imported by any web code path — safe to import native-only libs here.
  */
-import { useEffect, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { i18n, useThemeContext } from '@tt/core';
+
+const DISMISS_THRESHOLD_Y = 80;
+const DISMISS_THRESHOLD_V = 0.5;
 
 export interface DateTimePickerSheetProps {
   visible: boolean;
@@ -37,11 +40,50 @@ export function DateTimePickerSheet({
 }: DateTimePickerSheetProps) {
   const theme = useThemeContext();
   const [draft, setDraft] = useState<Date>(value);
+  const translateY = useRef(new Animated.Value(300)).current;
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onPanResponderMove: (_, gs) => {
+        if (gs.dy > 0) {
+          translateY.setValue(gs.dy);
+        }
+      },
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dy > DISMISS_THRESHOLD_Y || gs.vy > DISMISS_THRESHOLD_V) {
+          translateY.setValue(300);
+          onCancelRef.current();
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 200,
+            mass: 0.85,
+          }).start();
+        }
+      },
+    }),
+  ).current;
 
   // Re-seed draft each time the sheet opens so it reflects the latest committed value.
   useEffect(() => {
     if (visible) {
       setDraft(value);
+      translateY.setValue(300);
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 20,
+        stiffness: 200,
+        mass: 0.85,
+      }).start();
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -57,21 +99,24 @@ export function DateTimePickerSheet({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onCancel}
       accessibilityViewIsModal
     >
       {/* Backdrop — tap to cancel */}
       <Pressable style={styles.backdrop} onPress={onCancel} />
 
-      <View
-        style={[styles.sheet, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
+      <Animated.View
+        style={[
+          styles.sheet,
+          { backgroundColor: theme.surface, borderTopColor: theme.border },
+          { transform: [{ translateY }] },
+        ]}
       >
-        {/* Drag handle */}
-        <View style={[styles.handle, { backgroundColor: theme.border }]} />
-
-        {/* Title */}
-        <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+        <View style={styles.dragHeader} {...panResponder.panHandlers}>
+          <View style={[styles.handle, { backgroundColor: theme.border }]} />
+          <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+        </View>
 
         <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -112,7 +157,7 @@ export function DateTimePickerSheet({
             <Text style={[styles.saveText, { color: theme.accent }]}>{i18n.t('common.save')}</Text>
           </Pressable>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -125,8 +170,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingTop: 12,
     paddingBottom: 36,
+  },
+  dragHeader: {
+    alignItems: 'center',
+    paddingTop: 12,
   },
   handle: {
     alignSelf: 'center',

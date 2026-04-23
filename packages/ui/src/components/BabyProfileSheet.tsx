@@ -5,6 +5,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -15,7 +16,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Baby, BabyColor, BabySex } from '@tt/core';
-import { i18n, useThemeContext, kgToLbs, lbsToKg, cmToIn, inToCm } from '@tt/core';
+import {
+  i18n,
+  useThemeContext,
+  kgToLbs,
+  lbsToKg,
+  cmToIn,
+  inToCm,
+  formatLocalDateInputValue,
+  isFutureLocalDateInputValue,
+} from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
 import { PersonIcon } from './icons/BabyIcons';
 
@@ -24,6 +34,9 @@ import { PersonIcon } from './icons/BabyIcons';
 // The .web.tsx sibling never loads this file, so the web build is unaffected.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
 const DateTimePicker: any = require('@react-native-community/datetimepicker').default;
+
+const DISMISS_THRESHOLD_Y = 80;
+const DISMISS_THRESHOLD_V = 0.5;
 
 const TODAY = new Date();
 
@@ -63,16 +76,18 @@ function formatDOB(raw: string): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/** Convert a Date to YYYY-MM-DD string. */
-function toYMD(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 /** Parse a numeric string; return null when blank or invalid. */
 function parseNumber(s: string): number | null {
   const v = parseFloat(s.replace(',', '.'));
   return isNaN(v) || v <= 0 ? null : v;
+}
+
+function formatEditableWeight(weightKg: number, isImperial: boolean): string {
+  return isImperial ? kgToLbs(weightKg).toFixed(1) : weightKg.toFixed(1);
+}
+
+function formatEditableHeight(heightCm: number, isImperial: boolean): string {
+  return isImperial ? cmToIn(heightCm).toFixed(1) : String(Math.round(heightCm));
 }
 
 const SEX_OPTIONS: { value: BabySex; labelKey: string }[] = [
@@ -108,6 +123,36 @@ export function BabyProfileSheet({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onPanResponderGrant: () => {
+        Keyboard.dismiss();
+      },
+      onPanResponderMove: (_, gs) => {
+        if (gs.dy > 0) {
+          translateY.setValue(gs.dy);
+        }
+      },
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dy > DISMISS_THRESHOLD_Y || gs.vy > DISMISS_THRESHOLD_V) {
+          dismiss();
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 200,
+            mass: 0.85,
+          }).start();
+        }
+      },
+    }),
+  ).current;
+
   // Reset form fields when baby changes or sheet opens
   useEffect(() => {
     if (visible && baby) {
@@ -115,20 +160,8 @@ export function BabyProfileSheet({
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
-      setWeightStr(
-        baby.weightKg != null
-          ? isImperial
-            ? kgToLbs(baby.weightKg).toFixed(1)
-            : String(baby.weightKg)
-          : '',
-      );
-      setHeightStr(
-        baby.heightCm != null
-          ? isImperial
-            ? cmToIn(baby.heightCm).toFixed(1)
-            : String(baby.heightCm)
-          : '',
-      );
+      setWeightStr(baby.weightKg != null ? formatEditableWeight(baby.weightKg, isImperial) : '');
+      setHeightStr(baby.heightCm != null ? formatEditableHeight(baby.heightCm, isImperial) : '');
       setNameError('');
       setDobError('');
       setSaving(false);
@@ -169,7 +202,7 @@ export function BabyProfileSheet({
       return;
     }
     setNameError('');
-    if (birthDate && birthDate > new Date().toISOString().split('T')[0]) {
+    if (isFutureLocalDateInputValue(birthDate)) {
       setDobError(i18n.t('baby_profile.dob_future'));
       return;
     }
@@ -201,7 +234,7 @@ export function BabyProfileSheet({
   }
 
   function handleDobPickerConfirm() {
-    setBirthDate(toYMD(dobPickerDate));
+    setBirthDate(formatLocalDateInputValue(dobPickerDate));
     setShowDobPicker(false);
     if (dobError) {
       setDobError('');
@@ -246,8 +279,9 @@ export function BabyProfileSheet({
           { transform: [{ translateY }] },
         ]}
       >
-        {/* Drag handle */}
-        <View style={[styles.handle, { backgroundColor: theme.border }]} />
+        <View style={styles.dragHeader} {...panResponder.panHandlers}>
+          <View style={[styles.handle, { backgroundColor: theme.border }]} />
+        </View>
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
@@ -533,8 +567,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 4,
     borderRadius: 2,
-    marginTop: 18,
-    marginBottom: spacing.md,
+  },
+  dragHeader: {
+    alignItems: 'center',
+    paddingTop: 18,
+    paddingBottom: spacing.md,
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,

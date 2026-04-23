@@ -9,6 +9,18 @@ import styles from './login.module.scss';
 configure('');
 
 type Mode = 'login' | 'register' | 'join';
+type UmamiWindow = Window & {
+  umami?: {
+    track?: (event: string, data?: Record<string, unknown>) => void;
+  };
+};
+
+function trackAuthEvent(event: string, data?: Record<string, unknown>) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  (window as UmamiWindow).umami?.track?.(event, data);
+}
 
 export default function LoginPage() {
   return (
@@ -39,7 +51,9 @@ function LoginPageInner() {
   const [resendSent, setResendSent] = useState(false);
 
   const handleGoogleSuccess = async (credential: string) => {
+    trackAuthEvent('auth_google_submit', { mode });
     if (mode === 'join' && !inviteCode.trim()) {
+      trackAuthEvent('auth_google_blocked', { mode, reason: 'missing_invite_code' });
       setError(t('auth.join_code_required'));
       return;
     }
@@ -47,8 +61,10 @@ function LoginPageInner() {
     setLoading(true);
     try {
       await loginWithGoogle(credential, inviteCode.trim() || undefined);
+      trackAuthEvent('auth_google_success', { mode });
       router.replace('/home');
     } catch (err) {
+      trackAuthEvent('auth_google_error', { mode });
       setError(err instanceof Error ? err.message : t('common.error_generic'));
     } finally {
       setLoading(false);
@@ -57,20 +73,25 @@ function LoginPageInner() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    trackAuthEvent('auth_email_submit', { mode });
     setError('');
     setLoading(true);
     try {
       if (mode === 'login') {
         await login(email, password);
+        trackAuthEvent('auth_email_success', { mode });
         router.replace('/home');
       } else if (mode === 'register') {
         await register(email, password, name);
+        trackAuthEvent('auth_email_success', { mode });
         setPendingVerificationEmail(email);
       } else {
         await join(email, password, inviteCode, name);
+        trackAuthEvent('auth_email_success', { mode });
         setPendingVerificationEmail(email);
       }
     } catch (err) {
+      trackAuthEvent('auth_email_error', { mode });
       setError(err instanceof Error ? err.message : t('common.error_generic'));
     } finally {
       setLoading(false);
@@ -78,12 +99,15 @@ function LoginPageInner() {
   };
 
   async function handleResend() {
+    trackAuthEvent('auth_verify_resend_click');
     setResendLoading(true);
     try {
       await resendVerification();
+      trackAuthEvent('auth_verify_resend_success');
       setResendSent(true);
       setTimeout(() => setResendSent(false), 4000);
     } catch {
+      trackAuthEvent('auth_verify_resend_error');
       // silent — user can try again
     } finally {
       setResendLoading(false);
@@ -136,14 +160,20 @@ function LoginPageInner() {
           />
         )}
 
-        <div className={styles.googleBtn}>
+        <div
+          className={styles.googleBtn}
+          onClick={() => trackAuthEvent('auth_google_click', { mode })}
+        >
           <GoogleLogin
             onSuccess={({ credential }) => {
               if (credential) {
                 handleGoogleSuccess(credential);
               }
             }}
-            onError={() => setError('Google sign-in failed')}
+            onError={() => {
+              trackAuthEvent('auth_google_error', { mode, source: 'google_button' });
+              setError('Google sign-in failed');
+            }}
             theme="outline"
             size="large"
             width="100%"
@@ -199,7 +229,11 @@ function LoginPageInner() {
             />
           )}
           {error && <p className={styles.error}>{error}</p>}
-          <button className={styles.submitBtn} type="submit" disabled={loading}>
+          <button
+            className={styles.submitBtn}
+            type="submit"
+            disabled={loading}
+          >
             {loading
               ? '…'
               : mode === 'login'
@@ -215,6 +249,7 @@ function LoginPageInner() {
             <button
               className={styles.switchLink}
               onClick={() => {
+                trackAuthEvent('auth_mode_switch_click', { from: mode, to: 'register' });
                 setMode('register');
                 setError('');
               }}
@@ -224,6 +259,7 @@ function LoginPageInner() {
             <button
               className={styles.switchLink}
               onClick={() => {
+                trackAuthEvent('auth_mode_switch_click', { from: mode, to: 'join' });
                 setMode('join');
                 setError('');
               }}
@@ -235,6 +271,7 @@ function LoginPageInner() {
           <button
             className={styles.switchLink}
             onClick={() => {
+              trackAuthEvent('auth_mode_switch_click', { from: mode, to: 'login' });
               setMode('login');
               setError('');
             }}

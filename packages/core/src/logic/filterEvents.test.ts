@@ -2,6 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   applyHistoryFilters,
   emptyFilters,
+  getEventSide,
   isFilterActive,
   type HistoryFilters,
 } from './filterEvents';
@@ -24,7 +25,20 @@ const BABY_B = 'baby-b';
 const events: TrackerEvent[] = [
   makeEvent({ babyId: BABY_A, type: 'bottle', loggedByName: 'Mom' }),
   makeEvent({ babyId: BABY_A, type: 'nap', loggedByName: 'Mom' }),
-  makeEvent({ babyId: BABY_B, type: 'bottle', loggedByName: 'Dad' }),
+  makeEvent({ babyId: BABY_A, type: 'nursing', loggedByName: 'Mom', notes: 'left' }),
+  makeEvent({
+    babyId: BABY_B,
+    type: 'pump',
+    loggedByName: 'Dad',
+    notes: 'side=both;stashCount=2;stashOz=4',
+  }),
+  makeEvent({
+    babyId: BABY_A,
+    type: 'bottle',
+    loggedByName: 'Dad',
+    value: 4,
+    notes: 'source=freezer',
+  }),
   makeEvent({ babyId: BABY_B, type: 'diaper', loggedByName: 'Dad' }),
   makeEvent({ babyId: BABY_A, type: 'diaper', loggedByName: undefined }),
 ];
@@ -35,6 +49,8 @@ describe('emptyFilters', () => {
     expect(f.babyIds.size).toBe(0);
     expect(f.types.size).toBe(0);
     expect(f.authors.size).toBe(0);
+    expect(f.sides.size).toBe(0);
+    expect(f.stashOz.size).toBe(0);
   });
 
   it('returns a new object each call (no shared reference)', () => {
@@ -63,6 +79,40 @@ describe('isFilterActive', () => {
   it('returns true when authors is non-empty', () => {
     const f: HistoryFilters = { ...emptyFilters(), authors: new Set(['Mom']) };
     expect(isFilterActive(f)).toBe(true);
+  });
+
+  it('returns true when sides is non-empty', () => {
+    const f: HistoryFilters = { ...emptyFilters(), sides: new Set(['left']) };
+    expect(isFilterActive(f)).toBe(true);
+  });
+
+  it('returns true when stashOz is non-empty', () => {
+    const f: HistoryFilters = { ...emptyFilters(), stashOz: new Set([8]) };
+    expect(isFilterActive(f)).toBe(true);
+  });
+});
+
+describe('getEventSide', () => {
+  it('extracts nursing side from notes', () => {
+    expect(getEventSide(makeEvent({ babyId: BABY_A, type: 'nursing', notes: 'right' }))).toBe(
+      'right',
+    );
+  });
+
+  it('extracts pump side from structured pump notes', () => {
+    expect(
+      getEventSide(
+        makeEvent({
+          babyId: BABY_B,
+          type: 'pump',
+          notes: 'side=both;stashCount=2;stashOz=4',
+        }),
+      ),
+    ).toBe('both');
+  });
+
+  it('returns null for non-sided events', () => {
+    expect(getEventSide(makeEvent({ babyId: BABY_A, type: 'bottle' }))).toBeNull();
   });
 });
 
@@ -111,7 +161,7 @@ describe('applyHistoryFilters', () => {
     const f: HistoryFilters = { ...emptyFilters(), authors: new Set(['Mom']) };
     const result = applyHistoryFilters(events, f);
     expect(result.every(e => e.loggedByName === 'Mom')).toBe(true);
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(3);
   });
 
   it('excludes events with undefined loggedByName when author filter is active', () => {
@@ -126,9 +176,11 @@ describe('applyHistoryFilters', () => {
       babyIds: new Set([BABY_A]),
       types: new Set(['bottle'] as const),
       authors: new Set(),
+      sides: new Set(),
+      stashOz: new Set(),
     };
     const result = applyHistoryFilters(events, f);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].babyId).toBe(BABY_A);
     expect(result[0].type).toBe('bottle');
   });
@@ -138,6 +190,8 @@ describe('applyHistoryFilters', () => {
       babyIds: new Set([BABY_A]),
       types: new Set(['bottle'] as const),
       authors: new Set(['Mom']),
+      sides: new Set(),
+      stashOz: new Set(),
     };
     const result = applyHistoryFilters(events, f);
     expect(result).toHaveLength(1);
@@ -148,8 +202,47 @@ describe('applyHistoryFilters', () => {
       babyIds: new Set([BABY_A]),
       types: new Set(['milestone'] as const),
       authors: new Set(),
+      sides: new Set(),
+      stashOz: new Set(),
     };
     const result = applyHistoryFilters(events, f);
     expect(result).toHaveLength(0);
+  });
+
+  it('filters by stashed milk amount in oz', () => {
+    const f: HistoryFilters = { ...emptyFilters(), stashOz: new Set([8]) };
+    const result = applyHistoryFilters(events, f);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('pump');
+    expect(result[0].notes).toContain('stashCount=2');
+  });
+
+  it('filters bottle logs by stash-used amount in oz', () => {
+    const f: HistoryFilters = { ...emptyFilters(), stashOz: new Set([4]) };
+    const result = applyHistoryFilters(events, f);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('bottle');
+    expect(result[0].notes).toBe('source=freezer');
+  });
+
+  it('stash filter excludes events without stash metadata', () => {
+    const f: HistoryFilters = { ...emptyFilters(), stashOz: new Set([6]) };
+    const result = applyHistoryFilters(events, f);
+    expect(result).toHaveLength(0);
+  });
+
+  it('filters by nursing side', () => {
+    const f: HistoryFilters = { ...emptyFilters(), sides: new Set(['left']) };
+    const result = applyHistoryFilters(events, f);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('nursing');
+    expect(result[0].notes).toBe('left');
+  });
+
+  it('filters by pump side', () => {
+    const f: HistoryFilters = { ...emptyFilters(), sides: new Set(['both']) };
+    const result = applyHistoryFilters(events, f);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('pump');
   });
 });

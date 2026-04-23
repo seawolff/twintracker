@@ -4,6 +4,8 @@
   "private": true,
   "main": "App.tsx",
   "scripts": {
+    "test": "npm run test:ios",
+    "test:ios": "node ./scripts/run-ios-tests.mjs",
     "dev": "expo start",
     "dev:local": "EXPO_PUBLIC_API_URL=http://$(ipconfig getifaddr en0):3000 expo start",
     "dev:android": "EXPO_PUBLIC_API_URL=http://10.0.2.2:3000 expo start",

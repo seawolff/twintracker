@@ -89,6 +89,10 @@ describe('LogSheet — end time field', () => {
     expect(render('nursing')).not.toContain('log_sheet.end_time');
   });
 
+  it('does NOT render end time key for pump', () => {
+    expect(render('pump')).not.toContain('log_sheet.end_time');
+  });
+
   it('does NOT render end time key for diaper', () => {
     expect(render('diaper')).not.toContain('log_sheet.end_time');
   });
@@ -104,6 +108,14 @@ describe('LogSheet — end time field', () => {
   it('does NOT render end time key for milestone', () => {
     expect(render('milestone')).not.toContain('log_sheet.end_time');
   });
+
+  it('shows suggested milestone chips for milestone logs when baby has an age', () => {
+    const html = render('milestone', {
+      baby: { ...BABY, birthDate: '2025-12-01' },
+    });
+    expect(html).toContain('log_sheet.milestone_suggestions');
+    expect(html).toContain('milestones.items.social_smile');
+  });
 });
 
 // ── Type labels ───────────────────────────────────────────────────────────────
@@ -115,6 +127,43 @@ describe('LogSheet — type labels', () => {
 
   it('shows nap type key for nap type', () => {
     expect(render('nap')).toContain('log_sheet.types.nap');
+  });
+
+  it('shows pump type key for pump type', () => {
+    expect(render('pump')).toContain('log_sheet.types.pump');
+  });
+
+  it('shows nursing controls for nursing type', () => {
+    const html = render('nursing');
+    expect(html).toContain('log_sheet.nursing_breast');
+    expect(html).toContain('log_sheet.nursing_left');
+    expect(html).toContain('log_sheet.nursing_right');
+    expect(html).toContain('log_sheet.duration_min');
+  });
+
+  it('shows pump stash controls for pump type', () => {
+    const html = render('pump');
+    expect(html).toContain('log_sheet.pump_stash_bottles');
+    expect(html).toContain('log_sheet.pump_stash_none');
+  });
+
+  it('shows bottle source controls for bottle type', () => {
+    const html = render('bottle');
+    expect(html).toContain('log_sheet.bottle_source');
+    expect(html).toContain('log_sheet.bottle_formula');
+    expect(html).toContain('log_sheet.bottle_fresh');
+    expect(html).toContain('log_sheet.bottle_fridge');
+    expect(html).toContain('log_sheet.bottle_freezer');
+  });
+
+  it('shows bottle source controls when editing a stash-fed bottle', () => {
+    const html = render('bottle', {
+      initialEvent: makeEvent({ type: 'bottle', value: 4, unit: 'oz', notes: 'source=freezer' }),
+      onEdit: jest.fn(),
+    });
+    expect(html).toContain('log_sheet.bottle_source');
+    expect(html).toContain('log_sheet.bottle_freezer');
+    expect(html).toContain('log_sheet.update');
   });
 
   it('shows log action key for new sleep', () => {
@@ -164,6 +213,7 @@ describe('LogSheet — start time field', () => {
     const types: EventType[] = [
       'bottle',
       'nursing',
+      'pump',
       'nap',
       'sleep',
       'diaper',

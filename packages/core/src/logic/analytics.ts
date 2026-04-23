@@ -10,6 +10,7 @@ import {
   getSelfSoothingMinutes,
 } from './schedule';
 import { AAP_MAX_DAILY_OZ } from '../config';
+import { isBottleBreastMilk, parseBottleNotes } from './pumpHelpers';
 
 const MS_PER_DAY = 24 * 60 * 60_000;
 /** Naps/sleeps shorter than this are ignored (incomplete or accidental taps). */
@@ -38,6 +39,7 @@ const SLEEP_MILESTONE_THRESHOLDS_MS = [5, 6, 7, 8].map(h => h * 60 * 60_000);
 
 export interface BabyAnalytics {
   totalOzThisWeek: number;
+  totalPumpedOzThisWeek: number;
   avgOzPerFeed: number | null;
   avgFeedIntervalMs: number | null;
   /** Daytime naps */
@@ -67,6 +69,10 @@ export interface BabyAnalytics {
   totalFeeds: number;
   /** Total oz divided by daysInPeriod */
   avgOzPerDay: number;
+  /** Total pumped oz divided by daysInPeriod */
+  avgPumpedOzPerDay: number;
+  /** Pumped oz minus bottle oz over the selected period. Positive = stash surplus. */
+  lactationBalanceOzThisWeek: number;
   /** Age-appropriate target oz per bottle feed */
   targetOzPerFeed: number;
   /** Age-appropriate target feed interval */
@@ -128,6 +134,7 @@ export function computeAnalytics(
 
   // Single pass over thisWeek — collect per-type buckets without re-scanning
   let totalOzThisWeek = 0;
+  let totalPumpedOzThisWeek = 0;
   let totalFeeds = 0;
   let diaperCountThisWeek = 0;
   let foodCountThisWeek = 0;
@@ -156,6 +163,8 @@ export function computeAnalytics(
     } else if (e.type === 'nursing') {
       feedTimes.push(t);
       totalFeeds++;
+    } else if (e.type === 'pump') {
+      totalPumpedOzThisWeek += Number(e.value ?? 0);
     } else if (e.type === 'nap' && e.endedAt != null) {
       const endMs = new Date(e.endedAt).getTime();
       const dur = endMs - t; // full duration for avg/longest
@@ -248,6 +257,11 @@ export function computeAnalytics(
   const targetNapDurationMs = ageSchedule.napMs;
   const targetDailyOzMax = AAP_MAX_DAILY_OZ;
   const avgOzPerDay = daysInPeriod > 0 ? totalOzThisWeek / daysInPeriod : 0;
+  const avgPumpedOzPerDay = daysInPeriod > 0 ? totalPumpedOzThisWeek / daysInPeriod : 0;
+  const breastMilkBottleOzThisWeek = thisWeek
+    .filter(e => e.type === 'bottle' && isBottleBreastMilk(parseBottleNotes(e.notes)))
+    .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+  const lactationBalanceOzThisWeek = totalPumpedOzThisWeek - breastMilkBottleOzThisWeek;
   const avgFeedsPerDay = daysInPeriod > 0 ? totalFeeds / daysInPeriod : 0;
   const avgDailySleepMs = daysInPeriod > 0 ? totalSleepMsThisWeek / daysInPeriod : 0;
   const targetDailySleepMs = getTargetDailySleepMs(ageWeeks);
@@ -275,6 +289,7 @@ export function computeAnalytics(
 
   return {
     totalOzThisWeek,
+    totalPumpedOzThisWeek,
     avgOzPerFeed,
     avgFeedIntervalMs,
     napCountThisWeek,
@@ -295,6 +310,8 @@ export function computeAnalytics(
     daysInPeriod,
     totalFeeds,
     avgOzPerDay,
+    avgPumpedOzPerDay,
+    lactationBalanceOzThisWeek,
     targetOzPerFeed,
     targetFeedIntervalMs,
     targetNapDurationMs,
@@ -330,6 +347,10 @@ export interface TrendData {
   ozPerFeedByDay: TrendPoint[];
   /** Total oz consumed per day. */
   ozPerDayByDay: TrendPoint[];
+  /** Total oz pumped per day. */
+  pumpedOzPerDay: TrendPoint[];
+  /** Pumped oz minus bottle oz per day. */
+  milkBalanceByDay: TrendPoint[];
   /** Completed daytime nap count per day. */
   napCountByDay: TrendPoint[];
   /** Longest completed night-sleep duration per day (ms). */
@@ -381,6 +402,8 @@ export function computeTrendData(
   const feedIntervalByDay: TrendPoint[] = [];
   const ozPerFeedByDay: TrendPoint[] = [];
   const ozPerDayByDay: TrendPoint[] = [];
+  const pumpedOzPerDay: TrendPoint[] = [];
+  const milkBalanceByDay: TrendPoint[] = [];
   const napCountByDay: TrendPoint[] = [];
   const longestNightByDay: TrendPoint[] = [];
 
@@ -424,6 +447,29 @@ export function computeTrendData(
       dayMs: slot.start,
       value: bottleOzValues.length > 0 ? bottleOzValues.reduce((s, v) => s + v, 0) : null,
     });
+    const pumpOzValues = inSlot
+      .filter(e => e.type === 'pump' && Number(e.value ?? 0) > 0)
+      .map(e => Number(e.value));
+    const pumpTotal = pumpOzValues.reduce((s, v) => s + v, 0);
+    const breastMilkBottleTotal = inSlot
+      .filter(
+        e =>
+          e.type === 'bottle' &&
+          Number(e.value ?? 0) > 0 &&
+          isBottleBreastMilk(parseBottleNotes(e.notes)),
+      )
+      .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+    pumpedOzPerDay.push({
+      dayMs: slot.start,
+      value: pumpOzValues.length > 0 ? pumpTotal : null,
+    });
+    milkBalanceByDay.push({
+      dayMs: slot.start,
+      value:
+        pumpOzValues.length > 0 || breastMilkBottleTotal > 0
+          ? pumpTotal - breastMilkBottleTotal
+          : null,
+    });
 
     // Nap count — completed naps above the minimum trackable duration.
     const completedNaps = inSlot.filter(
@@ -458,6 +504,8 @@ export function computeTrendData(
     feedIntervalByDay,
     ozPerFeedByDay,
     ozPerDayByDay,
+    pumpedOzPerDay,
+    milkBalanceByDay,
     napCountByDay,
     longestNightByDay,
     targetOzPerDay,

@@ -8,13 +8,11 @@ import de from '../../../packages/core/src/i18n/de.json';
 import fr from '../../../packages/core/src/i18n/fr.json';
 import es from '../../../packages/core/src/i18n/es.json';
 import { Providers } from '../components/Providers';
+import { BASE_URL, DEFAULT_OG_IMAGE_URL } from './site';
 import '../styles/globals.scss';
 
 const translations = { en, de, fr, es };
 type SupportedLocale = keyof typeof translations;
-
-const BASE_URL = 'https://www.twintracker.app';
-const OG_IMAGE_URL = `${BASE_URL}/og-image.png`;
 
 const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'de', 'fr', 'es'];
 
@@ -64,13 +62,13 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: 'TwinTracker',
       title: t.title,
       description: t.description,
-      images: [{ url: OG_IMAGE_URL, width: 1200, height: 630, alt: 'TwinTracker' }],
+      images: [{ url: DEFAULT_OG_IMAGE_URL, width: 1200, height: 630, alt: 'TwinTracker' }],
     },
     twitter: {
       card: 'summary_large_image',
       title: t.title,
       description: t.description,
-      images: [OG_IMAGE_URL],
+      images: [DEFAULT_OG_IMAGE_URL],
     },
     alternates: {
       canonical: BASE_URL,

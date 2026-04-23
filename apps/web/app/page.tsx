@@ -270,13 +270,22 @@ export default function LandingPage() {
           <p className={styles.tagline}>{t('landing.tagline')}</p>
           <p className={styles.heroSub}>{t('landing.hero_sub')}</p>
           <div className={styles.ctas}>
-            <a href="/login?mode=register" className={styles.ctaPrimary}>
+            <a
+              href="/login?mode=register"
+              className={styles.ctaPrimary}
+              data-umami-event="auth_start_tracking_click"
+              data-umami-event-location="landing_hero"
+              data-umami-event-mode="register"
+            >
               {t('landing.cta_web')}
             </a>
             <button className={styles.ctaSecondary} onClick={() => setWaitlistOpen(true)}>
               {t('landing.cta_app')}
             </button>
           </div>
+          <a href="/posts" className={styles.postsLink}>
+            {t('landing.posts')} →
+          </a>
         </div>
 
         <div className={styles.heroRight}>
@@ -333,6 +342,16 @@ export default function LandingPage() {
           desc={t('landing.feat_growth_desc')}
         />
         <FeatureCard
+          icon="🍼"
+          title={t('landing.feat_stash_title')}
+          desc={t('landing.feat_stash_desc')}
+        />
+        <FeatureCard
+          icon="★"
+          title={t('landing.feat_milestones_title')}
+          desc={t('landing.feat_milestones_desc')}
+        />
+        <FeatureCard
           icon="🌐"
           title={t('landing.feat_i18n_title')}
           desc={t('landing.feat_i18n_desc')}
@@ -354,6 +373,9 @@ export default function LandingPage() {
               href="/login?mode=register"
               className={styles.ctaPrimary}
               style={{ alignSelf: 'flex-start' }}
+              data-umami-event="auth_start_tracking_click"
+              data-umami-event-location="landing_story"
+              data-umami-event-mode="register"
             >
               {t('landing.story_cta')}
             </a>

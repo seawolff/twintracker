@@ -1,5 +1,12 @@
 /** Display helpers: formatTime, formatDuration, formatTimeAgo, eventLabel, eventLabelShort, formatEventTime. */
 import type { TrackerEvent } from '../types';
+import {
+  formatBottleSource,
+  formatPumpStash,
+  parseBottleNotes,
+  parsePumpNotes,
+} from './pumpHelpers';
+import { formatMilestoneText } from './milestones';
 
 /** Show relative time (timeAgo) when event is within this window; otherwise show absolute time. */
 const TWO_HOURS_MS = 2 * 60 * 60 * 1_000;
@@ -42,7 +49,11 @@ export function eventLabelShort(event: TrackerEvent): string {
     case 'bottle':
       return 'Bottle';
     case 'nursing':
-      return 'Nursing';
+      return event.notes === 'left' || event.notes === 'right'
+        ? `Nursing · ${event.notes}`
+        : 'Nursing';
+    case 'pump':
+      return event.endedAt ? `Pump (${formatDuration(event.startedAt, event.endedAt)})` : 'Pump';
     case 'nap':
       if (event.notes === 'attempted') {
         return 'Nap (attempted)';
@@ -78,10 +89,46 @@ export function formatEventTime(iso: string, now: Date): string {
 
 export function eventLabel(event: TrackerEvent): string {
   switch (event.type) {
-    case 'bottle':
-      return event.value != null ? `Bottle ${event.value}${event.unit ?? 'oz'}` : 'Bottle';
-    case 'nursing':
-      return event.value != null ? `Nursing ${event.value}m` : 'Nursing';
+    case 'bottle': {
+      const bottle = parseBottleNotes(event.notes);
+      const parts: string[] = [];
+      if (event.value != null) {
+        parts.push(`${event.value}${event.unit ?? 'oz'}`);
+      }
+      const source = formatBottleSource(bottle);
+      if (source) {
+        parts.push(source);
+      }
+      return parts.length > 0 ? `Bottle ${parts.join(' · ')}` : 'Bottle';
+    }
+    case 'nursing': {
+      const parts: string[] = [];
+      if (event.value != null) {
+        parts.push(`${event.value}m`);
+      }
+      if (event.notes === 'left' || event.notes === 'right') {
+        parts.push(event.notes);
+      }
+      return parts.length > 0 ? `Nursing ${parts.join(' · ')}` : 'Nursing';
+    }
+    case 'pump': {
+      const pump = parsePumpNotes(event.notes);
+      const parts: string[] = [];
+      if (event.value != null) {
+        parts.push(`${event.value}${event.unit ?? 'oz'}`);
+      }
+      if (event.notes) {
+        parts.push(pump.side);
+      }
+      const stash = formatPumpStash(pump);
+      if (stash) {
+        parts.push(stash);
+      }
+      if (event.endedAt) {
+        parts.push(formatDuration(event.startedAt, event.endedAt));
+      }
+      return parts.length > 0 ? `Pump ${parts.join(' · ')}` : 'Pump';
+    }
     case 'nap':
       if (event.notes === 'attempted') {
         return 'Nap (attempted)';
@@ -98,7 +145,7 @@ export function eventLabel(event: TrackerEvent): string {
       return desc ? `Food — ${desc}` : 'Food';
     }
     case 'milestone': {
-      const desc = event.notes?.trim();
+      const desc = formatMilestoneText(event.notes);
       return desc ? `★ ${desc}` : '★ Milestone';
     }
     default:

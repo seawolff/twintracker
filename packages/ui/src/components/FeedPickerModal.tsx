@@ -2,21 +2,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { EventType } from '@tt/core';
-import { useThemeContext } from '@tt/core';
+import { i18n, useThemeContext } from '@tt/core';
 import { fonts, spacing, radius } from '../theme/tokens';
-import { BottleIcon, NursingIcon, FoodIcon } from './icons/BabyIcons';
+import { BottleIcon, NursingIcon, PumpIcon, FoodIcon } from './icons/BabyIcons';
 
 type IconComponent = (props: { size: number; color: string }) => React.JSX.Element;
 
 const ICON_SIZE = 24;
 const DISMISS_THRESHOLD_Y = 80;
 const DISMISS_THRESHOLD_V = 0.5;
-
-const OPTIONS: { type: EventType; label: string; Icon: IconComponent }[] = [
-  { type: 'bottle', label: 'Bottle', Icon: BottleIcon as IconComponent },
-  { type: 'nursing', label: 'Nursing', Icon: NursingIcon as IconComponent },
-  { type: 'food', label: 'Solids', Icon: FoodIcon as IconComponent },
-];
 
 interface Props {
   visible: boolean;
@@ -31,6 +25,16 @@ export function FeedPickerModal({ visible, babyName, suggestedOz, onSelect, onCl
   const [pressedIndex, setPressedIndex] = useState(-1);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(300)).current;
+  const options: { type: EventType; label: string; Icon: IconComponent }[] = [
+    { type: 'bottle', label: i18n.t('log_sheet.types.bottle'), Icon: BottleIcon as IconComponent },
+    {
+      type: 'nursing',
+      label: i18n.t('log_sheet.types.nursing'),
+      Icon: NursingIcon as IconComponent,
+    },
+    { type: 'pump', label: i18n.t('log_sheet.types.pump'), Icon: PumpIcon as IconComponent },
+    { type: 'food', label: i18n.t('log_sheet.types.food'), Icon: FoodIcon as IconComponent },
+  ];
 
   // Keep onClose stable across renders so PanResponder (created once) always calls the latest ref.
   const onCloseRef = useRef(onClose);
@@ -39,7 +43,10 @@ export function FeedPickerModal({ visible, babyName, suggestedOz, onSelect, onCl
   const panResponder = useRef(
     PanResponder.create({
       // Only capture vertical-dominant downward drags
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gs) => gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
       onPanResponderMove: (_, gs) => {
         if (gs.dy > 0) {
           translateY.setValue(gs.dy);
@@ -102,21 +109,19 @@ export function FeedPickerModal({ visible, babyName, suggestedOz, onSelect, onCl
       {/* Sheet springs up; swipe down to dismiss */}
       <Animated.View
         style={[styles.sheetWrap, { transform: [{ translateY }] }]}
-        {...panResponder.panHandlers}
       >
         <View
           style={[styles.sheet, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
         >
-          {/* Drag handle */}
-          <View style={[styles.handle, { backgroundColor: theme.border }]} />
-
-          {/* Title */}
-          <Text style={[styles.title, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-            {`Feed ${babyName}`}
-          </Text>
+          <View style={styles.dragHeader} {...panResponder.panHandlers}>
+            <View style={[styles.handle, { backgroundColor: theme.border }]} />
+            <Text style={[styles.title, { color: theme.textMuted, fontFamily: fonts.mono }]}>
+              {i18n.t('home.feed_picker_title', { name: babyName })}
+            </Text>
+          </View>
 
           {/* Options */}
-          {OPTIONS.map((opt, i) => (
+          {options.map((opt, i) => (
             <Pressable
               key={opt.type}
               onPress={() => {
@@ -181,8 +186,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 4,
     borderRadius: 2,
-    marginTop: 18,
     marginBottom: spacing.sm,
+  },
+  dragHeader: {
+    alignItems: 'center',
+    paddingTop: 18,
+    paddingBottom: spacing.xs,
   },
   title: {
     fontSize: 12,

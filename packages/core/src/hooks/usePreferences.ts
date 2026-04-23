@@ -10,6 +10,8 @@ export interface Preferences {
   bedtimeHour: number; // target bedtime hour 0–23; default 19 (7pm, Stage 2+); use 22 for Stage 1 newborns
   wakeHour: number; // expected morning wake hour 0–23; default 7 (7am); also used as the daily history reset boundary
   sleepTraining: boolean; // show self-soothing wait times and guided cues during nap/sleep, default false
+  liveActivitiesEnabled: boolean; // allow TwinTracker to start iOS Live Activities for active nap/sleep sessions, default false
+  androidLockScreenNotificationsEnabled: boolean; // allow TwinTracker to show grouped household lock-screen notifications on Android, default false
   units: 'metric' | 'imperial'; // how weight and height are displayed; storage always kg/cm, default 'metric'
 }
 
@@ -19,8 +21,33 @@ const DEFAULT: Preferences = {
   bedtimeHour: 19,
   wakeHour: 7,
   sleepTraining: false,
+  liveActivitiesEnabled: false,
+  androidLockScreenNotificationsEnabled: false,
   units: 'metric',
 };
+
+export function normalizePreferences(
+  raw?: Partial<Preferences> | Record<string, unknown> | null,
+): Preferences {
+  const source = {
+    ...(raw ?? {}),
+  } as Partial<Preferences> & {
+    widgetsEnabled?: boolean;
+    androidNotificationsEnabled?: boolean;
+  };
+  if (source.liveActivitiesEnabled == null && typeof source.widgetsEnabled === 'boolean') {
+    source.liveActivitiesEnabled = source.widgetsEnabled;
+  }
+  if (
+    source.androidLockScreenNotificationsEnabled == null &&
+    typeof source.androidNotificationsEnabled === 'boolean'
+  ) {
+    source.androidLockScreenNotificationsEnabled = source.androidNotificationsEnabled;
+  }
+  delete (source as { widgetsEnabled?: boolean }).widgetsEnabled;
+  delete (source as { androidNotificationsEnabled?: boolean }).androidNotificationsEnabled;
+  return { ...DEFAULT, ...source };
+}
 
 function webStorage(): StorageInterface | null {
   if (typeof localStorage !== 'undefined') {
@@ -36,12 +63,29 @@ function readSync(storage: StorageInterface | null): Preferences {
   try {
     const raw = storage.getItem(PREFS_KEY);
     if (typeof raw === 'string') {
-      return { ...DEFAULT, ...JSON.parse(raw) };
+      return normalizePreferences(JSON.parse(raw));
     }
   } catch {
     /* ignore */
   }
   return DEFAULT;
+}
+
+export async function readStoredPreferences(
+  storage: StorageInterface | null,
+): Promise<{ exists: boolean; prefs: Preferences }> {
+  if (!storage) {
+    return { exists: false, prefs: DEFAULT };
+  }
+  try {
+    const raw = await Promise.resolve(storage.getItem(PREFS_KEY));
+    if (typeof raw === 'string') {
+      return { exists: true, prefs: normalizePreferences(JSON.parse(raw)) };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { exists: false, prefs: DEFAULT };
 }
 
 export function usePreferences(storage?: StorageInterface): {
@@ -51,6 +95,36 @@ export function usePreferences(storage?: StorageInterface): {
   setBedtimeHour: (hour: number) => void;
   setWakeHour: (hour: number) => void;
   setSleepTraining: (enabled: boolean) => void;
+  setLiveActivitiesEnabled: (enabled: boolean) => void;
+  setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
+  setUnits: (units: 'metric' | 'imperial') => void;
+}
+export function usePreferences(
+  storage?: StorageInterface,
+  apiSyncEnabled?: boolean,
+): {
+  prefs: Preferences;
+  setNapCheckMinutes: (minutes: number) => void;
+  setTwinSync: (enabled: boolean) => void;
+  setBedtimeHour: (hour: number) => void;
+  setWakeHour: (hour: number) => void;
+  setSleepTraining: (enabled: boolean) => void;
+  setLiveActivitiesEnabled: (enabled: boolean) => void;
+  setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
+  setUnits: (units: 'metric' | 'imperial') => void;
+}
+export function usePreferences(
+  storage?: StorageInterface,
+  apiSyncEnabled = true,
+): {
+  prefs: Preferences;
+  setNapCheckMinutes: (minutes: number) => void;
+  setTwinSync: (enabled: boolean) => void;
+  setBedtimeHour: (hour: number) => void;
+  setWakeHour: (hour: number) => void;
+  setSleepTraining: (enabled: boolean) => void;
+  setLiveActivitiesEnabled: (enabled: boolean) => void;
+  setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
   setUnits: (units: 'metric' | 'imperial') => void;
 } {
   const [prefs, setPrefs] = useState<Preferences>(() => readSync(storage ?? webStorage()));
@@ -76,32 +150,41 @@ export function usePreferences(storage?: StorageInterface): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // On mount, fetch from API to hydrate a fresh device that has no local data.
-  // If local data already exists (e.g. set during onboarding), skip the overwrite —
-  // the local values are up to date and the API response may be stale if in-flight
-  // PUT requests haven't landed yet.
+  // Once authenticated, fetch from API to hydrate a fresh device that has no local data.
+  // If local data already exists (or appears while the request is in-flight), skip the overwrite.
   useEffect(() => {
-    api.preferences
-      .get()
-      .then(remote => {
-        const store = storage ?? webStorage();
-        const localRaw = store ? store.getItem(PREFS_KEY) : null;
-        if (localRaw instanceof Promise || localRaw != null) {
-          // Local data exists — already loaded via useState initializer; don't overwrite.
+    if (!apiSyncEnabled) {
+      return;
+    }
+    const store = storage ?? webStorage();
+    let cancelled = false;
+
+    const hydrateFromApi = async () => {
+      try {
+        const localBeforeFetch = await readStoredPreferences(store);
+        if (cancelled || localBeforeFetch.exists) {
           return;
         }
-        // No local data: populate from API and cache locally.
-        const merged: Preferences = { ...DEFAULT, ...remote };
+        const remote = await api.preferences.get();
+        const localAfterFetch = await readStoredPreferences(store);
+        if (cancelled || localAfterFetch.exists) {
+          return;
+        }
+        const merged = normalizePreferences(remote);
         setPrefs(merged);
         if (store) {
-          store.setItem(PREFS_KEY, JSON.stringify(merged));
+          await Promise.resolve(store.setItem(PREFS_KEY, JSON.stringify(merged)));
         }
-      })
-      .catch(() => {
+      } catch {
         /* not logged in or offline — keep local values */
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      }
+    };
+
+    hydrateFromApi();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiSyncEnabled, storage]);
 
   // Write to local storage immediately and sync to API in the background
   const save = useCallback(
@@ -143,6 +226,16 @@ export function usePreferences(storage?: StorageInterface): {
     [prefs, save],
   );
 
+  const setLiveActivitiesEnabled = useCallback(
+    (enabled: boolean) => save({ ...prefs, liveActivitiesEnabled: enabled }),
+    [prefs, save],
+  );
+
+  const setAndroidLockScreenNotificationsEnabled = useCallback(
+    (enabled: boolean) => save({ ...prefs, androidLockScreenNotificationsEnabled: enabled }),
+    [prefs, save],
+  );
+
   const setUnits = useCallback(
     (units: 'metric' | 'imperial') => save({ ...prefs, units }),
     [prefs, save],
@@ -155,6 +248,8 @@ export function usePreferences(storage?: StorageInterface): {
     setBedtimeHour,
     setWakeHour,
     setSleepTraining,
+    setLiveActivitiesEnabled,
+    setAndroidLockScreenNotificationsEnabled,
     setUnits,
   };
 }

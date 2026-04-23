@@ -10,7 +10,7 @@ import {
   useTranslation,
 } from '@tt/core';
 import type { Baby, TrackerEvent, TransitionSignal, TrendData } from '@tt/core';
-import { BottleIcon, HotelIcon, MilestoneIcon, MoonIcon } from '@tt/ui';
+import { BottleIcon, HotelIcon, MilestoneIcon, MoonIcon, PumpIcon } from '@tt/ui';
 
 import TrendBars from './TrendBars';
 import TrendSparkline from './TrendSparkline';
@@ -29,6 +29,10 @@ function fmtInterval(ms: number): string {
     return `${h}h`;
   }
   return `${h}h ${m}m`;
+}
+
+function formatExactTotal(value: number): string {
+  return Number(value.toFixed(6)).toString();
 }
 
 function rangeLabel(now: Date, days: number): string {
@@ -151,6 +155,7 @@ export default function WeeklyAnalyticsPanel({
   const hasFeedTrend = trend.feedIntervalByDay.filter(p => p.value !== null).length >= 3;
   const hasSleepTrend = trend.longestNightByDay.filter(p => p.value !== null).length >= 3;
   const hasOzTrend = trend.ozPerDayByDay.filter(p => p.value !== null).length >= 3;
+  const hasPumpTrend = trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3;
 
   return (
     <>
@@ -169,7 +174,7 @@ export default function WeeklyAnalyticsPanel({
       <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding')}>
         {a.totalOzThisWeek > 0 ? (
           <>
-            <p className={styles.primaryStat}>{`${Math.round(a.totalOzThisWeek)} oz`}</p>
+            <p className={styles.primaryStat}>{`${formatExactTotal(a.totalOzThisWeek)} oz`}</p>
             <div className={styles.statsGrid}>
               {a.avgOzPerFeed != null && (
                 <StatRow
@@ -201,13 +206,38 @@ export default function WeeklyAnalyticsPanel({
         )}
       </SectionCard>
 
+      {(a.totalPumpedOzThisWeek > 0 || hasPumpTrend) && (
+        <SectionCard icon={<PumpIcon size={14} />} title={t('analytics.pumping')}>
+          {a.totalPumpedOzThisWeek > 0 ? (
+            <>
+              <p className={styles.primaryStat}>{`${formatExactTotal(a.totalPumpedOzThisWeek)} oz`}</p>
+              <div className={styles.statsGrid}>
+                <StatRow
+                  label={t('analytics.pumped_oz_per_day_label')}
+                  value={t('analytics.pumped_per_day_stat', {
+                    avg: a.avgPumpedOzPerDay.toFixed(1),
+                  })}
+                />
+                <StatRow
+                  label={t('analytics.milk_balance_label')}
+                  value={t('analytics.milk_balance_stat', {
+                    balance: formatExactTotal(a.lactationBalanceOzThisWeek),
+                  })}
+                />
+              </div>
+            </>
+          ) : (
+            <p className={styles.empty}>
+              {t('analytics.pumping_empty', { period: 'this period' })}
+            </p>
+          )}
+        </SectionCard>
+      )}
+
       {hasFeedTrend && (
         <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding_trends')}>
           <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
-          <TrendBlock
-            label={t('analytics.oz_per_feed_label')}
-            sublabel={`${t('analytics.target_label')} ${a.targetOzPerFeed} oz`}
-          >
+          <TrendBlock label={t('analytics.oz_per_feed_label')}>
             <TrendSparkline
               data={trend.ozPerFeedByDay}
               benchmarkValue={a.targetOzPerFeed}
@@ -215,10 +245,7 @@ export default function WeeklyAnalyticsPanel({
               ariaLabel={t('analytics.oz_per_feed_label')}
             />
           </TrendBlock>
-          <TrendBlock
-            label={t('analytics.feed_interval_label')}
-            sublabel={`${t('analytics.target_label')} ${fmtInterval(trend.targetFeedIntervalMs)}`}
-          >
+          <TrendBlock label={t('analytics.feed_interval_label')}>
             <TrendSparkline
               data={trend.feedIntervalByDay}
               benchmarkValue={trend.targetFeedIntervalMs}
@@ -250,6 +277,36 @@ export default function WeeklyAnalyticsPanel({
               benchmarkValue={trend.targetOzPerDay}
               height={72}
               ariaLabel={t('analytics.oz_per_day_label')}
+            />
+          </TrendBlock>
+          <div className={styles.trendAxisRow}>
+            {trendDayLabels
+              .filter((_, i) => i % 2 === 0)
+              .map((label, i) => (
+                <span key={i} className={styles.axisLabel}>
+                  {label}
+                </span>
+              ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {hasPumpTrend && (
+        <SectionCard icon={<PumpIcon size={14} />} title={t('analytics.pumping_trends')}>
+          <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+          <TrendBlock label={t('analytics.pumped_oz_per_day_label')}>
+            <TrendBars
+              data={trend.pumpedOzPerDay}
+              height={72}
+              ariaLabel={t('analytics.pumped_oz_per_day_label')}
+            />
+          </TrendBlock>
+          <TrendBlock label={t('analytics.milk_balance_label')}>
+            <TrendSparkline
+              data={trend.milkBalanceByDay}
+              benchmarkValue={0}
+              benchmarkLabel="0"
+              ariaLabel={t('analytics.milk_balance_label')}
             />
           </TrendBlock>
           <div className={styles.trendAxisRow}>

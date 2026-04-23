@@ -4,6 +4,7 @@ export const SunIcon = () => null;
 export const DiaperIcon = () => null;
 export const FoodIcon = () => null;
 export const NursingIcon = () => null;
+export const PumpIcon = () => null;
 export const MedicineIcon = () => null;
 export const MilestoneIcon = () => null;
 export const TimerIcon = () => null;

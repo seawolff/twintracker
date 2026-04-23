@@ -107,7 +107,7 @@ export default function TrendSparkline({
             x={svgWidth - 4}
             y={benchmarkY - 3}
             textAnchor="end"
-            style={{ fill: 'var(--tt-text)', fontSize: 7, opacity: 0.5 }}
+            style={{ fill: 'var(--tt-text)', fontSize: 9, opacity: 0.6 }}
           >
             {benchmarkLabel}
           </text>

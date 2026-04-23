@@ -132,6 +132,18 @@ export const iconDefs = {
       },
     ],
   },
+  /** pump-bag style icon for pumping logs */
+  PumpIcon: {
+    viewBox: '0 0 24 24',
+    paths: [
+      { d: 'M8 2h8a2 2 0 0 1 2 2v3h-2V4H8v3H6V4a2 2 0 0 1 2-2Z', role: 'fill' },
+      { d: 'M6 8h12v9a4 4 0 0 1-4 4H10a4 4 0 0 1-4-4V8Z', role: 'fill' },
+      {
+        d: 'M12 10.4c1.45 1.7 2.2 2.94 2.2 3.86A2.2 2.2 0 0 1 12 16.46a2.2 2.2 0 0 1-2.2-2.2c0-.92.75-2.16 2.2-3.86Z',
+        role: 'overlay',
+      },
+    ],
+  },
   /** close — X for dismiss/close (Material Icons) */
   CloseIcon: {
     viewBox: '0 0 24 24',

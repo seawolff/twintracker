@@ -258,16 +258,21 @@ export function computeHeightPercentile(
  */
 export function formatPercentile(p: number): string {
   const rounded = Math.round(p);
-  if (rounded === 1) {
-    return '1st percentile';
+  const mod100 = rounded % 100;
+  const mod10 = rounded % 10;
+
+  let suffix = 'th';
+  if (mod100 < 11 || mod100 > 13) {
+    if (mod10 === 1) {
+      suffix = 'st';
+    } else if (mod10 === 2) {
+      suffix = 'nd';
+    } else if (mod10 === 3) {
+      suffix = 'rd';
+    }
   }
-  if (rounded === 2) {
-    return '2nd percentile';
-  }
-  if (rounded === 3) {
-    return '3rd percentile';
-  }
-  return `${rounded}th percentile`;
+
+  return `${rounded}${suffix} percentile`;
 }
 
 // ── Unit conversion helpers ──────────────────────────────────────────────────

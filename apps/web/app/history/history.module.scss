@@ -15,12 +15,52 @@
 
 .scroll {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
-  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
+  padding-bottom: $space-md;
 
   @media (min-width: $bp-md) {
     padding-bottom: $space-md;
   }
+}
+
+.stashCard {
+  margin: $space-md;
+  padding: $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: 24px;
+  background: var(--tt-surface);
+}
+
+.stashValue {
+  margin: 0 0 $space-xs;
+  color: var(--tt-text);
+  font-family: $font-display;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.stashSubhead {
+  margin: 0 0 $space-xs;
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 12px;
+}
+
+.stashDetail {
+  margin: 0 0 $space-xs;
+  color: var(--tt-text-dim);
+  font-family: $font-mono;
+  font-size: 13px;
+}
+
+.stashNote {
+  margin: $space-xs 0 0;
+  color: var(--tt-text-muted);
+  font-family: $font-mono;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 // ── Quick-add panel ────────────────────────────────────────────────────────
@@ -102,7 +142,7 @@
 .skeletonScroll {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: calc(#{$tab-bar-h} + #{$space-md});
+  padding-bottom: $space-md;
 
   @media (min-width: $bp-md) {
     padding-bottom: $space-md;

@@ -15,6 +15,7 @@ import {
   hourLabel,
   getAgeWeeks,
   authorColor,
+  todayLocalDateInputValue,
 } from '@tt/core';
 import type { Baby, LogEventPayload, TrackerEvent } from '@tt/core';
 import { BottomTabBar } from '../../components/BottomTabBar';
@@ -62,6 +63,11 @@ export default function SettingsPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+  const [exportBabyId, setExportBabyId] = useState('');
+  const [exportFormat, setExportFormat] = useState<'csv' | 'pdf'>('csv');
   const [babies, setBabies] = useState<Baby[]>([]);
   const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
   const [mockMode, setMockMode] = useState(
@@ -163,15 +169,34 @@ export default function SettingsPage() {
 
   async function handleExportData() {
     setExporting(true);
+    setExportError(null);
+    const opts = {
+      from: exportFrom || undefined,
+      to: exportTo || undefined,
+      babyId: exportBabyId || undefined,
+    };
     try {
-      const csv = await api.events.exportCsv();
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `twintracker-export-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const date = todayLocalDateInputValue();
+      if (exportFormat === 'pdf') {
+        const blob = await api.events.exportPdf(opts);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `twintracker-report-${date}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const csv = await api.events.exportCsv(opts);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `twintracker-export-${date}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      setExportError(t('settings.export_error'));
     } finally {
       setExporting(false);
     }
@@ -435,10 +460,71 @@ export default function SettingsPage() {
 
         <section className={styles.section}>
           <p className={styles.sectionTitle}>{t('settings.your_data_title')}</p>
+          <p className={styles.sectionHint}>{t('settings.export_data_hint')}</p>
+          <div className={styles.exportFilters}>
+            <div className={styles.exportFilterRow}>
+              <label className={styles.exportFilterLabel}>{t('settings.export_from_label')}</label>
+              <input
+                type="date"
+                className={styles.exportDateInput}
+                value={exportFrom}
+                onChange={e => setExportFrom(e.target.value)}
+                aria-label={t('settings.export_from_label')}
+              />
+            </div>
+            <div className={styles.exportFilterRow}>
+              <label className={styles.exportFilterLabel}>{t('settings.export_to_label')}</label>
+              <input
+                type="date"
+                className={styles.exportDateInput}
+                value={exportTo}
+                onChange={e => setExportTo(e.target.value)}
+                aria-label={t('settings.export_to_label')}
+              />
+            </div>
+            {babies.length > 1 && (
+              <div className={styles.exportFilterRow}>
+                <label className={styles.exportFilterLabel}>
+                  {t('settings.export_baby_label')}
+                </label>
+                <select
+                  className={styles.exportDateInput}
+                  value={exportBabyId}
+                  onChange={e => setExportBabyId(e.target.value)}
+                  aria-label={t('settings.export_baby_label')}
+                >
+                  <option value="">{t('settings.export_baby_all')}</option>
+                  {babies.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <div className={styles.exportFormatRow}>
+            <button
+              className={`${styles.pill} ${exportFormat === 'csv' ? styles.pillActive : ''}`}
+              onClick={() => setExportFormat('csv')}
+              aria-pressed={exportFormat === 'csv'}
+            >
+              {t('settings.export_format_csv')}
+            </button>
+            <button
+              className={`${styles.pill} ${exportFormat === 'pdf' ? styles.pillActive : ''}`}
+              onClick={() => setExportFormat('pdf')}
+              aria-pressed={exportFormat === 'pdf'}
+            >
+              {t('settings.export_format_pdf')}
+            </button>
+          </div>
+          {exportError && <p className={styles.exportError}>{exportError}</p>}
           <button
             className={`${styles.pill} ${styles.pillFull}`}
             onClick={handleExportData}
             disabled={exporting}
+            style={{ marginTop: 8 }}
           >
             {exporting ? t('settings.exporting_data') : t('settings.export_data')}
           </button>

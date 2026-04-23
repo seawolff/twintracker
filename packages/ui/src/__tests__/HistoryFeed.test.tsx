@@ -60,8 +60,50 @@ describe('HistoryFeed — event type labels', () => {
     );
   });
 
+  it('bottle: shows stash source when logged from freezer stash', () => {
+    expect(
+      renderFeed([makeEvent({ type: 'bottle', value: 4, unit: 'oz', notes: 'source=freezer' })]),
+    ).toContain('Bottle 4oz · freezer');
+  });
+
   it('nursing: shows Nursing', () => {
     expect(renderFeed([makeEvent({ type: 'nursing' })])).toContain('Nursing');
+  });
+
+  it('nursing: shows duration when minutes were logged', () => {
+    expect(
+      renderFeed([makeEvent({ type: 'nursing', value: 15, unit: 'min', notes: 'left' })]),
+    ).toContain('Nursing 15m · left');
+  });
+
+  it('pump: shows amount, side, and duration', () => {
+    expect(
+      renderFeed([
+        makeEvent({
+          type: 'pump',
+          value: 5.5,
+          unit: 'oz',
+          notes: 'both',
+          startedAt: '2026-03-18T08:00:00Z',
+          endedAt: '2026-03-18T08:20:00Z',
+        }),
+      ]),
+    ).toContain('Pump 5.5oz · both · 20m');
+  });
+
+  it('pump: shows stash details when bottles were saved', () => {
+    expect(
+      renderFeed([
+        makeEvent({
+          type: 'pump',
+          value: 8,
+          unit: 'oz',
+          notes: 'side=both;stashCount=2;stashOz=4;stashLocation=fridge',
+          startedAt: '2026-03-18T08:00:00Z',
+          endedAt: '2026-03-18T08:20:00Z',
+        }),
+      ]),
+    ).toContain('Pump 8oz · both · stash 2x4oz · fridge · 20m');
   });
 
   it('nap (in progress, no endedAt): shows Nap', () => {

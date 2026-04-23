@@ -121,6 +121,20 @@
   }
 }
 
+.postsLink {
+  margin-top: $space-md;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-muted);
+  border-bottom: 1px solid var(--tt-border);
+  padding-bottom: 4px;
+
+  &:hover {
+    color: var(--tt-text);
+    border-bottom-color: var(--tt-accent);
+  }
+}
+
 .ctaPrimary {
   display: flex;
   align-items: center;

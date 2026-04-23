@@ -131,6 +131,67 @@
   }
 }
 
+.exportFilters {
+  display: flex;
+  flex-direction: column;
+  gap: $space-sm;
+  margin-bottom: $space-md;
+}
+
+.exportFilterRow {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+}
+
+.exportFilterLabel {
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.exportDateInput {
+  flex: 1;
+  height: 44px;
+  padding: 0 $space-sm;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  background: none;
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 13px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: var(--tt-accent);
+  }
+
+  // Date inputs have a built-in calendar icon — tint it to match theme
+  color-scheme: light dark;
+}
+
+.exportFormatRow {
+  display: flex;
+  gap: $space-sm;
+  margin-bottom: $space-sm;
+
+  .pill {
+    flex: 1;
+  }
+}
+
+.exportError {
+  font-family: $font-mono;
+  font-size: 12px;
+  color: #e53935;
+  margin-bottom: $space-sm;
+}
+
 .codeRow {
   display: flex;
   align-items: center;

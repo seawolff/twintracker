@@ -6,6 +6,7 @@ export { NapTimerModal } from './components/NapTimerModal';
 export { FeedPickerModal } from './components/FeedPickerModal';
 export { TriageStrip } from './components/TriageStrip';
 export { BabyProfileSheet } from './components/BabyProfileSheet';
+export { SleepTrainingInfoSheet } from './components/SleepTrainingInfoSheet';
 export * as tokens from './theme/tokens';
 export {
   BottleIcon,
@@ -19,6 +20,7 @@ export {
   MedicineIcon,
   SunIcon,
   NursingIcon,
+  PumpIcon,
   CloseIcon,
   TimerIcon,
   SettingsIcon,

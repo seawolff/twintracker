@@ -13,10 +13,17 @@ const VALID_PREF_KEYS = new Set([
   'wakeHour',
   'sleepTraining',
   'twinSync',
+  'liveActivitiesEnabled',
+  'androidLockScreenNotificationsEnabled',
   'units',
 ]);
 const HOUR_KEYS = new Set(['resetHour', 'bedtimeHour', 'wakeHour']);
-const BOOLEAN_KEYS = new Set(['sleepTraining', 'twinSync']);
+const BOOLEAN_KEYS = new Set([
+  'sleepTraining',
+  'twinSync',
+  'liveActivitiesEnabled',
+  'androidLockScreenNotificationsEnabled',
+]);
 const VALID_UNITS = new Set(['metric', 'imperial']);
 
 function validatePrefs(body: Record<string, unknown>): { message: string } | null {

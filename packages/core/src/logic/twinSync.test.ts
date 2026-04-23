@@ -1,4 +1,4 @@
-import { getNapActionType } from './twinSync';
+import { getNapActionType, shouldDismissSyncSuggestion } from './twinSync';
 
 describe('getNapActionType', () => {
   describe('when waking — active nap', () => {
@@ -36,5 +36,43 @@ describe('getNapActionType', () => {
     it('returns "sleep" when in sleep mode (night or bedtime stretch)', () => {
       expect(getNapActionType(false, false, true)).toBe('sleep');
     });
+  });
+});
+
+describe('shouldDismissSyncSuggestion', () => {
+  it('dismisses a feed suggestion when the suggested baby logs a bottle', () => {
+    expect(
+      shouldDismissSyncSuggestion(
+        { type: 'bottle', forBabyId: 'b2' },
+        { babyId: 'b2', type: 'bottle' },
+      ),
+    ).toBe(true);
+  });
+
+  it('dismisses a feed suggestion when the suggested baby logs nursing', () => {
+    expect(
+      shouldDismissSyncSuggestion(
+        { type: 'bottle', forBabyId: 'b2' },
+        { babyId: 'b2', type: 'nursing' },
+      ),
+    ).toBe(true);
+  });
+
+  it('does not dismiss when a different baby logs the event', () => {
+    expect(
+      shouldDismissSyncSuggestion(
+        { type: 'bottle', forBabyId: 'b2' },
+        { babyId: 'b1', type: 'bottle' },
+      ),
+    ).toBe(false);
+  });
+
+  it('does not dismiss a diaper suggestion for a bottle log', () => {
+    expect(
+      shouldDismissSyncSuggestion(
+        { type: 'diaper', forBabyId: 'b2' },
+        { babyId: 'b2', type: 'bottle' },
+      ),
+    ).toBe(false);
   });
 });

@@ -1,3 +1,10 @@
+import {
+  parseMilestoneNotes as parseMilestoneNotesImpl,
+  serializeMilestoneNotes as serializeMilestoneNotesImpl,
+  getSuggestedMilestones as getSuggestedMilestonesImpl,
+  getRecentMilestones as getRecentMilestonesImpl,
+} from '../../core/src/logic/milestones';
+
 // Real logic functions imported directly from core source (pure TS, no side-effects)
 export {
   eventLabel,
@@ -12,6 +19,24 @@ export { authorColor } from '../../core/src/logic/authorUtils';
 export { getBabyInsight, formatMs, formatTime12 } from '../../core/src/logic/schedule';
 export { getNapActionType } from '../../core/src/logic/twinSync';
 export { computeLearnedStats } from '../../core/src/logic/learnedSchedule';
+export {
+  parsePumpNotes,
+  serializePumpNotes,
+  formatPumpStash,
+} from '../../core/src/logic/pumpHelpers';
+export const parseMilestoneNotes = parseMilestoneNotesImpl;
+export const serializeMilestoneNotes = serializeMilestoneNotesImpl;
+export const getSuggestedMilestones = getSuggestedMilestonesImpl;
+export const getRecentMilestones = getRecentMilestonesImpl;
+export const milestoneLabel = (key: string) => `milestones.items.${key}`;
+export const formatMilestoneText = (notes?: string | null) => {
+  const parsed = parseMilestoneNotesImpl(notes);
+  if (parsed.key) {
+    const base = milestoneLabel(parsed.key);
+    return parsed.detail ? `${base} — ${parsed.detail}` : base;
+  }
+  return parsed.legacyText ?? 'log_sheet.types.milestone';
+};
 
 // Re-export types
 export type {

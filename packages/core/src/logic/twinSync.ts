@@ -19,6 +19,10 @@ export type SyncableEventType = Extract<
   'nap' | 'sleep' | 'bottle' | 'nursing' | 'diaper' | 'food'
 >;
 
+function isFeedSyncType(type: SyncableEventType): boolean {
+  return type === 'bottle' || type === 'nursing';
+}
+
 /**
  * After logging an event for one baby, finds the other baby who is "out of sync"
  * and should receive a one-tap sync suggestion banner.
@@ -83,6 +87,37 @@ export function findUnsyncedBaby(
 
     return false;
   });
+}
+
+/**
+ * Returns true when an existing twin-sync suggestion should be dismissed
+ * because the user manually logged the suggested action for the suggested baby.
+ *
+ * Feed suggestions (`bottle` / `nursing`) are treated as one family: logging
+ * either feed type for the suggested baby dismisses the feed suggestion banner.
+ */
+export function shouldDismissSyncSuggestion(
+  suggestion:
+    | {
+        type: SyncableEventType;
+        forBabyId: string;
+      }
+    | null
+    | undefined,
+  payload: {
+    babyId: string;
+    type: EventType;
+  },
+): boolean {
+  if (!suggestion || suggestion.forBabyId !== payload.babyId) {
+    return false;
+  }
+
+  if (isFeedSyncType(suggestion.type)) {
+    return payload.type === 'bottle' || payload.type === 'nursing';
+  }
+
+  return suggestion.type === payload.type;
 }
 
 /**

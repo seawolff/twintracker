@@ -1,4 +1,20 @@
 import type { EventType, TrackerEvent } from '../types';
+import { getEventStashOz, parsePumpNotes } from './pumpHelpers';
+
+export type HistorySideFilter = 'left' | 'right' | 'both';
+
+export function getEventSide(
+  event: Pick<TrackerEvent, 'type' | 'notes'>,
+): HistorySideFilter | null {
+  if (event.type === 'nursing') {
+    return event.notes === 'left' || event.notes === 'right' ? event.notes : null;
+  }
+  if (event.type === 'pump') {
+    const side = parsePumpNotes(event.notes).side;
+    return side === 'left' || side === 'right' || side === 'both' ? side : null;
+  }
+  return null;
+}
 
 export interface HistoryFilters {
   /** Empty = show all babies. */
@@ -7,16 +23,32 @@ export interface HistoryFilters {
   types: Set<EventType>;
   /** Empty = show all authors. Matched against event.loggedByName. */
   authors: Set<string>;
+  /** Empty = show all nursing/pump sides. */
+  sides: Set<HistorySideFilter>;
+  /** Empty = show all stash amounts. Matched against stash oz added or used on stash-related logs. */
+  stashOz: Set<number>;
 }
 
 /** Returns a zero-state filter object (no active filters). */
 export function emptyFilters(): HistoryFilters {
-  return { babyIds: new Set(), types: new Set(), authors: new Set() };
+  return {
+    babyIds: new Set(),
+    types: new Set(),
+    authors: new Set(),
+    sides: new Set(),
+    stashOz: new Set(),
+  };
 }
 
 /** Returns true when at least one filter dimension is active. */
 export function isFilterActive(filters: HistoryFilters): boolean {
-  return filters.babyIds.size > 0 || filters.types.size > 0 || filters.authors.size > 0;
+  return (
+    filters.babyIds.size > 0 ||
+    filters.types.size > 0 ||
+    filters.authors.size > 0 ||
+    filters.sides.size > 0 ||
+    filters.stashOz.size > 0
+  );
 }
 
 /**
@@ -41,6 +73,15 @@ export function applyHistoryFilters(
       return false;
     }
     if (filters.authors.size > 0 && !filters.authors.has(e.loggedByName ?? '')) {
+      return false;
+    }
+    if (filters.sides.size > 0) {
+      const side = getEventSide(e);
+      if (!side || !filters.sides.has(side)) {
+        return false;
+      }
+    }
+    if (filters.stashOz.size > 0 && !filters.stashOz.has(getEventStashOz(e))) {
       return false;
     }
     return true;

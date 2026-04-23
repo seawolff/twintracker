@@ -103,6 +103,12 @@ describe('eventLabel', () => {
     expect(eventLabel(makeEvent({ type: 'nursing' }))).toBe('Nursing');
   });
 
+  it('nursing with duration shows minutes in label', () => {
+    expect(eventLabel(makeEvent({ type: 'nursing', value: 15, unit: 'min', notes: 'left' }))).toBe(
+      'Nursing 15m · left',
+    );
+  });
+
   it('nap without endedAt', () => {
     expect(eventLabel(makeEvent({ type: 'nap' }))).toBe('Nap');
   });
@@ -163,6 +169,12 @@ describe('eventLabel', () => {
     );
   });
 
+  it('milestone with structured key resolves to translated label', () => {
+    expect(
+      eventLabel(makeEvent({ type: 'milestone', notes: 'milestone:key=first_word&detail=with+dada' })),
+    ).toBe('★ First word — with dada');
+  });
+
   it('milestone without notes', () => {
     expect(eventLabel(makeEvent({ type: 'milestone', notes: undefined }))).toBe('★ Milestone');
   });
@@ -181,6 +193,10 @@ describe('eventLabelShort', () => {
 
   it('nursing returns "Nursing"', () => {
     expect(eventLabelShort(makeEvent({ type: 'nursing' }))).toBe('Nursing');
+  });
+
+  it('nursing short label includes side when available', () => {
+    expect(eventLabelShort(makeEvent({ type: 'nursing', notes: 'right' }))).toBe('Nursing · right');
   });
 
   it('nap without endedAt returns "Nap"', () => {

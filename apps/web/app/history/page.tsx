@@ -8,9 +8,14 @@ import {
   api,
   applyHistoryFilters,
   emptyFilters,
+  getEventSide,
   isFilterActive,
   i18n,
   EVENT_TYPES,
+  getEventStashOz,
+  parseBottleNotes,
+  summarizeStashInventory,
+  defaultQuickAddDateForHistoryDay,
 } from '@tt/core';
 import type { Baby, EventType, HistoryFilters, LogEventPayload, TrackerEvent } from '@tt/core';
 import { FilterIcon, HistoryFeed, LogSheet } from '@tt/ui';
@@ -63,6 +68,29 @@ export default function HistoryPage() {
     () => [...new Set(events.map(e => e.loggedByName).filter((n): n is string => Boolean(n)))],
     [events],
   );
+  const availableSides = useMemo(
+    () =>
+      [
+        ...new Set(
+          events
+            .map(getEventSide)
+            .filter((side): side is 'left' | 'right' | 'both' => Boolean(side)),
+        ),
+      ].sort((a, b) => {
+        const order = { left: 0, right: 1, both: 2 };
+        return order[a] - order[b];
+      }),
+    [events],
+  );
+  const availableStashOz = useMemo(
+    () =>
+      [...new Set(events.map(getEventStashOz).filter((oz): oz is number => oz > 0))].sort(
+        (a, b) => a - b,
+      ),
+    [events],
+  );
+  const stashInventory = useMemo(() => summarizeStashInventory(events), [events]);
+  const showStashInventory = stashInventory.totalOz > 0;
 
   const filteredEvents = useMemo(() => applyHistoryFilters(events, filters), [events, filters]);
 
@@ -90,6 +118,32 @@ export default function HistoryPage() {
       next.has(author) ? next.delete(author) : next.add(author);
       return { ...f, authors: next };
     });
+  }
+
+  function toggleSide(side: 'left' | 'right' | 'both') {
+    setFilters(f => {
+      const next = new Set(f.sides);
+      next.has(side) ? next.delete(side) : next.add(side);
+      return { ...f, sides: next };
+    });
+  }
+
+  function toggleStashOz(oz: number) {
+    setFilters(f => {
+      const next = new Set(f.stashOz);
+      next.has(oz) ? next.delete(oz) : next.add(oz);
+      return { ...f, stashOz: next };
+    });
+  }
+
+  function stashLocationLabel(location: 'fridge' | 'freezer' | 'unknown'): string {
+    if (location === 'fridge') {
+      return i18n.t('log_sheet.stash_fridge');
+    }
+    if (location === 'freezer') {
+      return i18n.t('log_sheet.stash_freezer');
+    }
+    return location;
   }
 
   if (showSkeleton) {
@@ -131,14 +185,7 @@ export default function HistoryPage() {
   }
 
   function defaultTimeForDay(date: Date): string {
-    const now = new Date();
-    const isCurrentPeriod = date.getTime() + 24 * 60 * 60 * 1000 > now.getTime();
-    if (isCurrentPeriod) {
-      return now.toISOString();
-    }
-    const d = new Date(date);
-    d.setHours(12, 0, 0, 0);
-    return d.toISOString();
+    return defaultQuickAddDateForHistoryDay(date, new Date()).toISOString();
   }
 
   const editBaby = editingEvent ? (babies.find(b => b.id === editingEvent.babyId) ?? null) : null;
@@ -148,6 +195,54 @@ export default function HistoryPage() {
       <EmailVerificationBanner />
 
       <div className={styles.scroll}>
+      {showStashInventory && (
+          <section className={styles.stashCard}>
+            <p className={styles.quickLabel}>{i18n.t('history.stash_inventory_title')}</p>
+            <h2 className={styles.stashValue}>
+              {i18n.t('history.stash_inventory_total', { oz: String(stashInventory.totalOz) })}
+            </h2>
+            <p className={styles.stashSubhead}>{i18n.t('history.stash_inventory_subtitle')}</p>
+            <p className={styles.stashDetail}>
+              {i18n.t('history.stash_inventory_detail', {
+                bottles: String(stashInventory.totalBottles),
+                sessions: String(stashInventory.totalSessions),
+              })}
+            </p>
+            <p className={styles.stashDetail}>
+              {i18n.t('history.stash_inventory_breakdown', {
+                fridgeOz: String(stashInventory.fridgeOz),
+                freezerOz: String(stashInventory.freezerOz),
+              })}
+            </p>
+            {stashInventory.expiredBottles > 0 ? (
+              <p className={styles.stashNote}>
+                {i18n.t('history.stash_inventory_expired', {
+                  count: stashInventory.expiredBottles,
+                })}
+              </p>
+            ) : stashInventory.expiringSoonBottles > 0 ? (
+              <p className={styles.stashNote}>
+                {i18n.t('history.stash_inventory_expiring', {
+                  count: stashInventory.expiringSoonBottles,
+                })}
+              </p>
+            ) : stashInventory.oldestAgeDays != null && stashInventory.oldestLocation != null ? (
+              <p className={styles.stashNote}>
+                {i18n.t('history.stash_inventory_fifo', {
+                  location: stashLocationLabel(stashInventory.oldestLocation),
+                  days: String(stashInventory.oldestAgeDays),
+                })}
+              </p>
+            ) : null}
+            {stashInventory.unmatchedUsageOz > 0 && (
+              <p className={styles.stashNote}>
+                {i18n.t('history.stash_inventory_unmatched', {
+                  oz: String(stashInventory.unmatchedUsageOz),
+                })}
+              </p>
+            )}
+          </section>
+        )}
         <HistoryFeed
           events={filteredEvents}
           babies={babies}
@@ -233,6 +328,44 @@ export default function HistoryPage() {
                       onClick={() => toggleAuthor(author)}
                     >
                       {author}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {availableSides.length > 0 && (
+              <>
+                <p className={styles.quickLabel}>{i18n.t('history.filter_sides')}</p>
+                <div className={styles.filterPills}>
+                  {availableSides.map(side => (
+                    <button
+                      key={side}
+                      type="button"
+                      className={`${styles.filterPill}${filters.sides.has(side) ? ` ${styles.filterPillActive}` : ''}`}
+                      onClick={() => toggleSide(side)}
+                    >
+                      {i18n.t(
+                        side === 'both' ? 'log_sheet.pump_both' : `log_sheet.nursing_${side}`,
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {availableStashOz.length > 0 && (
+              <>
+                <p className={styles.quickLabel}>{i18n.t('history.filter_stash')}</p>
+                <div className={styles.filterPills}>
+                  {availableStashOz.map(oz => (
+                    <button
+                      key={oz}
+                      type="button"
+                      className={`${styles.filterPill}${filters.stashOz.has(oz) ? ` ${styles.filterPillActive}` : ''}`}
+                      onClick={() => toggleStashOz(oz)}
+                    >
+                      {oz}oz
                     </button>
                   ))}
                 </div>

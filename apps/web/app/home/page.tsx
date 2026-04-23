@@ -21,7 +21,9 @@ import {
   usePreferences,
   useAlarms,
   setNightBoundaries,
-  setSleepActive,
+  setSleepThemeAnchors,
+  getSleepThemeAnchors,
+  getSleepThemeOverride,
   useTheme,
   api,
   i18n,
@@ -30,9 +32,12 @@ import {
   WAKE_HOURS,
   hourLabel,
   findUnsyncedBaby,
+  shouldDismissSyncSuggestion,
   getActiveEvent,
   findSyncedNapBaby,
   getAgeWeeks,
+  todayLocalDateInputValue,
+  isFutureLocalDateInputValue,
 } from '@tt/core';
 import type { Baby, EventType, LogEventPayload, SyncableEventType, TrackerEvent } from '@tt/core';
 import { BabyCard, BabyProfileSheet, LogSheet } from '@tt/ui';
@@ -188,15 +193,27 @@ export default function HomePage() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Flip to night mode while any baby has an active sleep (night) event.
-  // Naps do not trigger night mode.
-  const anySleepActive = useMemo(
-    () => babies.some(baby => getActiveEvent(baby.id, 'sleep', latest) != null),
+  const sleepThemeAnchors = useMemo(
+    () => getSleepThemeAnchors(babies.map(baby => baby.id), latest),
     [babies, latest],
   );
+  const sleepThemeOverride = useMemo(
+    () =>
+      getSleepThemeOverride(
+        sleepThemeAnchors.latestSleepStartMs,
+        sleepThemeAnchors.latestSleepEndMs,
+        new Date(),
+        prefs.bedtimeHour,
+      ),
+    [sleepThemeAnchors, prefs.bedtimeHour],
+  );
+  const householdNightMode = sleepThemeOverride === 'night';
   useEffect(() => {
-    setSleepActive(anySleepActive);
-  }, [anySleepActive]);
+    setSleepThemeAnchors(
+      sleepThemeAnchors.latestSleepStartMs,
+      sleepThemeAnchors.latestSleepEndMs,
+    );
+  }, [sleepThemeAnchors]);
 
   // Sync web alarm timers with server-side alarms state. Three responsibilities:
   //   1. Cancel timeouts for alarms dismissed on this or another device.
@@ -380,8 +397,7 @@ export default function HomePage() {
     if (!valid.length) {
       return;
     }
-    const today = new Date().toISOString().split('T')[0];
-    if (valid.some(en => en.birthDate && en.birthDate > today)) {
+    if (valid.some(en => isFutureLocalDateInputValue(en.birthDate))) {
       setOnboardError(t('onboarding.error_dob_future'));
       return;
     }
@@ -540,6 +556,10 @@ export default function HomePage() {
     setSheet(null);
     try {
       await logEvent(payload);
+
+      if (shouldDismissSyncSuggestion(syncSuggestion, payload)) {
+        setSyncSuggestion(null);
+      }
 
       // Confirmation toast
       if (logToastTimer.current) {
@@ -733,7 +753,7 @@ export default function HomePage() {
                     className={styles.input}
                     type="date"
                     value={en.birthDate}
-                    max={new Date().toISOString().split('T')[0]}
+                    max={todayLocalDateInputValue()}
                     onChange={e => updateEntry(i, 'birthDate', e.target.value)}
                     required
                   />
@@ -985,6 +1005,7 @@ export default function HomePage() {
                     wakeHour={prefs.wakeHour}
                     sleepTraining={prefs.sleepTraining}
                     napCheckMinutes={prefs.napCheckMinutes}
+                    householdNightMode={householdNightMode}
                     activeAlarm={getAlarmForBaby(baby.id)}
                     onSetAlarm={(durationMs, isCustomTimer) =>
                       handleSetAlarm(baby, durationMs, isCustomTimer)

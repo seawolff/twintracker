@@ -1,0 +1,268 @@
+const MS_PER_MINUTE = 60000;
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+const ANALYTICS_MOCK_DAYS = 21;
+// Demo babies born ~6 months before the fixed DEMO_NOW (2026-04-10T18:00:00Z)
+// → Stage 2 (≥16 weeks), bedtime-stretch narrative at 6pm.
+export const DEMO_EMMA = {
+    id: 'demo-emma',
+    name: 'Emma',
+    color: 'rose',
+    birthDate: '2025-10-01',
+    createdAt: '2025-10-01T00:00:00Z',
+};
+export const DEMO_LUCAS = {
+    id: 'demo-lucas',
+    name: 'Lucas',
+    color: 'amber',
+    birthDate: '2025-11-15',
+    createdAt: '2025-11-15T00:00:00Z',
+};
+export const DEMO_MIA = {
+    id: 'demo-mia',
+    name: 'Mia',
+    color: 'sky',
+    birthDate: '2025-11-15',
+    createdAt: '2025-11-15T00:00:00Z',
+};
+function mkEvent(id, babyId, type, startedAt, extra) {
+    return { id, babyId, type, startedAt, createdAt: startedAt, ...extra };
+}
+function addDays(ms, days) {
+    return ms + days * MS_PER_DAY;
+}
+function toIso(ms) {
+    return new Date(ms).toISOString();
+}
+function startOfLocalDayMs(nowMs) {
+    const day = new Date(nowMs);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime();
+}
+/** True when the most-recent nap or sleep event for this baby has no endedAt. */
+export function isBabySleeping(babyId, latestMap) {
+    const nap = latestMap[`${babyId}:nap`];
+    const sleep = latestMap[`${babyId}:sleep`];
+    const candidates = [nap, sleep].filter((e) => Boolean(e));
+    if (candidates.length === 0) {
+        return false;
+    }
+    const most = candidates.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+    return !most.endedAt;
+}
+export function buildSingletonLatest(nowMs) {
+    const ago = (min) => new Date(nowMs - min * 60000).toISOString();
+    return {
+        // 210 min before DEMO_NOW (6:30 PM) = 3:00 PM exactly.
+        // normalNextFeedMs = 3pm + 4h feed interval = 7pm = bedtime.
+        // computePredictions uses strict ">", so 7pm === 7pm skips the bedtime snap →
+        // bottle pill remaining = 7pm − 6:30pm = 30min, matching the bedtime countdown.
+        [`${DEMO_EMMA.id}:bottle`]: mkEvent('e-l-btl', DEMO_EMMA.id, 'bottle', ago(210), {
+            value: 6,
+            unit: 'oz',
+        }),
+        [`${DEMO_EMMA.id}:nap`]: mkEvent('e-l-nap', DEMO_EMMA.id, 'nap', ago(270), {
+            endedAt: ago(130),
+        }),
+        [`${DEMO_EMMA.id}:diaper`]: mkEvent('e-l-dpr', DEMO_EMMA.id, 'diaper', ago(80)),
+    };
+}
+// Extended event list — more rows = visible Clear-app gradient in history demo.
+export function buildSingletonEvents(nowMs) {
+    const ago = (min) => new Date(nowMs - min * 60000).toISOString();
+    return [
+        mkEvent('e-h-dpr1', DEMO_EMMA.id, 'diaper', ago(80), { loggedByName: 'Alex' }),
+        // Matches buildSingletonLatest: bottle at ago(210) = 3:00 PM
+        mkEvent('e-h-btl2', DEMO_EMMA.id, 'bottle', ago(210), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('e-h-nap1', DEMO_EMMA.id, 'nap', ago(270), { endedAt: ago(130), loggedByName: 'Alex' }),
+        mkEvent('e-h-btl1', DEMO_EMMA.id, 'bottle', ago(340), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('e-h-dpr2', DEMO_EMMA.id, 'diaper', ago(380), { loggedByName: 'Alex' }),
+        mkEvent('e-h-nap2', DEMO_EMMA.id, 'nap', ago(500), { endedAt: ago(390), loggedByName: 'Sam' }),
+        mkEvent('e-h-btl0', DEMO_EMMA.id, 'bottle', ago(520), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+        mkEvent('e-h-dpr3', DEMO_EMMA.id, 'diaper', ago(600), { loggedByName: 'Sam' }),
+        mkEvent('e-h-nap3', DEMO_EMMA.id, 'nap', ago(720), { endedAt: ago(610), loggedByName: 'Alex' }),
+        mkEvent('e-h-btl3', DEMO_EMMA.id, 'bottle', ago(740), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('e-h-dpr4', DEMO_EMMA.id, 'diaper', ago(800), { loggedByName: 'Alex' }),
+        mkEvent('e-h-nap4', DEMO_EMMA.id, 'nap', ago(900), { endedAt: ago(810), loggedByName: 'Sam' }),
+        mkEvent('e-h-btl4', DEMO_EMMA.id, 'bottle', ago(920), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+        mkEvent('e-h-dpr5', DEMO_EMMA.id, 'diaper', ago(980), { loggedByName: 'Sam' }),
+        mkEvent('e-h-btl5', DEMO_EMMA.id, 'bottle', ago(1060), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+    ];
+}
+export function buildTwinLatest(nowMs) {
+    const ago = (min) => new Date(nowMs - min * 60000).toISOString();
+    return {
+        [`${DEMO_LUCAS.id}:bottle`]: mkEvent('a-l-btl', DEMO_LUCAS.id, 'bottle', ago(210), {
+            value: 6,
+            unit: 'oz',
+        }),
+        [`${DEMO_LUCAS.id}:nap`]: mkEvent('a-l-nap', DEMO_LUCAS.id, 'nap', ago(90), {
+            endedAt: ago(10),
+        }),
+        [`${DEMO_LUCAS.id}:diaper`]: mkEvent('a-l-dpr', DEMO_LUCAS.id, 'diaper', ago(60)),
+        [`${DEMO_MIA.id}:bottle`]: mkEvent('g-l-btl', DEMO_MIA.id, 'bottle', ago(220), {
+            value: 5.5,
+            unit: 'oz',
+        }),
+        [`${DEMO_MIA.id}:nap`]: mkEvent('g-l-nap', DEMO_MIA.id, 'nap', ago(95), {
+            endedAt: ago(12),
+        }),
+        [`${DEMO_MIA.id}:diaper`]: mkEvent('g-l-dpr', DEMO_MIA.id, 'diaper', ago(70)),
+    };
+}
+export function buildTwinEvents(nowMs) {
+    const ago = (min) => new Date(nowMs - min * 60000).toISOString();
+    return [
+        mkEvent('a-h-dpr1', DEMO_LUCAS.id, 'diaper', ago(60), { loggedByName: 'Alex' }),
+        mkEvent('g-h-dpr1', DEMO_MIA.id, 'diaper', ago(70), { loggedByName: 'Sam' }),
+        mkEvent('a-h-nap1', DEMO_LUCAS.id, 'nap', ago(90), { endedAt: ago(10), loggedByName: 'Sam' }),
+        mkEvent('g-h-nap1', DEMO_MIA.id, 'nap', ago(95), { endedAt: ago(12), loggedByName: 'Alex' }),
+        mkEvent('a-h-btl1', DEMO_LUCAS.id, 'bottle', ago(210), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+        mkEvent('g-h-btl1', DEMO_MIA.id, 'bottle', ago(220), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('a-h-dpr2', DEMO_LUCAS.id, 'diaper', ago(300), { loggedByName: 'Sam' }),
+        mkEvent('g-h-dpr2', DEMO_MIA.id, 'diaper', ago(310), { loggedByName: 'Alex' }),
+        mkEvent('a-h-nap2', DEMO_LUCAS.id, 'nap', ago(420), {
+            endedAt: ago(330),
+            loggedByName: 'Alex',
+        }),
+        mkEvent('g-h-nap2', DEMO_MIA.id, 'nap', ago(425), { endedAt: ago(335), loggedByName: 'Sam' }),
+        mkEvent('a-h-btl0', DEMO_LUCAS.id, 'bottle', ago(430), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('g-h-btl0', DEMO_MIA.id, 'bottle', ago(440), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+        mkEvent('a-h-dpr3', DEMO_LUCAS.id, 'diaper', ago(540), { loggedByName: 'Alex' }),
+        mkEvent('g-h-dpr3', DEMO_MIA.id, 'diaper', ago(550), { loggedByName: 'Sam' }),
+        mkEvent('a-h-nap3', DEMO_LUCAS.id, 'nap', ago(660), {
+            endedAt: ago(570),
+            loggedByName: 'Sam',
+        }),
+        mkEvent('g-h-nap3', DEMO_MIA.id, 'nap', ago(665), { endedAt: ago(575), loggedByName: 'Alex' }),
+        mkEvent('a-h-btl2', DEMO_LUCAS.id, 'bottle', ago(680), {
+            value: 6,
+            unit: 'oz',
+            loggedByName: 'Alex',
+        }),
+        mkEvent('g-h-btl2', DEMO_MIA.id, 'bottle', ago(690), {
+            value: 5.5,
+            unit: 'oz',
+            loggedByName: 'Sam',
+        }),
+        mkEvent('a-h-dpr4', DEMO_LUCAS.id, 'diaper', ago(780), { loggedByName: 'Sam' }),
+        mkEvent('g-h-dpr4', DEMO_MIA.id, 'diaper', ago(790), { loggedByName: 'Alex' }),
+    ];
+}
+/**
+ * Build deterministic, trend-rich analytics mock data for the landing page.
+ * Uses stable formulas instead of Math.random so the charts never jitter between renders.
+ */
+export function buildDemoAnalyticsEvents(babies, nowMs) {
+    const startDayMs = startOfLocalDayMs(nowMs) - (ANALYTICS_MOCK_DAYS - 1) * MS_PER_DAY;
+    const events = [];
+    babies.forEach((baby, babyIdx) => {
+        for (let dayIdx = 0; dayIdx < ANALYTICS_MOCK_DAYS; dayIdx++) {
+            const dayMs = addDays(startDayMs, dayIdx);
+            const isRecentWindow = dayIdx >= ANALYTICS_MOCK_DAYS - 6;
+            const bottleCount = isRecentWindow ? 4 : 5;
+            const napCount = isRecentWindow ? 2 : 3;
+            const bottleBaseOz = babyIdx === 0 ? 5.5 : 5.25;
+            const dayBottleBoost = ((dayIdx + babyIdx) % 3) * 0.25;
+            const firstFeedHour = 6.5 + babyIdx * 0.15;
+            for (let feedIdx = 0; feedIdx < bottleCount; feedIdx++) {
+                const feedHour = firstFeedHour + feedIdx * (isRecentWindow ? 3.4 : 3);
+                const feedMs = dayMs + feedHour * MS_PER_HOUR;
+                if (feedMs >= nowMs) {
+                    continue;
+                }
+                const oz = bottleBaseOz + dayBottleBoost + (feedIdx % 2 === 0 ? 0.25 : 0);
+                events.push(mkEvent(`demo-analytics-${baby.id}-bottle-${dayIdx}-${feedIdx}`, baby.id, 'bottle', toIso(feedMs), {
+                    value: Number(oz.toFixed(1)),
+                    unit: 'oz',
+                }));
+            }
+            for (let napIdx = 0; napIdx < napCount; napIdx++) {
+                const napStartHour = 8.9 + napIdx * (isRecentWindow ? 3.15 : 2.55) + babyIdx * 0.08;
+                const napStartMs = dayMs + napStartHour * MS_PER_HOUR;
+                const napDurationMinutes = (isRecentWindow ? 88 : 68) + napIdx * 7 + ((dayIdx + napIdx + babyIdx) % 2) * 8;
+                const napEndMs = napStartMs + napDurationMinutes * MS_PER_MINUTE;
+                if (napEndMs >= nowMs) {
+                    continue;
+                }
+                events.push(mkEvent(`demo-analytics-${baby.id}-nap-${dayIdx}-${napIdx}`, baby.id, 'nap', toIso(napStartMs), {
+                    endedAt: toIso(napEndMs),
+                }));
+            }
+            const sleepStartHour = 19.4 + babyIdx * 0.08;
+            const sleepStartMs = dayMs + sleepStartHour * MS_PER_HOUR;
+            const sleepDurationHours = (isRecentWindow ? 9.7 : 8.4) + ((dayIdx + babyIdx) % 3) * 0.25;
+            const sleepEndMs = sleepStartMs + sleepDurationHours * MS_PER_HOUR;
+            if (sleepEndMs < nowMs) {
+                events.push(mkEvent(`demo-analytics-${baby.id}-sleep-${dayIdx}`, baby.id, 'sleep', toIso(sleepStartMs), {
+                    endedAt: toIso(sleepEndMs),
+                }));
+            }
+            const diaperCount = 6 + ((dayIdx + babyIdx) % 2);
+            for (let diaperIdx = 0; diaperIdx < diaperCount; diaperIdx++) {
+                const diaperMs = dayMs + (7 + diaperIdx * 2.25 + babyIdx * 0.05) * MS_PER_HOUR;
+                if (diaperMs >= nowMs) {
+                    continue;
+                }
+                events.push(mkEvent(`demo-analytics-${baby.id}-diaper-${dayIdx}-${diaperIdx}`, baby.id, 'diaper', toIso(diaperMs), {
+                    notes: diaperIdx === diaperCount - 1 ? 'dirty' : diaperIdx % 3 === 0 ? 'both' : 'wet',
+                }));
+            }
+            if (dayIdx >= ANALYTICS_MOCK_DAYS - 10) {
+                const foodMs = dayMs + (12.25 + babyIdx * 0.1) * MS_PER_HOUR;
+                if (foodMs < nowMs) {
+                    events.push(mkEvent(`demo-analytics-${baby.id}-food-${dayIdx}`, baby.id, 'food', toIso(foodMs), {
+                        notes: dayIdx % 2 === 0 ? 'banana puree' : 'sweet potato',
+                    }));
+                }
+            }
+        }
+        events.push(mkEvent(`demo-analytics-${baby.id}-milestone-1`, baby.id, 'milestone', toIso(addDays(startDayMs, 6) + (11 + babyIdx * 0.2) * MS_PER_HOUR), {
+            notes: 'Rolled over',
+        }), mkEvent(`demo-analytics-${baby.id}-milestone-2`, baby.id, 'milestone', toIso(addDays(startDayMs, 15) + (14 + babyIdx * 0.2) * MS_PER_HOUR), {
+            notes: 'First solid food',
+        }));
+    });
+    return events.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+}
+//# sourceMappingURL=_demoData.js.map

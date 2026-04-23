@@ -12,7 +12,6 @@ import { AAP_MAX_DAILY_OZ, STAGE1_BEDTIME_HOUR } from '../config';
 import i18n from '../i18n/index';
 
 const SOON_THRESHOLD_MS = 5 * 60 * 1000;
-export const DIAPER_INTERVAL_MS = 2 * 60 * 60 * 1000;
 /**
  * How far before bedtime the last feed should start.
  * 30 min allows ~15 min to feed + burp and ~15 min to change + settle before sleep.
@@ -95,13 +94,28 @@ export function getScheduleStage(ageWeeks: number): 1 | 2 | 3 {
 /**
  * Age-adaptive interval for diaper-change reminders.
  *
- * Aligned with AAP "check every 2–3h" guidance scaled by age:
- *   0–4w:   1.5h — newborns wet after almost every feed (feeds q2–3h)
- *   4–8w:   2h
- *   8–16w:  2.5h
- *   16–52w: 3h   — Stage 2 infants; one feed every 4h but diaper check is still 3h
- *   52w+:   3.5h — toddlers; less frequent changes needed
+ * Cross-referenced against broad pediatric guidance rather than a strict medical schedule:
+ * - NHS: early days are roughly 10–12 diaper changes/day; older babies are around 6–8/day.
+ * - HealthyChildren (AAP): parents may see 8–12/day early on and average roughly 6/day across the first year.
+ *
+ * This reminder is intentionally conservative and stage-oriented:
+ * - Stage 1 newborns still get fairly frequent prompts.
+ * - Stage 2 older infants shift later so reminders stop feeling prematurely "due."
+ * - Stage 3 toddlers move later again.
+ *
+ * The app still expects parents to change promptly after poop / obvious wetness; this is only
+ * a predictive reminder interval for the home card and notifications.
  */
+export function getDiaperIntervalMs(ageWeeks: number): number {
+  if (ageWeeks < 16) {
+    return 150 * 60_000;
+  } // Stage 1: 2.5h ~= 9.6 changes/day
+  if (ageWeeks < 78) {
+    return 210 * 60_000;
+  } // Stage 2: 3.5h ~= 6.9 changes/day
+  return 240 * 60_000; // Stage 3: 4h ~= 6 changes/day
+}
+
 /**
  * How many minutes to wait before responding to overnight/nap crying.
  * Timer resets if crying stops — only count uninterrupted crying.
@@ -243,6 +257,22 @@ function formatMsProse(ms: number): string {
   return `${hStr} and ${mStr}`;
 }
 
+function getMostRecentBedtimeBoundaryMs(now: Date, bedtimeHour: number): number {
+  const boundary = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    bedtimeHour,
+    0,
+    0,
+    0,
+  );
+  if (now.getTime() < boundary.getTime()) {
+    boundary.setDate(boundary.getDate() - 1);
+  }
+  return boundary.getTime();
+}
+
 export function formatTime12(date: Date): string {
   let h = date.getHours();
   const m = date.getMinutes();
@@ -350,11 +380,19 @@ export interface BabyInsight {
   alarmMs: number | null;
   /** "45m ago" / "1h 30m ago" / null if no feed logged */
   fedAgo: string | null;
+  /** Which feed mode should represent the feed triage cell right now. */
+  feedTriageMode: 'bottle' | 'nursing';
   /** "45m ago" / null if no diaper logged */
   changedAgo: string | null;
   /** "Active · 1h 5m" / "1h 30m ago" / null if no nap data */
   sleepStatus: string | null;
   totalOzToday: number;
+  /** Total nursing minutes logged since calendar midnight. */
+  totalNursingMinutesToday: number;
+  /** Number of bottle events logged since calendar midnight. */
+  bottleCountToday: number;
+  /** Number of nursing events logged since calendar midnight. */
+  nursingCountToday: number;
   /**
    * Age-based daily oz target: (feeds per day × suggestedOz), capped at AAP_MAX_DAILY_OZ.
    * Uses learned feed interval when available. Only meaningful for bottle-fed babies.
@@ -396,7 +434,7 @@ export interface BabyInsight {
 }
 
 /**
- * Compute forward-looking predictions for bottle and diaper.
+ * Compute forward-looking predictions for nap/bedtime, bottle, and diaper.
  * Pass `lastFeedMs=0` if no feed data — bottle prediction will be omitted.
  *
  * When `bedtimeMs` is provided (bedtime stretch), predictions are snapped earlier
@@ -411,11 +449,31 @@ function computePredictions(
   latest: LatestEventMap,
   lastFeedMs: number,
   schedule: { feedMs: number; awakeMs: number },
+  diaperIntervalMs: number,
   now: Date,
+  primaryAwakePrediction: { type: 'nap' | 'sleep'; targetMs: number } | null,
   bedtimeMs?: number,
 ): PredictedAction[] {
   const nowMs = now.getTime();
   const results: PredictedAction[] = [];
+
+  if (primaryAwakePrediction) {
+    const remainingMs = primaryAwakePrediction.targetMs - nowMs;
+    results.push({
+      type: primaryAwakePrediction.type,
+      label:
+        primaryAwakePrediction.type === 'sleep'
+          ? remainingMs > 0
+            ? i18n.t('schedule.pred_sleep_in', { time: formatMs(remainingMs) })
+            : i18n.t('schedule.pred_sleep_due')
+          : remainingMs > 0
+            ? i18n.t('schedule.pred_nap_in', { time: formatMs(remainingMs) })
+            : i18n.t('schedule.pred_nap_due'),
+      remainingMs,
+      intervalMs: schedule.awakeMs,
+      urgency: urgency(remainingMs),
+    });
+  }
 
   // Bottle — snap to pre-bedtime deadline when the normal next feed overshoots bedtime
   if (lastFeedMs > 0) {
@@ -440,7 +498,7 @@ function computePredictions(
   // Diaper — snap to pre-bedtime deadline when the normal next change overshoots bedtime
   const diaperEvent = latest[`${babyId}:diaper`];
   if (diaperEvent) {
-    const normalNextDiaperMs = new Date(diaperEvent.startedAt).getTime() + DIAPER_INTERVAL_MS;
+    const normalNextDiaperMs = new Date(diaperEvent.startedAt).getTime() + diaperIntervalMs;
     const diaperDeadlineMs =
       bedtimeMs != null && normalNextDiaperMs > bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS
         ? bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS
@@ -453,13 +511,32 @@ function computePredictions(
           ? i18n.t('schedule.pred_change_in', { time: formatMs(remainingMs) })
           : i18n.t('schedule.pred_change_due'),
       remainingMs,
-      intervalMs: DIAPER_INTERVAL_MS,
+      intervalMs: diaperIntervalMs,
       urgency: urgency(remainingMs),
     });
   }
 
-  // Most overdue / soonest first
-  return results.sort((a, b) => a.remainingMs - b.remainingMs);
+  const predictionPriority = (type: PredictedAction['type']): number => {
+    switch (type) {
+      case 'sleep':
+      case 'nap':
+        return 0;
+      case 'bottle':
+        return 1;
+      case 'diaper':
+        return 2;
+      default:
+        return 99;
+    }
+  };
+
+  return results.sort((a, b) => {
+    const priorityDelta = predictionPriority(a.type) - predictionPriority(b.type);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return a.remainingMs - b.remainingMs;
+  });
 }
 
 export function getBabyInsight(
@@ -488,10 +565,10 @@ export function getBabyInsight(
       : getDefaultOzForAge(ageWeeks);
   const scheduleStage = getScheduleStage(ageWeeks);
   const selfSoothingMinutes = getSelfSoothingMinutes(ageWeeks);
+  const diaperIntervalMs = getDiaperIntervalMs(ageWeeks);
 
   /** Stage 1 newborns have a 10pm circadian anchor — use that instead of user's bedtime preference. */
   const effectiveBedtimeHour = scheduleStage === 1 ? STAGE1_BEDTIME_HOUR : bedtimeHour;
-  const isNight = nowHour >= effectiveBedtimeHour || nowHour < wakeHour;
 
   // Total oz and feed count always reset at calendar midnight — independent of wakeHour.
   // wakeHour only affects the day/night theme and schedule logic, not daily intake totals.
@@ -513,14 +590,29 @@ export function getBabyInsight(
     )
     // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
     .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
-
-  // Total feeds today (bottle + nursing) for this baby since calendar midnight
-  const feedCountToday = events.filter(
+  const totalNursingMinutesToday = events
+    .filter(
+      e =>
+        e.babyId === baby.id &&
+        e.type === 'nursing' &&
+        new Date(e.startedAt).getTime() >= midnightMs,
+    )
+    .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+  const bottleCountToday = events.filter(
     e =>
       e.babyId === baby.id &&
-      (e.type === 'bottle' || e.type === 'nursing') &&
+      e.type === 'bottle' &&
       new Date(e.startedAt).getTime() >= midnightMs,
   ).length;
+  const nursingCountToday = events.filter(
+    e =>
+      e.babyId === baby.id &&
+      e.type === 'nursing' &&
+      new Date(e.startedAt).getTime() >= midnightMs,
+  ).length;
+
+  // Total feeds today (bottle + nursing) for this baby since calendar midnight
+  const feedCountToday = bottleCountToday + nursingCountToday;
 
   // Target feeds per day: how many feed intervals fit in 24h at the current schedule
   const targetFeedsPerDay = Math.round(MS_PER_DAY / schedule.feedMs);
@@ -540,6 +632,19 @@ export function getBabyInsight(
   } else if (nursingEvent) {
     lastFeedMs = new Date(nursingEvent.startedAt).getTime();
   }
+
+  const lastBottleMs = bottleEvent ? new Date(bottleEvent.startedAt).getTime() : 0;
+  const lastNursingMs = nursingEvent ? new Date(nursingEvent.startedAt).getTime() : 0;
+  const lastFeedType: 'bottle' | 'nursing' =
+    lastNursingMs > lastBottleMs ? 'nursing' : 'bottle';
+  const feedTriageMode: 'bottle' | 'nursing' =
+    bottleCountToday > nursingCountToday
+      ? 'bottle'
+      : nursingCountToday > bottleCountToday
+        ? 'nursing'
+        : feedCountToday > 0
+          ? lastFeedType
+          : lastFeedType;
 
   const fedAgo = lastFeedMs > 0 ? formatAgo(nowMs - lastFeedMs) : null;
 
@@ -577,6 +682,9 @@ export function getBabyInsight(
   const endedNapMs = napEvent?.endedAt ? new Date(napEvent.endedAt).getTime() : 0;
   const endedSleepMs = sleepEvent?.endedAt ? new Date(sleepEvent.endedAt).getTime() : 0;
   const lastWokeMs = Math.max(endedNapMs, endedSleepMs);
+  const bedtimeBoundaryMs = getMostRecentBedtimeBoundaryMs(now, effectiveBedtimeHour);
+  const hasWokenForDay = endedSleepMs > 0 && endedSleepMs >= bedtimeBoundaryMs;
+  const isNight = !hasWokenForDay && (nowHour >= effectiveBedtimeHour || nowHour < wakeHour);
 
   // Sleep status for profile stats
   let sleepStatus: string | null = null;
@@ -604,6 +712,18 @@ export function getBabyInsight(
     lastWokeMs > 0 &&
     todayBedtime.getTime() - lastWokeMs <= 4.5 * 60 * 60_000 &&
     bedtimeRemainingMs > 0;
+  const shouldPrioritizeBedtime =
+    scheduleStage !== 1 &&
+    lastWokeMs > 0 &&
+    bedtimeRemainingMs > 0 &&
+    (isBedtimeStretch || bedtimeRemainingMs < schedule.napMs);
+  const primaryAwakePrediction =
+    !activeEvent && lastWokeMs > 0 && !(scheduleStage !== 1 && isNight)
+      ? {
+          type: shouldPrioritizeBedtime ? ('sleep' as const) : ('nap' as const),
+          targetMs: shouldPrioritizeBedtime ? todayBedtime.getTime() : lastWokeMs + schedule.awakeMs,
+        }
+      : null;
 
   // Forward-looking predictions
   // Pass effective bedtime so predictions snap to pre-bedtime deadlines during the stretch.
@@ -612,9 +732,13 @@ export function getBabyInsight(
     latest,
     lastFeedMs,
     schedule,
+    diaperIntervalMs,
     now,
+    primaryAwakePrediction,
     isBedtimeStretch ? todayBedtime.getTime() : undefined,
   );
+  const visiblePredictions =
+    scheduleStage !== 1 && isNight && !activeEvent ? [] : predictions;
 
   // Daily oz target: (feeds per day × oz per feed), capped at the AAP maximum.
   const targetOzToday = Math.min(
@@ -625,13 +749,17 @@ export function getBabyInsight(
   // Shared profile stats spread into every return
   const stats = {
     fedAgo,
+    feedTriageMode,
     changedAgo,
     sleepStatus,
     totalOzToday,
+    totalNursingMinutesToday,
+    bottleCountToday,
+    nursingCountToday,
     targetOzToday,
     feedCountToday,
     targetFeedsPerDay,
-    predictions,
+    predictions: visiblePredictions,
     suggestedOz,
     scheduleStage,
     selfSoothingMinutes,
@@ -748,7 +876,7 @@ export function getBabyInsight(
 
       // Pre-bedtime diaper: needed when normal next change would fall past the diaper deadline
       const lastDiaperMs = diaperEvent ? new Date(diaperEvent.startedAt).getTime() : 0;
-      const normalNextDiaperMs = lastDiaperMs > 0 ? lastDiaperMs + DIAPER_INTERVAL_MS : 0;
+      const normalNextDiaperMs = lastDiaperMs > 0 ? lastDiaperMs + diaperIntervalMs : 0;
       const preBedtimeDiaperDeadlineMs = bedtimeMs - PRE_BEDTIME_DIAPER_BUFFER_MS;
       const needsDiaperBeforeBed =
         normalNextDiaperMs > 0 && normalNextDiaperMs > preBedtimeDiaperDeadlineMs;

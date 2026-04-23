@@ -63,6 +63,7 @@ export const BarChartIcon = makeIcon('BarChartIcon');
 export const MedicineIcon = makeIcon('MedicineIcon');
 export const SunIcon = makeIcon('SunIcon');
 export const NursingIcon = makeIcon('NursingIcon');
+export const PumpIcon = makeIcon('PumpIcon');
 export const CloseIcon = makeIcon('CloseIcon');
 export const TimerIcon = makeIcon('TimerIcon');
 export const SettingsIcon = makeIcon('SettingsIcon');

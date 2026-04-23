@@ -2,20 +2,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { EventType } from '@tt/core';
-import { useThemeContext } from '@tt/core';
+import { i18n, useThemeContext } from '@tt/core';
 import { fonts, spacing, radius } from '../theme/tokens';
-import { BottleIcon, NursingIcon, FoodIcon, CloseIcon } from './icons/BabyIcons';
+import { BottleIcon, NursingIcon, PumpIcon, FoodIcon, CloseIcon } from './icons/BabyIcons';
 
 type IconComponent = (props: { size: number; color: string }) => React.ReactElement;
 
 const ICON_SIZE = 26;
 const DISMISS_THRESHOLD_Y = 80;
-
-const OPTIONS: { type: EventType; label: string; Icon: IconComponent }[] = [
-  { type: 'bottle', label: 'Bottle', Icon: BottleIcon as IconComponent },
-  { type: 'nursing', label: 'Nursing', Icon: NursingIcon as IconComponent },
-  { type: 'food', label: 'Solids', Icon: FoodIcon as IconComponent },
-];
 
 const backdropStyle: React.CSSProperties = {
   position: 'fixed',
@@ -59,6 +53,16 @@ export function FeedPickerModal({ visible, babyName, suggestedOz, onSelect, onCl
   const [activeIndex, setActiveIndex] = useState(-1);
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number | null>(null);
+  const options: { type: EventType; label: string; Icon: IconComponent }[] = [
+    { type: 'bottle', label: i18n.t('log_sheet.types.bottle'), Icon: BottleIcon as IconComponent },
+    {
+      type: 'nursing',
+      label: i18n.t('log_sheet.types.nursing'),
+      Icon: NursingIcon as IconComponent,
+    },
+    { type: 'pump', label: i18n.t('log_sheet.types.pump'), Icon: PumpIcon as IconComponent },
+    { type: 'food', label: i18n.t('log_sheet.types.food'), Icon: FoodIcon as IconComponent },
+  ];
 
   useEffect(() => {
     const el = sheetRef.current;
@@ -197,9 +201,9 @@ export function FeedPickerModal({ visible, babyName, suggestedOz, onSelect, onCl
           </button>
         </div>
 
-        <p style={titleStyle}>{`Feed ${babyName}`}</p>
+        <p style={titleStyle}>{i18n.t('home.feed_picker_title', { name: babyName })}</p>
 
-        {OPTIONS.map((opt, i) => (
+        {options.map((opt, i) => (
           <button
             key={opt.type}
             style={optionStyle(i)}

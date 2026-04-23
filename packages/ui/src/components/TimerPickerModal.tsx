@@ -38,7 +38,10 @@ export function TimerPickerModal({ visible, babyName, onSetAlarm, onClose }: Pro
 
   const panResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gs) => gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        gs.dy > 10 && Math.abs(gs.dy) > Math.abs(gs.dx),
       onPanResponderMove: (_, gs) => {
         if (gs.dy > 0) {
           translateY.setValue(gs.dy);
@@ -112,16 +115,16 @@ export function TimerPickerModal({ visible, babyName, onSetAlarm, onClose }: Pro
 
       <Animated.View
         style={[styles.sheetWrap, { transform: [{ translateY }] }]}
-        {...panResponder.panHandlers}
       >
         <View
           style={[styles.sheet, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
         >
-          <View style={[styles.handle, { backgroundColor: theme.border }]} />
-
-          <Text style={[styles.title, { color: theme.textMuted, fontFamily: fonts.mono }]}>
-            {`Timer for ${babyName}`}
-          </Text>
+          <View style={styles.dragHeader} {...panResponder.panHandlers}>
+            <View style={[styles.handle, { backgroundColor: theme.border }]} />
+            <Text style={[styles.title, { color: theme.textMuted, fontFamily: fonts.mono }]}>
+              {`Timer for ${babyName}`}
+            </Text>
+          </View>
 
           {/* Preset rows */}
           {PRESETS.map((m, i) => (
@@ -245,8 +248,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 4,
     borderRadius: 2,
-    marginTop: 18,
     marginBottom: spacing.sm,
+  },
+  dragHeader: {
+    alignItems: 'center',
+    paddingTop: 18,
+    paddingBottom: spacing.xs,
   },
   title: {
     fontSize: 12,
