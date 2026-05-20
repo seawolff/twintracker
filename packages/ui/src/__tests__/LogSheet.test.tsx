@@ -32,6 +32,23 @@ function makeEvent(overrides: Partial<TrackerEvent>): TrackerEvent {
   };
 }
 
+const STASH_EVENTS: TrackerEvent[] = [
+  makeEvent({
+    id: 'stash-fridge',
+    type: 'pump',
+    value: 8,
+    notes: 'side=both;stashCount=1;stashOz=4;stashLocation=fridge',
+    startedAt: '2026-04-30T12:00:00Z',
+  }),
+  makeEvent({
+    id: 'stash-freezer',
+    type: 'pump',
+    value: 8,
+    notes: 'side=both;stashCount=1;stashOz=4;stashLocation=freezer',
+    startedAt: '2026-04-30T13:00:00Z',
+  }),
+];
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 function render(type: EventType, overrides: Record<string, unknown> = {}): string {
@@ -148,7 +165,7 @@ describe('LogSheet — type labels', () => {
   });
 
   it('shows bottle source controls for bottle type', () => {
-    const html = render('bottle');
+    const html = render('bottle', { events: STASH_EVENTS });
     expect(html).toContain('log_sheet.bottle_source');
     expect(html).toContain('log_sheet.bottle_formula');
     expect(html).toContain('log_sheet.bottle_fresh');
@@ -164,6 +181,32 @@ describe('LogSheet — type labels', () => {
     expect(html).toContain('log_sheet.bottle_source');
     expect(html).toContain('log_sheet.bottle_freezer');
     expect(html).toContain('log_sheet.update');
+  });
+
+  it('hides fridge and freezer options when stash is empty', () => {
+    const html = render('bottle'); // no events prop → empty stash
+    expect(html).toContain('log_sheet.bottle_formula');
+    expect(html).toContain('log_sheet.bottle_fresh');
+    expect(html).not.toContain('log_sheet.bottle_fridge');
+    expect(html).not.toContain('log_sheet.bottle_freezer');
+  });
+
+  it('shows fridge when stash has fridge bottles', () => {
+    const html = render('bottle', { events: STASH_EVENTS });
+    expect(html).toContain('log_sheet.bottle_fridge');
+  });
+
+  it('shows freezer when stash has freezer bottles', () => {
+    const html = render('bottle', { events: STASH_EVENTS });
+    expect(html).toContain('log_sheet.bottle_freezer');
+  });
+
+  it('keeps fridge visible when editing a fridge bottle even with empty stash', () => {
+    const html = render('bottle', {
+      initialEvent: makeEvent({ type: 'bottle', value: 4, unit: 'oz', notes: 'source=fridge' }),
+      onEdit: jest.fn(),
+    });
+    expect(html).toContain('log_sheet.bottle_fridge');
   });
 
   it('shows log action key for new sleep', () => {

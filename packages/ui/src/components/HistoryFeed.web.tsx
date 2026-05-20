@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import type { ComponentProps } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { Baby, TrackerEvent } from '@tt/core';
+import type { Baby, TimeFormat, TrackerEvent } from '@tt/core';
 import {
   groupEventsByDay,
   eventLabel,
@@ -16,6 +16,7 @@ import { useThemeContext } from '@tt/core';
 import { spacing, fonts } from '../theme/tokens';
 import { CloseIcon } from './icons/BabyIcons';
 import { rowBgHex } from '../rowTextColor';
+import { babyColorHex } from '../babyColors';
 
 /**
  * Alpha increment per row within a group — produces a smooth, infinite greyscale gradient (Clear app style).
@@ -53,6 +54,8 @@ interface HistoryFeedProps {
   events: TrackerEvent[];
   babies: Baby[];
   now?: Date;
+  timeFormat?: TimeFormat;
+  showLoggerAvatar?: boolean;
   onDelete: (id: string) => void;
   /** Called when the user taps Undo — re-creates the just-deleted event. */
   onRestore?: (event: TrackerEvent) => void;
@@ -69,6 +72,8 @@ export function HistoryFeed({
   events,
   babies,
   now: nowProp,
+  timeFormat = '12h',
+  showLoggerAvatar = false,
   onDelete,
   onRestore,
   onEdit,
@@ -229,7 +234,7 @@ export function HistoryFeed({
                   ? ` (${formatDuration(event.startedAt, event.endedAt)})`
                   : null;
               const labelBase = durationDetail ? label.replace(durationDetail, '') : label;
-              const displayTime = formatEventTime(event.startedAt, now);
+              const displayTime = formatEventTime(event.startedAt, now, timeFormat);
               // Infinite smooth greyscale gradient: alpha grows with row index, direction
               // inverts per theme — night bg (black) lightens, day bg (white) darkens.
               const alpha = idx * SHADE_PER_ROW;
@@ -250,25 +255,25 @@ export function HistoryFeed({
                     },
                   ]}
                 >
-                  {/* Author avatar — always rendered so columns stay aligned */}
-                  {event.loggedByName ? (
-                    <View
-                      style={[
-                        styles.authorAvatar,
-                        { backgroundColor: authorColor(event.loggedByName) },
-                      ]}
-                    >
-                      <Text style={styles.authorInitial}>
-                        {event.loggedByName.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={styles.authorAvatar} />
-                  )}
                   <View style={styles.rowMain}>
+                    <View
+                      style={[styles.babyColorDot, { backgroundColor: babyColorHex(baby?.color) }]}
+                    />
                     <Text style={[styles.babyName, { color: textColor, fontFamily: fonts.mono }]}>
                       {babyName}
                     </Text>
+                    {showLoggerAvatar && event.loggedByName ? (
+                      <View
+                        style={[
+                          styles.authorAvatar,
+                          { backgroundColor: authorColor(event.loggedByName) },
+                        ]}
+                      >
+                        <Text style={styles.authorInitial}>
+                          {event.loggedByName.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    ) : null}
                     <Text
                       style={[styles.eventLabel, { color: textColor, fontFamily: fonts.mono }]}
                       numberOfLines={1}
@@ -364,6 +369,7 @@ HistoryFeed.propTypes = {
       color: PropTypes.string.isRequired,
     }).isRequired,
   ).isRequired,
+  showLoggerAvatar: PropTypes.bool,
   onDelete: PropTypes.func.isRequired,
   onRestore: PropTypes.func,
   onEdit: PropTypes.func.isRequired,
@@ -437,10 +443,17 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flexWrap: 'wrap',
   },
+  babyColorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
   babyName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    minWidth: 64,
+    flexShrink: 0,
+    marginRight: 6,
   },
   eventLabel: {
     fontSize: 16,
@@ -456,13 +469,17 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
   authorInitial: {
     fontSize: 10,
     fontWeight: '700',
     color: '#fff',
     lineHeight: 12,
+  },
+  authorName: {
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 0,
   },
   deleteBtn: {
     width: 44,

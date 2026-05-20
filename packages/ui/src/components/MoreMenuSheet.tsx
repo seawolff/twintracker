@@ -1,10 +1,10 @@
-/** Bottom-sheet for "more" actions: Medicine, Milestone, Set Timer. */
+/** Bottom-sheet for "more" actions: Medicine, Milestone. */
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { EventType } from '@tt/core';
 import { useThemeContext } from '@tt/core';
 import { fonts, spacing, radius } from '../theme/tokens';
-import { MedicineIcon, MilestoneIcon, TimerIcon } from './icons/BabyIcons';
+import { MedicineIcon, MilestoneIcon } from './icons/BabyIcons';
 
 const DISMISS_THRESHOLD_Y = 80;
 const DISMISS_THRESHOLD_V = 0.5;
@@ -13,9 +13,7 @@ const ICON_SIZE = 24;
 interface Props {
   visible: boolean;
   babyName: string;
-  showTimer: boolean;
   onLog: (type: EventType) => void;
-  onOpenTimer: () => void;
   onClose: () => void;
 }
 
@@ -32,14 +30,7 @@ const OPTIONS: Option[] = [
   { type: 'milestone', label: 'Milestone', Icon: MilestoneIcon },
 ];
 
-export function MoreMenuSheet({
-  visible,
-  babyName,
-  showTimer,
-  onLog,
-  onOpenTimer,
-  onClose,
-}: Props) {
+export function MoreMenuSheet({ visible, babyName, onLog, onClose }: Props) {
   const theme = useThemeContext();
   const [pressedIndex, setPressedIndex] = useState(-1);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -93,11 +84,6 @@ export function MoreMenuSheet({
     }
   }, [visible, backdropOpacity, translateY]);
 
-  const allOptions: Option[] = [
-    ...OPTIONS,
-    ...(showTimer ? [{ type: null as null, label: 'Set timer', Icon: TimerIcon }] : []),
-  ];
-
   return (
     <Modal
       visible={visible}
@@ -113,9 +99,7 @@ export function MoreMenuSheet({
         <Pressable style={styles.backdropPress} onPress={onClose} />
       </Animated.View>
 
-      <Animated.View
-        style={[styles.sheetWrap, { transform: [{ translateY }] }]}
-      >
+      <Animated.View style={[styles.sheetWrap, { transform: [{ translateY }] }]}>
         <View
           style={[styles.sheet, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
         >
@@ -126,15 +110,13 @@ export function MoreMenuSheet({
             </Text>
           </View>
 
-          {allOptions.map((opt, i) => (
+          {OPTIONS.map((opt, i) => (
             <Pressable
               key={opt.label}
               onPress={() => {
                 onClose();
                 if (opt.type) {
                   onLog(opt.type);
-                } else {
-                  onOpenTimer();
                 }
               }}
               onPressIn={() => setPressedIndex(i)}

@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Baby, BabyColor, BabySex } from '@tt/core';
+import type { Baby, BabySex } from '@tt/core';
 import {
   i18n,
   useThemeContext,
@@ -27,6 +27,7 @@ import {
   isFutureLocalDateInputValue,
 } from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
+import { babyColorHex } from '../babyColors';
 import { PersonIcon } from './icons/BabyIcons';
 
 // Lazy-required so packages/ui doesn't declare a formal dep on a native-only package.
@@ -40,19 +41,10 @@ const DISMISS_THRESHOLD_V = 0.5;
 
 const TODAY = new Date();
 
-/** Hex values for each BabyColor — used for the avatar circle. */
-const BABY_COLOR_HEX: Record<BabyColor, string> = {
-  amber: '#f59e0b',
-  emerald: '#10b981',
-  slate: '#64748b',
-  rose: '#fb7185',
-  sky: '#38bdf8',
-  violet: '#8b5cf6',
-};
-
 export interface BabyProfileSaveData {
   name: string;
   birthDate: string | undefined;
+  adjustedBirthDate: string | null;
   sex: BabySex;
   weightKg: number | null;
   heightCm: number | null;
@@ -106,6 +98,7 @@ export function BabyProfileSheet({
   const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [adjustedBirthDate, setAdjustedBirthDate] = useState('');
   const [sex, setSex] = useState<BabySex>('male');
   const [weightStr, setWeightStr] = useState('');
   const [heightStr, setHeightStr] = useState('');
@@ -159,6 +152,7 @@ export function BabyProfileSheet({
       setName(baby.name);
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
+      setAdjustedBirthDate(baby.adjustedBirthDate ? baby.adjustedBirthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
       setWeightStr(baby.weightKg != null ? formatEditableWeight(baby.weightKg, isImperial) : '');
       setHeightStr(baby.heightCm != null ? formatEditableHeight(baby.heightCm, isImperial) : '');
@@ -214,6 +208,7 @@ export function BabyProfileSheet({
       await onSave(baby.id, {
         name: trimmed,
         birthDate: birthDate || undefined,
+        adjustedBirthDate: adjustedBirthDate || null,
         sex,
         weightKg: parsedWeight != null && isImperial ? lbsToKg(parsedWeight) : parsedWeight,
         heightCm: parsedHeight != null && isImperial ? inToCm(parsedHeight) : parsedHeight,
@@ -249,7 +244,7 @@ export function BabyProfileSheet({
     return null;
   }
 
-  const accentColor = BABY_COLOR_HEX[baby.color] ?? theme.textDim;
+  const accentColor = babyColorHex(baby.color) ?? theme.textDim;
 
   return (
     <Modal
@@ -414,6 +409,40 @@ export function BabyProfileSheet({
                   </Pressable>
                 </View>
               </View>
+            )}
+
+            {/* Adjusted birth date — only shown when a birth date is set */}
+            {!!birthDate && (
+              <>
+                <Text
+                  style={[styles.fieldLabel, { color: theme.textMuted, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t('baby_profile.adjusted_dob_label').toUpperCase()}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.bg,
+                      borderColor: theme.border,
+                      color: theme.text,
+                      fontFamily: fonts.mono,
+                    },
+                  ]}
+                  value={adjustedBirthDate}
+                  onChangeText={setAdjustedBirthDate}
+                  placeholder={i18n.t('baby_profile.dob_placeholder')}
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="numbers-and-punctuation"
+                  editable={!saving}
+                  accessibilityLabel={i18n.t('baby_profile.adjusted_dob_label')}
+                />
+                <Text
+                  style={[styles.fieldHint, { color: theme.textMuted, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t('baby_profile.adjusted_dob_hint')}
+                </Text>
+              </>
             )}
 
             {/* Sex selector */}
@@ -680,5 +709,10 @@ const styles = StyleSheet.create({
   dobPickerConfirmText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  fieldHint: {
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: spacing.xs,
   },
 });

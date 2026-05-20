@@ -24,13 +24,35 @@
   }
 }
 
+.headingRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: $space-xl;
+}
+
 .heading {
   font-family: $font-display;
   font-size: 28px;
   font-weight: 700;
   color: var(--tt-text);
-  margin-bottom: $space-xl;
+  margin-bottom: 0;
   letter-spacing: -0.5px;
+}
+
+.signOutBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: $font-mono;
+  font-size: 13px;
+  color: var(--tt-text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--tt-text);
+  }
 }
 
 .section {
@@ -42,6 +64,10 @@
     border-top: none;
     padding-top: 0;
   }
+}
+
+.dangerZone {
+  margin-top: $space-lg;
 }
 
 .sectionTitle {
@@ -190,6 +216,60 @@
   font-size: 12px;
   color: #e53935;
   margin-bottom: $space-sm;
+}
+
+.feedbackSuccess {
+  font-family: $font-mono;
+  font-size: 14px;
+  color: var(--tt-text);
+}
+
+.feedbackEmoji {
+  display: flex;
+  gap: $space-sm;
+  margin-bottom: $space-md;
+}
+
+.emojiBtn {
+  background: none;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+  cursor: pointer;
+  transition: border-color $transition-fast;
+
+  &:hover {
+    border-color: var(--tt-accent);
+  }
+}
+
+.emojiBtnActive {
+  border-color: var(--tt-accent);
+  background: var(--tt-surface);
+}
+
+.feedbackTextarea {
+  width: 100%;
+  padding: $space-sm $space-md;
+  border: 1px solid var(--tt-border);
+  border-radius: $radius-md;
+  background: var(--tt-surface);
+  color: var(--tt-text);
+  font-family: $font-mono;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+
+  &:focus {
+    outline: none;
+    border-color: var(--tt-accent);
+  }
+
+  &::placeholder {
+    color: var(--tt-text-muted);
+  }
 }
 
 .codeRow {

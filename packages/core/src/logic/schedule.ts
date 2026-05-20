@@ -8,7 +8,13 @@ import type {
   Urgency,
 } from '../types/index';
 import type { LearnedStats } from './learnedSchedule';
-import { AAP_MAX_DAILY_OZ, STAGE1_BEDTIME_HOUR } from '../config';
+import {
+  AAP_MAX_DAILY_OZ,
+  ML_PER_OZ,
+  STAGE1_BEDTIME_HOUR,
+  formatClockTime,
+  type TimeFormat,
+} from '../config';
 import i18n from '../i18n/index';
 
 const SOON_THRESHOLD_MS = 5 * 60 * 1000;
@@ -41,6 +47,18 @@ export function getAgeWeeks(birthDate?: string): number {
   } // default ~3 months if unknown
   const ms = Date.now() - new Date(birthDate).getTime();
   return Math.floor(ms / (7 * 24 * 60 * 60 * 1000));
+}
+
+/**
+ * Returns the age in weeks used for schedule stage and developmental logic.
+ * Prefers adjustedBirthDate (corrected age) when set, so preemie babies get
+ * age-appropriate guidance rather than being fast-tracked by chronological age.
+ */
+export function getAdjustedAgeWeeks(baby: {
+  birthDate?: string;
+  adjustedBirthDate?: string | null;
+}): number {
+  return getAgeWeeks(baby.adjustedBirthDate ?? baby.birthDate);
 }
 
 /** Returns baby's age in whole days, or null if birthDate is missing. */
@@ -258,15 +276,7 @@ function formatMsProse(ms: number): string {
 }
 
 function getMostRecentBedtimeBoundaryMs(now: Date, bedtimeHour: number): number {
-  const boundary = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    bedtimeHour,
-    0,
-    0,
-    0,
-  );
+  const boundary = new Date(now.getFullYear(), now.getMonth(), now.getDate(), bedtimeHour, 0, 0, 0);
   if (now.getTime() < boundary.getTime()) {
     boundary.setDate(boundary.getDate() - 1);
   }
@@ -274,12 +284,7 @@ function getMostRecentBedtimeBoundaryMs(now: Date, bedtimeHour: number): number 
 }
 
 export function formatTime12(date: Date): string {
-  let h = date.getHours();
-  const m = date.getMinutes();
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${h}:${pad(m)} ${ampm}`;
+  return formatClockTime(date, '12h');
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +382,6 @@ function formatAgo(elapsedMs: number): string {
 export interface BabyInsight {
   headline: string;
   narrative: string;
-  alarmMs: number | null;
   /** "45m ago" / "1h 30m ago" / null if no feed logged */
   fedAgo: string | null;
   /** Which feed mode should represent the feed triage cell right now. */
@@ -548,11 +552,12 @@ export function getBabyInsight(
   learnedStats?: LearnedStats,
   bedtimeHour = 19,
   wakeHour = 7,
+  timeFormat: TimeFormat = '12h',
 ): BabyInsight {
   const nowMs = now.getTime();
   const nowHour = now.getHours();
 
-  const ageWeeks = getAgeWeeks(baby.birthDate);
+  const ageWeeks = getAdjustedAgeWeeks(baby);
   const ageSchedule = getScheduleForAge(ageWeeks);
   const schedule = {
     napMs: learnedStats?.avgNapDurationMs ?? ageSchedule.napMs,
@@ -589,7 +594,10 @@ export function getBabyInsight(
         new Date(e.startedAt).getTime() >= midnightMs,
     )
     // Coerce to Number — pg returns NUMERIC columns as strings at runtime despite the TS type.
-    .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+    .reduce((sum, e) => {
+      const v = Number(e.value ?? 0);
+      return sum + (e.unit === 'ml' ? v / ML_PER_OZ : v);
+    }, 0);
   const totalNursingMinutesToday = events
     .filter(
       e =>
@@ -600,15 +608,11 @@ export function getBabyInsight(
     .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
   const bottleCountToday = events.filter(
     e =>
-      e.babyId === baby.id &&
-      e.type === 'bottle' &&
-      new Date(e.startedAt).getTime() >= midnightMs,
+      e.babyId === baby.id && e.type === 'bottle' && new Date(e.startedAt).getTime() >= midnightMs,
   ).length;
   const nursingCountToday = events.filter(
     e =>
-      e.babyId === baby.id &&
-      e.type === 'nursing' &&
-      new Date(e.startedAt).getTime() >= midnightMs,
+      e.babyId === baby.id && e.type === 'nursing' && new Date(e.startedAt).getTime() >= midnightMs,
   ).length;
 
   // Total feeds today (bottle + nursing) for this baby since calendar midnight
@@ -635,8 +639,7 @@ export function getBabyInsight(
 
   const lastBottleMs = bottleEvent ? new Date(bottleEvent.startedAt).getTime() : 0;
   const lastNursingMs = nursingEvent ? new Date(nursingEvent.startedAt).getTime() : 0;
-  const lastFeedType: 'bottle' | 'nursing' =
-    lastNursingMs > lastBottleMs ? 'nursing' : 'bottle';
+  const lastFeedType: 'bottle' | 'nursing' = lastNursingMs > lastBottleMs ? 'nursing' : 'bottle';
   const feedTriageMode: 'bottle' | 'nursing' =
     bottleCountToday > nursingCountToday
       ? 'bottle'
@@ -721,7 +724,9 @@ export function getBabyInsight(
     !activeEvent && lastWokeMs > 0 && !(scheduleStage !== 1 && isNight)
       ? {
           type: shouldPrioritizeBedtime ? ('sleep' as const) : ('nap' as const),
-          targetMs: shouldPrioritizeBedtime ? todayBedtime.getTime() : lastWokeMs + schedule.awakeMs,
+          targetMs: shouldPrioritizeBedtime
+            ? todayBedtime.getTime()
+            : lastWokeMs + schedule.awakeMs,
         }
       : null;
 
@@ -737,8 +742,7 @@ export function getBabyInsight(
     primaryAwakePrediction,
     isBedtimeStretch ? todayBedtime.getTime() : undefined,
   );
-  const visiblePredictions =
-    scheduleStage !== 1 && isNight && !activeEvent ? [] : predictions;
+  const visiblePredictions = scheduleStage !== 1 && isNight && !activeEvent ? [] : predictions;
 
   // Daily oz target: (feeds per day × oz per feed), capped at the AAP maximum.
   const targetOzToday = Math.min(
@@ -778,7 +782,6 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.newborn_wake_narrative', { name: baby.name }),
-        alarmMs: null,
         urgency: 'overdue',
         ...stats,
       };
@@ -789,7 +792,6 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.sleeping_night', { name: baby.name }),
-        alarmMs: null,
         urgency: 'ok',
         ...stats,
       };
@@ -800,7 +802,7 @@ export function getBabyInsight(
     const remainingMs = schedule.napMs - elapsedMs;
     if (remainingMs > 0) {
       const wakeTime = new Date(eventStartMs + schedule.napMs);
-      const wakeTimeStr = formatTime12(wakeTime);
+      const wakeTimeStr = formatClockTime(wakeTime, timeFormat);
       const remainingStr = formatMsProse(remainingMs);
       return {
         headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
@@ -808,7 +810,6 @@ export function getBabyInsight(
           time: wakeTimeStr,
           remaining: remainingStr,
         }),
-        alarmMs: remainingMs,
         urgency: remainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
@@ -816,7 +817,6 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.sleeping_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.nap_overdue'),
-        alarmMs: null,
         urgency: 'overdue',
         ...stats,
       };
@@ -845,7 +845,7 @@ export function getBabyInsight(
     if (isCatnapWindow && isCatnapDue) {
       const catnapRemainingMs = schedule.awakeMs - awakeElapsedMs;
       const catnapTime = new Date(lastWokeMs + schedule.awakeMs);
-      const catnapTimeStr = formatTime12(catnapTime);
+      const catnapTimeStr = formatClockTime(catnapTime, timeFormat);
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative:
@@ -857,14 +857,13 @@ export function getBabyInsight(
                   remaining: formatMsProse(catnapRemainingMs),
                   time: catnapTimeStr,
                 }),
-        alarmMs: null,
         urgency: catnapRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
     }
 
     if (isBedtimeStretch) {
-      const bedtimeStr = formatTime12(todayBedtime);
+      const bedtimeStr = formatClockTime(todayBedtime, timeFormat);
       const remainingStr = formatMsProse(bedtimeRemainingMs);
       const bedtimeMs = todayBedtime.getTime();
 
@@ -888,14 +887,13 @@ export function getBabyInsight(
           narrative: needsDiaperBeforeBed
             ? i18n.t('schedule.feed_diaper_before_bed', { bedtime: bedtimeStr })
             : i18n.t('schedule.feed_before_bed', { bedtime: bedtimeStr }),
-          alarmMs: null,
           urgency: 'overdue',
           ...stats,
         };
       }
 
       if (needsFeedBeforeBed) {
-        const feedByStr = formatTime12(new Date(preBedtimeFeedDeadlineMs));
+        const feedByStr = formatClockTime(new Date(preBedtimeFeedDeadlineMs), timeFormat);
         return {
           headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
           narrative: needsDiaperBeforeBed
@@ -909,7 +907,6 @@ export function getBabyInsight(
                 remaining: remainingStr,
                 bedtime: bedtimeStr,
               }),
-          alarmMs: null,
           urgency: feedBeforeBedRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
           ...stats,
         };
@@ -919,7 +916,6 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.bedtime_in', { remaining: remainingStr, time: bedtimeStr }),
-        alarmMs: null,
         urgency: bedtimeRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
@@ -931,12 +927,11 @@ export function getBabyInsight(
     // bedtime); this guard catches the edge case where the baby skipped or delayed a nap
     // and is still awake well past when they should have gone down.
     if (scheduleStage !== 1 && bedtimeRemainingMs > 0 && bedtimeRemainingMs < schedule.napMs) {
-      const bedtimeStr = formatTime12(todayBedtime);
+      const bedtimeStr = formatClockTime(todayBedtime, timeFormat);
       const remainingStr = formatMsProse(bedtimeRemainingMs);
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.bedtime_in', { remaining: remainingStr, time: bedtimeStr }),
-        alarmMs: null,
         urgency: bedtimeRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
@@ -949,7 +944,6 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.past_bedtime_awake', { name: baby.name }),
-        alarmMs: null,
         urgency: 'overdue',
         ...stats,
       };
@@ -961,13 +955,12 @@ export function getBabyInsight(
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.nap_time'),
-        alarmMs: null,
         urgency: 'overdue',
         ...stats,
       };
     } else if (remainingMs <= 30 * 60_000) {
       const napTime = new Date(lastWokeMs + schedule.awakeMs);
-      const napTimeStr = formatTime12(napTime);
+      const napTimeStr = formatClockTime(napTime, timeFormat);
       const remainingStr = formatMsProse(remainingMs);
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
@@ -975,18 +968,16 @@ export function getBabyInsight(
           remainingMs <= SOON_THRESHOLD_MS
             ? i18n.t('schedule.nap_time_soon', { time: napTimeStr })
             : i18n.t('schedule.nap_in', { remaining: remainingStr, time: napTimeStr }),
-        alarmMs: null,
         urgency: remainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
     } else {
       const remainingStr = formatMsProse(remainingMs);
       const napTime = new Date(lastWokeMs + schedule.awakeMs);
-      const napTimeStr = formatTime12(napTime);
+      const napTimeStr = formatClockTime(napTime, timeFormat);
       return {
         headline: i18n.t('schedule.awake_headline', { elapsed: elapsedStr }),
         narrative: i18n.t('schedule.next_nap_in', { remaining: remainingStr, time: napTimeStr }),
-        alarmMs: null,
         urgency: 'ok',
         ...stats,
       };
@@ -998,18 +989,17 @@ export function getBabyInsight(
     const feedAgoMs = nowMs - lastFeedMs;
     const feedRemainingMs = schedule.feedMs - feedAgoMs;
     if (feedRemainingMs <= 0) {
-      const timeStr = formatTime12(new Date(lastFeedMs));
+      const timeStr = formatClockTime(new Date(lastFeedMs), timeFormat);
       const agoStr = formatMsProse(feedAgoMs);
       return {
         headline: i18n.t('schedule.awake_hungry_headline'),
         narrative: i18n.t('schedule.feed_due', { name: baby.name, time: timeStr, ago: agoStr }),
-        alarmMs: null,
         urgency: 'overdue',
         ...stats,
       };
     } else {
       // Feed logged but not yet due — show next feed time instead of empty state
-      const nextFeedTime = formatTime12(new Date(lastFeedMs + schedule.feedMs));
+      const nextFeedTime = formatClockTime(new Date(lastFeedMs + schedule.feedMs), timeFormat);
       const remainingStr = formatMsProse(feedRemainingMs);
       return {
         headline: isNight ? i18n.t('schedule.good_night') : i18n.t('schedule.good_morning'),
@@ -1017,7 +1007,6 @@ export function getBabyInsight(
           time: nextFeedTime,
           remaining: remainingStr,
         }),
-        alarmMs: null,
         urgency: feedRemainingMs <= SOON_THRESHOLD_MS ? 'soon' : 'ok',
         ...stats,
       };
@@ -1028,7 +1017,6 @@ export function getBabyInsight(
   return {
     headline: isNight ? i18n.t('schedule.good_night') : i18n.t('schedule.good_morning'),
     narrative: i18n.t('schedule.no_events', { name: baby.name }),
-    alarmMs: null,
     urgency: 'ok',
     ...stats,
   };

@@ -513,10 +513,6 @@ router.delete('/me', requireAuth, async (req: AuthRequest, res) => {
         [req.userId],
       );
       await client.query(
-        `DELETE FROM nap_alarms WHERE household_id = (SELECT household_id FROM users WHERE id = $1)`,
-        [req.userId],
-      );
-      await client.query(
         `DELETE FROM babies WHERE household_id = (SELECT household_id FROM users WHERE id = $1)`,
         [req.userId],
       );

@@ -1,5 +1,6 @@
 /** Display helpers: formatTime, formatDuration, formatTimeAgo, eventLabel, eventLabelShort, formatEventTime. */
 import type { TrackerEvent } from '../types';
+import { formatClockTime, type TimeFormat } from '../config';
 import {
   formatBottleSource,
   formatPumpStash,
@@ -11,8 +12,8 @@ import { formatMilestoneText } from './milestones';
 /** Show relative time (timeAgo) when event is within this window; otherwise show absolute time. */
 const TWO_HOURS_MS = 2 * 60 * 60 * 1_000;
 
-export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+export function formatTime(iso: string, timeFormat: TimeFormat = '12h'): string {
+  return formatClockTime(new Date(iso), timeFormat);
 }
 
 export function formatDuration(startedAt: string, endedAt: string): string {
@@ -79,12 +80,12 @@ export function eventLabelShort(event: TrackerEvent): string {
  *   < 2 h ago → relative (e.g. "5m ago", "just now")
  *   ≥ 2 h ago → absolute time (e.g. "3:45 PM")
  */
-export function formatEventTime(iso: string, now: Date): string {
+export function formatEventTime(iso: string, now: Date, timeFormat: TimeFormat = '12h'): string {
   const ms = now.getTime() - new Date(iso).getTime();
   if (ms < TWO_HOURS_MS) {
     return formatTimeAgo(iso, now);
   }
-  return formatTime(iso);
+  return formatTime(iso, timeFormat);
 }
 
 export function eventLabel(event: TrackerEvent): string {

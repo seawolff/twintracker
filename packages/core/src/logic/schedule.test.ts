@@ -1,6 +1,7 @@
 import {
   getNextAction,
   getAgeWeeks,
+  getAdjustedAgeWeeks,
   getDiaperIntervalMs,
   getScheduleForAge,
   getScheduleStage,
@@ -192,6 +193,46 @@ describe('getAgeWeeks', () => {
   });
 });
 
+describe('getAdjustedAgeWeeks', () => {
+  const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
+  const tenWeeksAgo = new Date(Date.now() - 70 * 24 * 60 * 60 * 1000).toISOString();
+
+  it('uses adjustedBirthDate when set', () => {
+    expect(getAdjustedAgeWeeks({ birthDate: fourWeeksAgo, adjustedBirthDate: tenWeeksAgo })).toBe(
+      10,
+    );
+  });
+
+  it('falls back to birthDate when adjustedBirthDate is null', () => {
+    expect(getAdjustedAgeWeeks({ birthDate: fourWeeksAgo, adjustedBirthDate: null })).toBe(4);
+  });
+
+  it('falls back to birthDate when adjustedBirthDate is undefined', () => {
+    expect(getAdjustedAgeWeeks({ birthDate: fourWeeksAgo })).toBe(4);
+  });
+
+  it('returns the default 14 weeks when both dates are missing', () => {
+    expect(getAdjustedAgeWeeks({})).toBe(14);
+  });
+
+  it('getBabyInsight uses adjustedBirthDate for stage calculation', () => {
+    // Baby born 20 weeks ago (Stage 2 chronologically) but due date was only 4 weeks ago
+    // → corrected age is Stage 1, so schedule should use Stage 1 parameters
+    const twentyWeeksAgo = new Date(Date.now() - 140 * 24 * 60 * 60 * 1000).toISOString();
+    const baby = {
+      id: 'b1',
+      name: 'Test',
+      color: 'amber' as const,
+      birthDate: twentyWeeksAgo,
+      adjustedBirthDate: fourWeeksAgo,
+      createdAt: twentyWeeksAgo,
+    };
+    const insight = getBabyInsight(baby, {}, [], new Date());
+    // Stage 1 uses 3h feed interval; Stage 2 uses 4h — corrected age should give Stage 1
+    expect(insight.scheduleStage).toBe(1);
+  });
+});
+
 describe('getScheduleForAge', () => {
   // Stage 1 (0–15w): 3-hour Feed→Play→Sleep cycle throughout
   it('0–4w: 60m awake cap, 3h feed (Stage 1)', () => {
@@ -356,31 +397,26 @@ describe('getBabyInsight', () => {
     createdAt: new Date().toISOString(),
   };
 
-  it('sleeping baby: headline contains "Sleeping", alarmMs > 0, narrative mentions name', () => {
     const napStartedAt = msAgo(30 * 60_000);
     const latest: LatestEventMap = {
       [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
     };
     const insight = getBabyInsight(baby, latest, [], NOW);
     expect(insight.headline).toContain('Sleeping');
-    expect(insight.alarmMs).toBeGreaterThan(0);
     expect(insight.narrative).toContain('awake around');
     expect(insight.urgency).toBe('ok');
   });
 
-  it('overdue nap: alarmMs is null, urgency overdue', () => {
     // 150 min elapsed — overdue for Stage 2 (120 min target) and Stage 1 (90 min target)
     const napStartedAt = msAgo(150 * 60_000);
     const latest: LatestEventMap = {
       [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
     };
     const insight = getBabyInsight(baby, latest, [], NOW);
-    expect(insight.alarmMs).toBeNull();
     expect(insight.urgency).toBe('overdue');
     expect(insight.narrative).toContain('longer than usual');
   });
 
-  it('awake within window: headline contains "Awake", alarmMs null, narrative mentions nap timing', () => {
     const testNow = new Date(2026, 2, 14, 10, 0, 0); // fixed daytime hour to avoid night-mode urgency
     const napEndedAt = new Date(testNow.getTime() - 30 * 60_000).toISOString();
     const latest: LatestEventMap = {
@@ -393,7 +429,6 @@ describe('getBabyInsight', () => {
     };
     const insight = getBabyInsight(baby, latest, [], testNow);
     expect(insight.headline).toContain('Awake');
-    expect(insight.alarmMs).toBeNull();
     expect(insight.urgency).toBe('ok');
   });
 
@@ -443,6 +478,24 @@ describe('getBabyInsight', () => {
     expect(insight.totalOzToday).toBe(9); // 4 + 5 only
   });
 
+  it('totalOzToday converts ml-unit bottle events to oz before summing', () => {
+    const ML_PER_OZ = 29.5735;
+    const mlBottle: TrackerEvent = {
+      ...makeEvent(BABY_ID, 'bottle', new Date().toISOString()),
+      id: '1',
+      value: 120, // 120 ml ≈ 4.058 oz
+      unit: 'ml',
+    };
+    const ozBottle: TrackerEvent = {
+      ...makeEvent(BABY_ID, 'bottle', new Date().toISOString()),
+      id: '2',
+      value: 5,
+      unit: 'oz',
+    };
+    const insight = getBabyInsight(baby, {}, [mlBottle, ozBottle], NOW);
+    expect(insight.totalOzToday).toBeCloseTo(120 / ML_PER_OZ + 5, 3);
+  });
+
   it('targetOzToday: Stage 1 newborn (0–4w, 3oz/feed, 3h interval) = 24 oz', () => {
     // 24h / 3h × 3oz = 24 oz — under the 32 oz AAP cap
     const newbornBirthDate = new Date(Date.now() - 2 * 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -489,7 +542,6 @@ describe('getBabyInsight', () => {
     const testNow = new Date(2026, 2, 14, 10, 0, 0);
     const insight = getBabyInsight(baby, {}, [], testNow);
     expect(insight.urgency).toBe('ok');
-    expect(insight.alarmMs).toBeNull();
     expect(insight.narrative).toContain('John');
     expect(insight.headline).toBe('Good morning');
   });
@@ -649,7 +701,6 @@ describe('getBabyInsight — night sleep (sleep event type)', () => {
     const insight = getBabyInsight(baby, latest, [], NOW);
     expect(insight.headline).toContain('Sleeping');
     expect(insight.narrative).toContain('night');
-    expect(insight.alarmMs).toBeNull(); // no alarm for night sleep
     expect(insight.urgency).toBe('ok');
   });
 
@@ -978,7 +1029,16 @@ describe('getBabyInsight — isNight', () => {
         new Date(2026, 2, 14, 5, 30, 0).toISOString(),
       ),
     };
-    const insight = getBabyInsight(baby, latest, Object.values(latest), testNow, 0, undefined, 19, 7);
+    const insight = getBabyInsight(
+      baby,
+      latest,
+      Object.values(latest),
+      testNow,
+      0,
+      undefined,
+      19,
+      7,
+    );
     expect(insight.isNight).toBe(false);
   });
 
@@ -1203,7 +1263,6 @@ describe('getBabyInsight — Stage 1 newborn behavior', () => {
     };
     const insight = getBabyInsight(stage1Baby, latest, [], NOW);
     expect(insight.narrative).not.toContain('night');
-    expect(insight.alarmMs).toBeGreaterThan(0); // regular sleep countdown
   });
 });
 
@@ -1227,7 +1286,6 @@ describe('getBabyInsight — overnight feed wake alert (< 4 weeks)', () => {
     expect(insight.narrative).toContain('Wake');
     expect(insight.narrative).toContain('feed');
     expect(insight.urgency).toBe('overdue');
-    expect(insight.alarmMs).toBeNull();
   });
 
   it('does not surface wake alert when sleeping < 4h', () => {

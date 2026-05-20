@@ -1,7 +1,7 @@
 /** Web modal for viewing and editing a baby's profile (name, DOB, sex, weight, height). */
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { Baby, BabyColor, BabySex } from '@tt/core';
+import type { Baby, BabySex } from '@tt/core';
 import {
   i18n,
   useThemeContext,
@@ -13,25 +13,17 @@ import {
   isFutureLocalDateInputValue,
 } from '@tt/core';
 import { fonts, radius, spacing } from '../theme/tokens';
+import { babyColorHex } from '../babyColors';
 import { PersonIcon } from './icons/BabyIcons';
 
 export interface BabyProfileSaveData {
   name: string;
   birthDate: string | undefined;
+  adjustedBirthDate: string | null;
   sex: BabySex;
   weightKg: number | null;
   heightCm: number | null;
 }
-
-/** Hex values for each BabyColor — used for the avatar circle accent. */
-const BABY_COLOR_HEX: Record<BabyColor, string> = {
-  amber: '#f59e0b',
-  emerald: '#10b981',
-  slate: '#64748b',
-  rose: '#fb7185',
-  sky: '#38bdf8',
-  violet: '#8b5cf6',
-};
 
 interface BabyProfileSheetProps {
   visible: boolean;
@@ -89,6 +81,7 @@ export function BabyProfileSheet({
   const theme = useThemeContext();
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [adjustedBirthDate, setAdjustedBirthDate] = useState('');
   const [sex, setSex] = useState<BabySex>('male');
   const [weightStr, setWeightStr] = useState('');
   const [heightStr, setHeightStr] = useState('');
@@ -104,6 +97,7 @@ export function BabyProfileSheet({
       setName(baby.name);
       // Normalize to YYYY-MM-DD — API may return a full ISO string
       setBirthDate(baby.birthDate ? baby.birthDate.slice(0, 10) : '');
+      setAdjustedBirthDate(baby.adjustedBirthDate ? baby.adjustedBirthDate.slice(0, 10) : '');
       setSex(baby.sex ?? 'male');
       setWeightStr(baby.weightKg != null ? formatEditableWeight(baby.weightKg, isImperial) : '');
       setHeightStr(baby.heightCm != null ? formatEditableHeight(baby.heightCm, isImperial) : '');
@@ -145,6 +139,7 @@ export function BabyProfileSheet({
       await onSave(baby.id, {
         name: trimmed,
         birthDate: birthDate.trim() || undefined,
+        adjustedBirthDate: adjustedBirthDate.trim() || null,
         sex,
         weightKg: parsedWeight != null && isImperial ? lbsToKg(parsedWeight) : parsedWeight,
         heightCm: parsedHeight != null && isImperial ? inToCm(parsedHeight) : parsedHeight,
@@ -171,7 +166,7 @@ export function BabyProfileSheet({
     return null;
   }
 
-  const accentColor = BABY_COLOR_HEX[baby.color] ?? '#64748b';
+  const accentColor = babyColorHex(baby.color);
 
   const inputStyle = {
     display: 'block' as const,
@@ -344,6 +339,49 @@ export function BabyProfileSheet({
           >
             {dobError}
           </p>
+        )}
+
+        {/* Adjusted birth date — only shown when a birth date is set */}
+        {!!birthDate && (
+          <>
+            <label
+              style={{
+                display: 'block',
+                fontSize: 11,
+                letterSpacing: 1,
+                color: theme.textMuted,
+                fontFamily: fonts.mono,
+                marginBottom: spacing.xs,
+                marginTop: spacing.md,
+              }}
+            >
+              {i18n.t('baby_profile.adjusted_dob_label').toUpperCase()}
+            </label>
+            {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
+            {/* @ts-ignore — HTML date input */}
+            <input
+              type="date"
+              value={adjustedBirthDate}
+              max={todayLocalDateInputValue()}
+              onChange={e => setAdjustedBirthDate(e.target.value)}
+              disabled={saving}
+              style={{
+                ...inputStyle,
+                border: `1px solid ${theme.border}`,
+                colorScheme: theme.mode === 'night' ? 'dark' : 'light',
+              }}
+            />
+            <p
+              style={{
+                margin: '4px 0 0',
+                fontSize: 11,
+                color: theme.textMuted,
+                fontFamily: fonts.mono,
+              }}
+            >
+              {i18n.t('baby_profile.adjusted_dob_hint')}
+            </p>
+          </>
         )}
 
         {/* Sex selector */}

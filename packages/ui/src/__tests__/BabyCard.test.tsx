@@ -6,7 +6,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BabyCard } from '../components/BabyCard';
-import type { Baby, EventType, LatestEventMap, NapAlarm, TrackerEvent } from '@tt/core';
+import type { Baby, EventType, LatestEventMap, TrackerEvent } from '@tt/core';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -168,41 +168,6 @@ describe('BabyCard — renders without crash for each event type', () => {
   });
 });
 
-// ── Tests — alarm badge ───────────────────────────────────────────────────────
-
-describe('BabyCard — alarm badge', () => {
-  const ALARM: NapAlarm = {
-    id: 'alarm-1',
-    babyId: 'b1',
-    householdId: 'hh-1',
-    firesAt: new Date(NOW.getTime() + 10 * 60_000).toISOString(), // fires in 10 min
-    durationMs: 15 * 60_000,
-    label: 'Nap check',
-    createdAt: NOW.toISOString(),
-  };
-
-  it('renders countdown badge when activeAlarm is provided', () => {
-    const html = renderToStaticMarkup(
-      <BabyCard
-        baby={BABY}
-        latest={{}}
-        events={[]}
-        onLog={jest.fn()}
-        onSetAlarm={jest.fn()}
-        activeAlarm={ALARM}
-        onDismissAlarm={jest.fn()}
-        now={NOW}
-      />,
-    );
-    // Badge shows countdown — format is "Xm YYs"
-    expect(html).toMatch(/\d+m \d+s/);
-  });
-
-  it('does not render countdown badge when no activeAlarm', () => {
-    const html = renderCard([]);
-    expect(html).not.toMatch(/\d+m \d+s/);
-  });
-});
 
 // ── Tests — sleeping state dims irrelevant controls ──────────────────────────
 

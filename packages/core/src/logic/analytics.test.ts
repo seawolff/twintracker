@@ -58,6 +58,25 @@ describe('computeAnalytics', () => {
     expect(a.totalOzThisWeek).toBe(9);
   });
 
+  test('totalOzThisWeek converts ml-unit bottle events to oz before summing', () => {
+    const ML_PER_OZ = 29.5735;
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'bottle', daysAgo(1), { value: 120, unit: 'ml' }), // ≈ 4.058 oz
+      makeEvent('b1', 'bottle', daysAgo(2), { value: 4, unit: 'oz' }), // 4 oz exactly
+    ];
+    const a = computeAnalytics(events, NOW);
+    expect(a.totalOzThisWeek).toBeCloseTo(120 / ML_PER_OZ + 4, 3);
+  });
+
+  test('totalPumpedOzThisWeek converts ml-unit pump events to oz', () => {
+    const ML_PER_OZ = 29.5735;
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'pump', daysAgo(1), { value: 150, unit: 'ml' }), // ≈ 5.07 oz
+    ];
+    const a = computeAnalytics(events, NOW);
+    expect(a.totalPumpedOzThisWeek).toBeCloseTo(150 / ML_PER_OZ, 3);
+  });
+
   test('pumping totals and lactation balance are tracked separately from bottle intake', () => {
     const events: TrackerEvent[] = [
       makeEvent('b1', 'bottle', daysAgo(1), { value: 5, notes: 'source=formula' }),
@@ -448,6 +467,8 @@ describe('computeTrendData', () => {
     expect(td.ozPerFeedByDay).toHaveLength(TREND_DAYS);
     expect(td.ozPerDayByDay).toHaveLength(TREND_DAYS);
     expect(td.pumpedOzPerDay).toHaveLength(TREND_DAYS);
+    expect(td.solidMealsByDay).toHaveLength(TREND_DAYS);
+    expect(td.weaningCrossoverByDay).toHaveLength(TREND_DAYS);
     expect(td.milkBalanceByDay).toHaveLength(TREND_DAYS);
     expect(td.napCountByDay).toHaveLength(TREND_DAYS);
     expect(td.longestNightByDay).toHaveLength(TREND_DAYS);
@@ -458,6 +479,11 @@ describe('computeTrendData', () => {
     td.feedIntervalByDay.forEach(p => expect(p.value).toBeNull());
     td.ozPerDayByDay.forEach(p => expect(p.value).toBeNull());
     td.pumpedOzPerDay.forEach(p => expect(p.value).toBeNull());
+    td.solidMealsByDay.forEach(p => expect(p.value).toBeNull());
+    td.weaningCrossoverByDay.forEach(p => {
+      expect(p.bottleShare).toBeNull();
+      expect(p.solidsShare).toBeNull();
+    });
     td.napCountByDay.forEach(p => expect(p.value).toBeNull());
   });
 
@@ -502,6 +528,25 @@ describe('computeTrendData', () => {
     // yesterday's slot is index TREND_DAYS - 2
     const yestPoint = td.ozPerFeedByDay[TREND_DAYS - 2];
     expect(yestPoint.value).toBeCloseTo(5, 1);
+  });
+
+  test('solidMealsByDay counts food logs and weaning crossover normalizes bottles vs solids', () => {
+    const events: TrackerEvent[] = [
+      makeEvent('b1', 'bottle', daysAgo(1, 8), { value: 6 }),
+      makeEvent('b1', 'bottle', daysAgo(1, 12), { value: 6 }),
+      makeEvent('b1', 'food', daysAgo(1, 9), { notes: 'banana' }),
+      makeEvent('b1', 'food', daysAgo(1, 13), { notes: 'oatmeal' }),
+    ];
+    const td = computeTrendData(events, NOW);
+    const yestMeals = td.solidMealsByDay[TREND_DAYS - 2];
+    const yestCrossover = td.weaningCrossoverByDay[TREND_DAYS - 2];
+    expect(yestMeals.value).toBe(2);
+    expect(yestCrossover.bottleOz).toBe(12);
+    expect(yestCrossover.solidMeals).toBe(2);
+    expect(yestCrossover.bottleShare).not.toBeNull();
+    expect(yestCrossover.solidsShare).not.toBeNull();
+    expect((yestCrossover.bottleShare ?? 0) + (yestCrossover.solidsShare ?? 0)).toBeCloseTo(1, 5);
+    expect(yestCrossover.solidsShare ?? 0).toBeGreaterThan(0);
   });
 
   test('napCountByDay counts completed naps per day', () => {

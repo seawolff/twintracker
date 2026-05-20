@@ -9,8 +9,14 @@ import {
   getAgeWeeks,
   useTranslation,
 } from '@tt/core';
-import type { Baby, TrackerEvent, TransitionSignal, TrendData } from '@tt/core';
-import { BottleIcon, HotelIcon, MilestoneIcon, MoonIcon, PumpIcon } from '@tt/ui';
+import type {
+  Baby,
+  TrackerEvent,
+  TransitionSignal,
+  TrendData,
+  WeaningCrossoverPoint,
+} from '@tt/core';
+import { BottleIcon, FoodIcon, HotelIcon, MilestoneIcon, MoonIcon, PumpIcon } from '@tt/ui';
 
 import TrendBars from './TrendBars';
 import TrendSparkline from './TrendSparkline';
@@ -131,6 +137,75 @@ function SignalCard({ signal }: { signal: TransitionSignal }) {
   );
 }
 
+function WeaningCrossoverChart({
+  data,
+  ariaLabel,
+}: {
+  data: WeaningCrossoverPoint[];
+  ariaLabel: string;
+}) {
+  const height = 82;
+  const count = data.length;
+  const topPad = 6;
+  const bottomPad = 4;
+  const drawH = height - topPad - bottomPad;
+  const xFor = (index: number) => (count <= 1 ? 50 : (index / (count - 1)) * 100);
+  const yFor = (share: number) => topPad + (1 - share) * drawH;
+  const bottlePoints = data
+    .map((point, i) =>
+      point.bottleShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.bottleShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+  const solidsPoints = data
+    .map((point, i) =>
+      point.solidsShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.solidsShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 100 ${height}`}
+      preserveAspectRatio="none"
+      aria-label={ariaLabel}
+      role="img"
+    >
+      <line x1="0" y1={yFor(0.5)} x2="100" y2={yFor(0.5)} className={styles.crossoverMidline} />
+      <polyline points={bottlePoints} className={styles.crossoverBottleLine} />
+      <polyline points={solidsPoints} className={styles.crossoverSolidsLine} />
+      {data.map((point, i) => {
+        if (point.bottleShare == null || point.solidsShare == null) {
+          return null;
+        }
+        const x = xFor(i);
+        return (
+          <g key={point.dayMs}>
+            <circle
+              cx={x}
+              cy={yFor(point.bottleShare)}
+              r={1.4}
+              className={styles.crossoverBottleDot}
+            />
+            <circle
+              cx={x}
+              cy={yFor(point.solidsShare)}
+              r={1.4}
+              className={styles.crossoverSolidsDot}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function WeeklyAnalyticsPanel({
   baby,
   events,
@@ -155,6 +230,9 @@ export default function WeeklyAnalyticsPanel({
   const hasFeedTrend = trend.feedIntervalByDay.filter(p => p.value !== null).length >= 3;
   const hasSleepTrend = trend.longestNightByDay.filter(p => p.value !== null).length >= 3;
   const hasOzTrend = trend.ozPerDayByDay.filter(p => p.value !== null).length >= 3;
+  const hasWeaningCrossover =
+    trend.weaningCrossoverByDay.filter(p => p.bottleShare !== null && p.solidsShare !== null)
+      .length >= 3 && trend.solidMealsByDay.some(p => p.value !== null);
   const hasPumpTrend = trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3;
 
   return (
@@ -210,7 +288,9 @@ export default function WeeklyAnalyticsPanel({
         <SectionCard icon={<PumpIcon size={14} />} title={t('analytics.pumping')}>
           {a.totalPumpedOzThisWeek > 0 ? (
             <>
-              <p className={styles.primaryStat}>{`${formatExactTotal(a.totalPumpedOzThisWeek)} oz`}</p>
+              <p
+                className={styles.primaryStat}
+              >{`${formatExactTotal(a.totalPumpedOzThisWeek)} oz`}</p>
               <div className={styles.statsGrid}>
                 <StatRow
                   label={t('analytics.pumped_oz_per_day_label')}
@@ -279,6 +359,41 @@ export default function WeeklyAnalyticsPanel({
               ariaLabel={t('analytics.oz_per_day_label')}
             />
           </TrendBlock>
+          <div className={styles.trendAxisRow}>
+            {trendDayLabels
+              .filter((_, i) => i % 2 === 0)
+              .map((label, i) => (
+                <span key={i} className={styles.axisLabel}>
+                  {label}
+                </span>
+              ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {hasWeaningCrossover && (
+        <SectionCard icon={<FoodIcon size={14} />} title={t('analytics.weaning_crossover')}>
+          <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+          <TrendBlock
+            label={t('analytics.weaning_crossover_label')}
+            sublabel={t('analytics.weaning_crossover_sublabel')}
+          >
+            <WeaningCrossoverChart
+              data={trend.weaningCrossoverByDay}
+              ariaLabel={t('analytics.weaning_crossover')}
+            />
+          </TrendBlock>
+          <div className={styles.crossoverLegend}>
+            <span>
+              <i className={styles.crossoverBottleKey} />
+              {t('analytics.weaning_bottles')}
+            </span>
+            <span>
+              <i className={styles.crossoverSolidsKey} />
+              {t('analytics.weaning_solids')}
+            </span>
+          </div>
+          <p className={styles.benchmark}>{t('analytics.weaning_crossover_note')}</p>
           <div className={styles.trendAxisRow}>
             {trendDayLabels
               .filter((_, i) => i % 2 === 0)

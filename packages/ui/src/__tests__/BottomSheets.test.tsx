@@ -1,5 +1,5 @@
 /**
- * Bottom-sheet component tests — FeedPickerModal, MoreMenuSheet, TimerPickerModal.
+ * Bottom-sheet component tests — FeedPickerModal, MoreMenuSheet.
  * Tests both native and web variants for option visibility and show/hide behaviour.
  *
  * Uses renderToStaticMarkup (SSR snapshot of initial render state).
@@ -27,8 +27,6 @@ import { FeedPickerModal } from '../components/FeedPickerModal';
 import { FeedPickerModal as FeedPickerModalWeb } from '../components/FeedPickerModal.web';
 import { MoreMenuSheet } from '../components/MoreMenuSheet';
 import { MoreMenuSheet as MoreMenuSheetWeb } from '../components/MoreMenuSheet.web';
-import { TimerPickerModal } from '../components/TimerPickerModal';
-import { TimerPickerModal as TimerPickerModalWeb } from '../components/TimerPickerModal.web';
 
 // ── FeedPickerModal — native ───────────────────────────────────────────────────
 
@@ -102,61 +100,25 @@ describe('FeedPickerModal — web', () => {
 describe('MoreMenuSheet — native', () => {
   it('renders Medicine and Milestone when visible', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheet
-        visible
-        babyName="Leo"
-        showTimer={false}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheet visible babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).toContain('Medicine');
     expect(html).toContain('Milestone');
   });
 
-  it('renders "Set timer" when showTimer is true', () => {
+  it('does not render "Set timer"', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheet
-        visible
-        babyName="Leo"
-        showTimer={true}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
-    );
-    expect(html).toContain('Set timer');
-  });
-
-  it('does not render "Set timer" when showTimer is false', () => {
-    const html = renderToStaticMarkup(
-      <MoreMenuSheet
-        visible
-        babyName="Leo"
-        showTimer={false}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheet visible babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).not.toContain('Set timer');
   });
 
   it('renders nothing when not visible', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheet
-        visible={false}
-        babyName="Leo"
-        showTimer={true}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheet visible={false} babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).not.toContain('Medicine');
     expect(html).not.toContain('Milestone');
-    expect(html).not.toContain('Set timer');
   });
 });
 
@@ -165,153 +127,24 @@ describe('MoreMenuSheet — native', () => {
 describe('MoreMenuSheet — web', () => {
   it('renders Medicine and Milestone when visible', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheetWeb
-        visible
-        babyName="Leo"
-        showTimer={false}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheetWeb visible babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).toContain('Medicine');
     expect(html).toContain('Milestone');
   });
 
-  it('renders "Set timer" when showTimer is true', () => {
+  it('does not render "Set timer"', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheetWeb
-        visible
-        babyName="Leo"
-        showTimer={true}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
-    );
-    expect(html).toContain('Set timer');
-  });
-
-  it('does not render "Set timer" when showTimer is false', () => {
-    const html = renderToStaticMarkup(
-      <MoreMenuSheetWeb
-        visible
-        babyName="Leo"
-        showTimer={false}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheetWeb visible babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).not.toContain('Set timer');
   });
 
   it('renders nothing when not visible', () => {
     const html = renderToStaticMarkup(
-      <MoreMenuSheetWeb
-        visible={false}
-        babyName="Leo"
-        showTimer={true}
-        onLog={jest.fn()}
-        onOpenTimer={jest.fn()}
-        onClose={jest.fn()}
-      />,
+      <MoreMenuSheetWeb visible={false} babyName="Leo" onLog={jest.fn()} onClose={jest.fn()} />,
     );
     expect(html).not.toContain('Medicine');
     expect(html).not.toContain('Milestone');
-    expect(html).not.toContain('Set timer');
-  });
-});
-
-// ── TimerPickerModal — native ──────────────────────────────────────────────────
-
-describe('TimerPickerModal — native', () => {
-  it('renders all five preset durations when visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModal visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    expect(html).toContain('5 min');
-    expect(html).toContain('10 min');
-    expect(html).toContain('15 min');
-    expect(html).toContain('20 min');
-    expect(html).toContain('30 min');
-  });
-
-  it('renders Custom option when visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModal visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    expect(html).toContain('Custom');
-  });
-
-  it('includes baby name in title when visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModal visible babyName="Mia" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    expect(html).toContain('Mia');
-  });
-
-  it('does not show custom input by default', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModal visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    // Custom row with "Set" button is only shown after tapping Custom
-    expect(html).not.toContain('Set\x3C'); // "Set" button text (not inside "Set timer")
-  });
-
-  it('renders nothing when not visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModal
-        visible={false}
-        babyName="Leo"
-        onSetAlarm={jest.fn()}
-        onClose={jest.fn()}
-      />,
-    );
-    expect(html).not.toContain('5 min');
-    expect(html).not.toContain('Custom');
-  });
-});
-
-// ── TimerPickerModal — web ─────────────────────────────────────────────────────
-
-describe('TimerPickerModal — web', () => {
-  it('renders all five preset durations when visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModalWeb visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    expect(html).toContain('5 min');
-    expect(html).toContain('10 min');
-    expect(html).toContain('15 min');
-    expect(html).toContain('20 min');
-    expect(html).toContain('30 min');
-  });
-
-  it('renders Custom option when visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModalWeb visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    expect(html).toContain('Custom');
-  });
-
-  it('does not show custom input by default', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModalWeb visible babyName="Leo" onSetAlarm={jest.fn()} onClose={jest.fn()} />,
-    );
-    // Input only renders after clicking Custom (customOpen starts false)
-    expect(html).not.toContain('type="number"');
-  });
-
-  it('renders nothing when not visible', () => {
-    const html = renderToStaticMarkup(
-      <TimerPickerModalWeb
-        visible={false}
-        babyName="Leo"
-        onSetAlarm={jest.fn()}
-        onClose={jest.fn()}
-      />,
-    );
-    expect(html).not.toContain('5 min');
-    expect(html).not.toContain('Custom');
   });
 });

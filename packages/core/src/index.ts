@@ -13,7 +13,6 @@ export * from './logic/milestones';
 export * from './logic/mockData';
 export * from './logic/pumpHelpers';
 export * from './hooks/usePreferences';
-export * from './hooks/useAlarms';
 export { useTranslation, initI18n, translations, default as i18n } from './i18n';
 export type { SupportedLocale } from './i18n';
 export * from './config';

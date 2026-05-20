@@ -29,6 +29,12 @@ export interface Baby {
   heightCm?: number | null;
   /** Biological sex — required for accurate WHO percentile lookup. */
   sex?: BabySex | null;
+  /**
+   * Adjusted (corrected) due date for preemie babies — YYYY-MM-DD.
+   * When set, schedule stage and growth percentiles use this date instead of
+   * birthDate so developmental guidance reflects corrected age.
+   */
+  adjustedBirthDate?: string | null;
   createdAt: string;
 }
 
@@ -114,18 +120,6 @@ export interface JoinRequest {
   password: string;
   inviteCode: string;
   name: string;
-}
-
-/** Server-side nap alarm — fires at a specific time, synced across all devices. */
-export interface NapAlarm {
-  id: string;
-  babyId: string;
-  householdId: string;
-  firesAt: string; // ISO 8601
-  durationMs: number; // total window for ring progress
-  label: string;
-  dismissedAt?: string;
-  createdAt: string;
 }
 
 export interface StorageInterface {

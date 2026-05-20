@@ -217,7 +217,142 @@ function plainBody(link: string, locale: Locale): string {
   return t(locale, 'verify_plain').replace('{{link}}', link);
 }
 
+interface ChildStageDigestEmailParams {
+  email: string;
+  recipientName: string | null;
+  babyName: string;
+  ageLabel: string;
+  stageTitle: string;
+  stageSummary: string;
+  expectations: string[];
+  milestoneBullets: string[];
+  trendBullets: string[];
+  locale?: string;
+}
+
+function listItems(items: string[]): string {
+  return items.map(item => `<li>${item}</li>`).join('');
+}
+
+function welcomeHtmlBody(link: string, _locale: string = 'en', name?: string | null): string {
+  const greeting = name ? `Hi ${name},` : 'Hi,';
+  const founderAvatarUrl = `${appUrl}/wolff.jpg`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:0;background:#f5f5f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e0e0e0;border-radius:16px;padding:40px;">
+          <tr>
+            <td>
+              <img src="${founderAvatarUrl}" width="56" height="56" alt="Chris Wolff" style="border-radius:999px;display:block;margin-bottom:20px;" />
+              <h1 style="margin:0 0 16px;font-family:Georgia,serif;font-size:24px;color:#000000;">Welcome to TwinTracker</h1>
+              <p style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${greeting}</p>
+              <p style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">TwinTracker is built for twins and works beautifully for one. I built it to make the tiny daily handoffs around feeds, sleep, diapers, and routines easier to trust.</p>
+              <p style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">I would love your feedback from settings whenever something feels rough.</p>
+              <p style="font-family:'Courier New',monospace;font-size:13px;line-height:1.6;color:#666666;margin-top:28px;">Chris Wolff<br />Founder of TwinTracker</p>
+              <a href="${link}" style="display:inline-block;margin-top:24px;padding:14px 28px;background:#000000;color:#ffffff;text-decoration:none;border-radius:999px;font-family:'Courier New',monospace;font-size:14px;">Open TwinTracker</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function welcomePlainBody(link: string, _locale: string = 'en', name?: string | null): string {
+  const greeting = name ? `Hi ${name},` : 'Hi,';
+  return `${greeting}
+
+TwinTracker is built for twins and works beautifully for one.
+
+Open TwinTracker: ${link}
+
+I would love your feedback any time from /settings.
+
+Chris Wolff
+Founder of TwinTracker
+hello@twintracker.app`;
+}
+
+function childStageDigestHtmlBody(
+  link: string,
+  params: Omit<ChildStageDigestEmailParams, 'email' | 'locale'>,
+): string {
+  const greeting = params.recipientName ? `Hi ${params.recipientName},` : 'Hi,';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:0;background:#f5f5f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e0e0e0;border-radius:16px;padding:40px;">
+          <tr>
+            <td>
+              <p style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${greeting}</p>
+              <h1 style="margin:0 0 16px;font-family:Georgia,serif;font-size:24px;color:#000000;">${params.babyName} is ${params.ageLabel}</h1>
+              <p style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${params.stageSummary}</p>
+
+              <h2 style="font-family:Georgia,serif;font-size:18px;color:#000000;margin-top:28px;">What to expect around this stage</h2>
+              <p style="font-family:'Courier New',monospace;font-size:14px;color:#444444;">${params.stageTitle}</p>
+              <ul style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${listItems(params.expectations)}</ul>
+
+              <h2 style="font-family:Georgia,serif;font-size:18px;color:#000000;margin-top:28px;">Milestones around this stage</h2>
+              <ul style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${listItems(params.milestoneBullets)}</ul>
+
+              <h2 style="font-family:Georgia,serif;font-size:18px;color:#000000;margin-top:28px;">Past month in TwinTracker</h2>
+              <ul style="font-family:'Courier New',monospace;font-size:14px;line-height:1.7;color:#444444;">${listItems(params.trendBullets)}</ul>
+
+              <a href="${link}" style="display:inline-block;margin-top:24px;padding:14px 28px;background:#000000;color:#ffffff;text-decoration:none;border-radius:999px;font-family:'Courier New',monospace;font-size:14px;">Open TwinTracker</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function childStageDigestPlainBody(
+  link: string,
+  params: Omit<ChildStageDigestEmailParams, 'email' | 'locale'>,
+): string {
+  const greeting = params.recipientName ? `Hi ${params.recipientName},` : 'Hi,';
+  return `${greeting}
+
+${params.babyName} is ${params.ageLabel}
+
+${params.stageTitle}
+${params.stageSummary}
+
+What to expect around this stage:
+- ${params.expectations.join('\n- ')}
+
+Milestones around this stage:
+- ${params.milestoneBullets.join('\n- ')}
+
+Past month in TwinTracker:
+- ${params.trendBullets.join('\n- ')}
+
+Open TwinTracker: ${link}`;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
+
+export const __emailPreview = {
+  welcomeHtmlBody,
+  welcomePlainBody,
+  verificationHtmlBody: htmlBody,
+  verificationPlainBody: plainBody,
+  childStageDigestHtmlBody,
+  childStageDigestPlainBody,
+};
 
 /**
  * Send a verification email. `locale` is the user's preferred language
@@ -256,4 +391,47 @@ export async function sendVerificationEmail(
 
   // Dev mode: no email provider configured — log the link so devs can click it directly.
   console.log(`[DEV] Email verification link for ${email}:\n  ${link}`);
+}
+
+export async function sendChildStageDigestEmail(
+  params: ChildStageDigestEmailParams,
+): Promise<void> {
+  const link = `${appUrl}/login`;
+  const subject = `${params.babyName} is ${params.ageLabel}`;
+  const bodyParams = {
+    recipientName: params.recipientName,
+    babyName: params.babyName,
+    ageLabel: params.ageLabel,
+    stageTitle: params.stageTitle,
+    stageSummary: params.stageSummary,
+    expectations: params.expectations,
+    milestoneBullets: params.milestoneBullets,
+    trendBullets: params.trendBullets,
+  };
+  const text = childStageDigestPlainBody(link, bodyParams);
+  const html = childStageDigestHtmlBody(link, bodyParams);
+
+  if (resendClient) {
+    await resendClient.emails.send({
+      from: fromAddress,
+      to: params.email,
+      subject,
+      text,
+      html,
+    });
+    return;
+  }
+
+  if (transporter) {
+    await transporter.sendMail({
+      from: fromAddress,
+      to: params.email,
+      subject,
+      text,
+      html,
+    });
+    return;
+  }
+
+  console.log(`[DEV] Child stage digest email for ${params.email}:\n  ${subject}\n  ${link}`);
 }

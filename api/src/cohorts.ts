@@ -136,7 +136,6 @@ export function incrementEventCount(cohortId: string): void {
 
 /** Set a boolean feature-adoption flag (idempotent). Fire-and-forget. */
 export type CohortFlag =
-  | 'used_alarm'
   | 'used_analytics'
   | 'used_twin_sync'
   | 'used_baby_profile'

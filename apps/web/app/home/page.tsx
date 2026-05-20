@@ -19,7 +19,6 @@ import {
   useAuth,
   useEventStore,
   usePreferences,
-  useAlarms,
   setNightBoundaries,
   setSleepThemeAnchors,
   getSleepThemeAnchors,
@@ -66,6 +65,7 @@ interface SheetState {
   baby: Baby;
   type: EventType;
   suggestedOz?: number;
+  suggestedNotes?: string;
 }
 
 /** True when every baby with a known birthDate is in Stage 1 (< 15 weeks). */
@@ -106,11 +106,8 @@ export default function HomePage() {
   } = useAuth();
   const [verifyResendLoading, setVerifyResendLoading] = useState(false);
   const [verifyResendSent, setVerifyResendSent] = useState(false);
-  const { latest, events, logEvent, closeNap, deleteEvent } = useEventStore(
-    !authLoading && isAuthenticated,
-  );
+  const { latest, events, logEvent, closeNap } = useEventStore(!authLoading && isAuthenticated);
   const { prefs, setTwinSync, setBedtimeHour, setWakeHour, setSleepTraining } = usePreferences();
-  const { alarms, createAlarm, dismissAlarm, rescheduleAlarm, getAlarmForBaby } = useAlarms();
 
   // Sync bedtime/wake settings into the theme engine so night mode transitions correctly
   useEffect(() => {
@@ -141,14 +138,10 @@ export default function HomePage() {
   const [showTwinSyncPrompt, setShowTwinSyncPrompt] = useState(false);
   // Single atomic state — eliminates the split-update race that caused 15s render delay
   const [sheet, setSheet] = useState<SheetState | null>(null);
-  const [napBanners, setNapBanners] = useState<Record<string, { babyName: string; napId: string }>>(
-    {},
-  );
   // Inline confirm for "Wake other baby too?" — avoids browser confirm()
   const [wakeConfirm, setWakeConfirm] = useState<{
     babyName: string;
     otherActive: TrackerEvent;
-    otherAlarmId?: string;
     endedAt: string;
   } | null>(null);
   // twinSync: babyId of the OTHER baby that was just logged, suggesting sync for remaining babies
@@ -156,18 +149,10 @@ export default function HomePage() {
     type: SyncableEventType;
     forBabyId: string;
     suggestedOz?: number;
+    suggestedNotes?: string;
   } | null>(null);
   const [profileBaby, setProfileBaby] = useState<Baby | null>(null);
 
-  // maps alarmId → web setTimeout id (for cancellation on dismiss/wake)
-  const alarmTimers = useRef<Map<string, number>>(new Map());
-  // Snapshot of latest state for use inside alarm setTimeout closures
-  const latestStateRef = useRef({ babies, latest, twinSync: prefs.twinSync });
-  useEffect(() => {
-    latestStateRef.current = { babies, latest, twinSync: prefs.twinSync };
-  }, [babies, latest, prefs.twinSync]);
-  // Alarm checks that fired while the tab was hidden — processed when tab becomes visible.
-  const pendingAlarmChecks = useRef<Map<string, { babyName: string }>>(new Map());
   const [logToast, setLogToast] = useState<string | null>(null);
   const logToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -194,7 +179,11 @@ export default function HomePage() {
   }, []);
 
   const sleepThemeAnchors = useMemo(
-    () => getSleepThemeAnchors(babies.map(baby => baby.id), latest),
+    () =>
+      getSleepThemeAnchors(
+        babies.map(baby => baby.id),
+        latest,
+      ),
     [babies, latest],
   );
   const sleepThemeOverride = useMemo(
@@ -209,141 +198,8 @@ export default function HomePage() {
   );
   const householdNightMode = sleepThemeOverride === 'night';
   useEffect(() => {
-    setSleepThemeAnchors(
-      sleepThemeAnchors.latestSleepStartMs,
-      sleepThemeAnchors.latestSleepEndMs,
-    );
+    setSleepThemeAnchors(sleepThemeAnchors.latestSleepStartMs, sleepThemeAnchors.latestSleepEndMs);
   }, [sleepThemeAnchors]);
-
-  // Sync web alarm timers with server-side alarms state. Three responsibilities:
-  //   1. Cancel timeouts for alarms dismissed on this or another device.
-  //   2. Reschedule setTimeouts for future alarms this session didn't create
-  //      (page reload after alarm creation, or alarm set on the native app).
-  //   3. Show banner immediately for alarms that already fired before this
-  //      session started (same two causes as above).
-  useEffect(() => {
-    const now = Date.now();
-
-    alarms.forEach(alarm => {
-      if (alarmTimers.current.has(alarm.id)) {
-        return; // already scheduled by handleSetAlarm in this session
-      }
-      const firesAtMs = new Date(alarm.firesAt).getTime();
-      const delayMs = firesAtMs - now;
-      const alarmId = alarm.id;
-      const babyId = alarm.babyId;
-
-      // Helper — show "Still sleeping?" banner for this baby (+ twin if synced)
-      function showBanner() {
-        const {
-          babies: curBabies,
-          latest: curLatest,
-          twinSync: curTwinSync,
-        } = latestStateRef.current;
-        const activeNap =
-          getActiveEvent(babyId, 'nap', curLatest) ?? getActiveEvent(babyId, 'sleep', curLatest);
-        if (!activeNap) {
-          return;
-        }
-        const babyName = curBabies.find(b => b.id === babyId)?.name ?? '';
-        setNapBanners(prev => {
-          if (prev[babyId]) {
-            return prev; // banner already visible for this baby
-          }
-          const next = { ...prev, [babyId]: { babyName, napId: activeNap.id } };
-          if (curTwinSync) {
-            const otherBaby = curBabies.find(b => b.id !== babyId);
-            if (otherBaby) {
-              const otherNap =
-                getActiveEvent(otherBaby.id, 'nap', curLatest) ??
-                getActiveEvent(otherBaby.id, 'sleep', curLatest);
-              if (otherNap) {
-                next[otherBaby.id] = { babyName: otherBaby.name, napId: otherNap.id };
-              }
-            }
-          }
-          return next;
-        });
-      }
-
-      if (delayMs > 0) {
-        // Future alarm this session doesn't know about — reschedule the setTimeout.
-        const timerId = window.setTimeout(() => {
-          alarmTimers.current.delete(alarmId);
-          dismissAlarm(alarmId).catch(console.error);
-          if (document.visibilityState === 'visible') {
-            showBanner();
-          } else {
-            const { babies: curBabies } = latestStateRef.current;
-            const babyName = curBabies.find(b => b.id === babyId)?.name ?? '';
-            pendingAlarmChecks.current.set(babyId, { babyName });
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('TwinTracker', {
-                body: i18n.t('notifications.nap_banner_still_sleeping_body', { name: babyName }),
-                icon: '/icon-192.png',
-              });
-            }
-          }
-        }, delayMs);
-        alarmTimers.current.set(alarmId, timerId);
-      } else {
-        // Alarm already fired before this session — show banner immediately.
-        showBanner();
-      }
-    });
-
-    // Cancel timeouts for alarms dismissed on this or another device.
-    alarmTimers.current.forEach((timerId, alarmId) => {
-      if (!alarms.find(a => a.id === alarmId)) {
-        clearTimeout(timerId);
-        alarmTimers.current.delete(alarmId);
-      }
-    });
-  }, [alarms, dismissAlarm]);
-
-  // When the tab returns to focus, show in-app "Still sleeping?" banners for any alarms
-  // that fired while the tab was hidden (background notification already sent as a nudge).
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState !== 'visible') {
-        return;
-      }
-      if (pendingAlarmChecks.current.size === 0) {
-        return;
-      }
-      const {
-        babies: curBabies,
-        latest: curLatest,
-        twinSync: curTwinSync,
-      } = latestStateRef.current;
-      const newBanners: Record<string, { babyName: string; napId: string }> = {};
-      pendingAlarmChecks.current.forEach(({ babyName }, babyId) => {
-        const activeNap =
-          getActiveEvent(babyId, 'nap', curLatest) ?? getActiveEvent(babyId, 'sleep', curLatest);
-        if (!activeNap) {
-          return;
-        }
-        newBanners[babyId] = { babyName, napId: activeNap.id };
-        if (curTwinSync) {
-          const otherBaby = curBabies.find(b => b.id !== babyId);
-          if (otherBaby) {
-            const otherNap =
-              getActiveEvent(otherBaby.id, 'nap', curLatest) ??
-              getActiveEvent(otherBaby.id, 'sleep', curLatest);
-            if (otherNap) {
-              newBanners[otherBaby.id] = { babyName: otherBaby.name, napId: otherNap.id };
-            }
-          }
-        }
-      });
-      pendingAlarmChecks.current.clear();
-      if (Object.keys(newBanners).length > 0) {
-        setNapBanners(prev => ({ ...prev, ...newBanners }));
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
 
   // Re-check email verification when the tab regains focus — handles the case where the user
   // verified in another tab and switched back without navigating.
@@ -435,21 +291,12 @@ export default function HomePage() {
   }
 
   // Tap on a baby card action button.
-  // If an active nap/sleep event exists → close it (wake up) + dismiss any active alarm.
+  // If an active nap/sleep event exists → close it (wake up).
   // Otherwise → open the LogSheet for that event type.
   function handleLog(baby: Baby, type: EventType, suggestedOz?: number) {
     if (type === 'nap' || type === 'sleep') {
       const active = getActiveEvent(baby.id, type, latest);
       if (active) {
-        const existingAlarm = getAlarmForBaby(baby.id);
-        if (existingAlarm) {
-          dismissAlarm(existingAlarm.id).catch(console.error);
-          const timerId = alarmTimers.current.get(existingAlarm.id);
-          if (timerId !== undefined) {
-            clearTimeout(timerId);
-            alarmTimers.current.delete(existingAlarm.id);
-          }
-        }
         const endedAt = new Date().toISOString();
         closeNap(active, endedAt).catch(console.error);
         // If twinSync is on, check whether the other baby has a synced nap/sleep
@@ -460,13 +307,7 @@ export default function HomePage() {
               getActiveEvent(syncedBaby.id, 'nap', latest) ??
               getActiveEvent(syncedBaby.id, 'sleep', latest);
             if (otherActive) {
-              const otherAlarm = getAlarmForBaby(syncedBaby.id);
-              setWakeConfirm({
-                babyName: syncedBaby.name,
-                otherActive,
-                otherAlarmId: otherAlarm?.id,
-                endedAt,
-              });
+              setWakeConfirm({ babyName: syncedBaby.name, otherActive, endedAt });
             }
           }
         }
@@ -474,78 +315,6 @@ export default function HomePage() {
       }
     }
     setSheet({ baby, type, suggestedOz });
-  }
-
-  // Creates a server-side alarm and schedules a web browser notification for it.
-  async function handleSetAlarm(baby: Baby, durationMs: number, isCustomTimer: boolean) {
-    // Request permission NOW — we're still in the user gesture context (button tap).
-    // Browsers block permission prompts that fire after async awaits.
-    if ('Notification' in window && Notification.permission === 'default') {
-      await Notification.requestPermission();
-    }
-    const minutes = Math.round(durationMs / 60_000);
-    const label = isCustomTimer
-      ? i18n.t('notifications.alarm_timer', { minutes })
-      : i18n.t('notifications.alarm_nap_check', { minutes, name: baby.name });
-    const firesAt = new Date(Date.now() + durationMs).toISOString();
-    try {
-      const alarm = await createAlarm(baby.id, firesAt, durationMs, label);
-      const delayMs = new Date(firesAt).getTime() - Date.now();
-      if (delayMs > 0) {
-        const alarmId = alarm.id;
-        const babyId = baby.id;
-        const babyName = baby.name;
-        const timerId = window.setTimeout(() => {
-          alarmTimers.current.delete(alarmId);
-          dismissAlarm(alarmId).catch(console.error);
-          if (isCustomTimer) {
-            return;
-          }
-          if (document.visibilityState === 'visible') {
-            // App is foregrounded — show in-app "Still sleeping?" banner(s)
-            const {
-              babies: curBabies,
-              latest: curLatest,
-              twinSync: curTwinSync,
-            } = latestStateRef.current;
-            const activeNap =
-              getActiveEvent(babyId, 'nap', curLatest) ??
-              getActiveEvent(babyId, 'sleep', curLatest);
-            if (!activeNap) {
-              return;
-            }
-            setNapBanners(prev => {
-              const next = { ...prev, [babyId]: { babyName, napId: activeNap.id } };
-              if (curTwinSync) {
-                const otherBaby = curBabies.find(b => b.id !== babyId);
-                if (otherBaby) {
-                  const otherNap =
-                    getActiveEvent(otherBaby.id, 'nap', curLatest) ??
-                    getActiveEvent(otherBaby.id, 'sleep', curLatest);
-                  if (otherNap) {
-                    next[otherBaby.id] = { babyName: otherBaby.name, napId: otherNap.id };
-                  }
-                }
-              }
-              return next;
-            });
-          } else {
-            // App is backgrounded — store for in-app banner when tab returns to focus,
-            // and send a browser notification to nudge the user back.
-            pendingAlarmChecks.current.set(babyId, { babyName });
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('TwinTracker', {
-                body: i18n.t('notifications.nap_banner_still_sleeping_body', { name: babyName }),
-                icon: '/icon-192.png',
-              });
-            }
-          }
-        }, delayMs);
-        alarmTimers.current.set(alarmId, timerId);
-      }
-    } catch (e) {
-      console.error(e);
-    }
   }
 
   // Called when the LogSheet is submitted.
@@ -590,35 +359,17 @@ export default function HomePage() {
         const type = payload.type as SyncableEventType;
         const unsynced = findUnsyncedBaby(type, baby.id, babies, latest);
         if (unsynced) {
-          setSyncSuggestion({ type, forBabyId: unsynced.id, suggestedOz });
+          setSyncSuggestion({
+            type,
+            forBabyId: unsynced.id,
+            suggestedOz,
+            suggestedNotes: payload.notes ?? undefined,
+          });
         }
       }
     } catch (err) {
       console.error(err);
     }
-  }
-
-  // User confirmed the baby IS still asleep — dismiss the nap-check banner.
-  function handleNapStillSleeping(babyId: string) {
-    setNapBanners(prev => {
-      const n = { ...prev };
-      delete n[babyId];
-      return n;
-    });
-  }
-
-  // User confirmed the baby never fell asleep — dismiss banner and delete the nap event.
-  function handleNapNotAsleep(babyId: string) {
-    const banner = napBanners[babyId];
-    if (!banner) {
-      return;
-    }
-    setNapBanners(prev => {
-      const n = { ...prev };
-      delete n[babyId];
-      return n;
-    });
-    deleteEvent(banner.napId).catch(console.error);
   }
 
   // Auth has resolved but user is not authenticated — redirect is in flight via useEffect.
@@ -798,7 +549,7 @@ export default function HomePage() {
                       aria-pressed={prefs.bedtimeHour === h}
                       type="button"
                     >
-                      {hourLabel(h)}
+                      {hourLabel(h, prefs.timeFormat)}
                     </button>
                   ))}
                 </div>
@@ -817,7 +568,7 @@ export default function HomePage() {
                       aria-pressed={prefs.wakeHour === h}
                       type="button"
                     >
-                      {hourLabel(h)}
+                      {hourLabel(h, prefs.timeFormat)}
                     </button>
                   ))}
                 </div>
@@ -901,17 +652,9 @@ export default function HomePage() {
                   <button
                     className={styles.napBannerBtn}
                     onClick={() => {
-                      const { otherActive, otherAlarmId, endedAt } = wakeConfirm;
+                      const { otherActive, endedAt } = wakeConfirm;
                       setWakeConfirm(null);
                       closeNap(otherActive, endedAt).catch(console.error);
-                      if (otherAlarmId) {
-                        dismissAlarm(otherAlarmId).catch(console.error);
-                        const timerId = alarmTimers.current.get(otherAlarmId);
-                        if (timerId !== undefined) {
-                          clearTimeout(timerId);
-                          alarmTimers.current.delete(otherAlarmId);
-                        }
-                      }
                     }}
                   >
                     {t('common.yes')}
@@ -953,6 +696,7 @@ export default function HomePage() {
                         onClick={() => {
                           const type = syncSuggestion.type;
                           const oz = syncSuggestion.suggestedOz;
+                          const notes = syncSuggestion.suggestedNotes;
                           setSyncSuggestion(null);
                           if (
                             type === 'bottle' ||
@@ -966,6 +710,7 @@ export default function HomePage() {
                               baby: syncBaby,
                               type,
                               suggestedOz: type === 'bottle' ? oz : undefined,
+                              suggestedNotes: notes,
                             });
                           } else {
                             // nap / sleep: no variable input, safe to log directly
@@ -1003,30 +748,9 @@ export default function HomePage() {
                     resetHour={prefs.wakeHour}
                     bedtimeHour={prefs.bedtimeHour}
                     wakeHour={prefs.wakeHour}
+                    timeFormat={prefs.timeFormat}
                     sleepTraining={prefs.sleepTraining}
-                    napCheckMinutes={prefs.napCheckMinutes}
                     householdNightMode={householdNightMode}
-                    activeAlarm={getAlarmForBaby(baby.id)}
-                    onSetAlarm={(durationMs, isCustomTimer) =>
-                      handleSetAlarm(baby, durationMs, isCustomTimer)
-                    }
-                    onDismissAlarm={() => {
-                      const alarm = getAlarmForBaby(baby.id);
-                      if (alarm) {
-                        dismissAlarm(alarm.id).catch(console.error);
-                        const timerId = alarmTimers.current.get(alarm.id);
-                        if (timerId !== undefined) {
-                          clearTimeout(timerId);
-                          alarmTimers.current.delete(alarm.id);
-                        }
-                      }
-                    }}
-                    onRescheduleAlarm={(firesAt, durationMs) => {
-                      const alarm = getAlarmForBaby(baby.id);
-                      if (alarm) {
-                        rescheduleAlarm(alarm.id, firesAt, durationMs).catch(console.error);
-                      }
-                    }}
                   />
                 </div>
               ))}
@@ -1040,6 +764,8 @@ export default function HomePage() {
         baby={sheet?.baby ?? null}
         eventType={sheet?.type ?? null}
         suggestedOz={sheet?.suggestedOz}
+        suggestedNotes={sheet?.suggestedNotes}
+        defaultVolumeUnit={prefs.units === 'metric' ? 'ml' : 'oz'}
         suggestedBreast={
           sheet?.baby
             ? latest[`${sheet.baby.id}:nursing`]?.notes === 'left'
@@ -1047,6 +773,7 @@ export default function HomePage() {
               : 'left'
             : 'left'
         }
+        timeFormat={prefs.timeFormat}
         onSubmit={handleSheetSubmit}
         onClose={() => setSheet(null)}
       />
@@ -1059,6 +786,7 @@ export default function HomePage() {
           await api.babies.update(id, {
             name: data.name,
             birthDate: data.birthDate ?? null,
+            adjustedBirthDate: data.adjustedBirthDate,
             sex: data.sex,
             weightKg: data.weightKg,
             heightCm: data.heightCm,
@@ -1068,37 +796,6 @@ export default function HomePage() {
         }}
         onClose={() => setProfileBaby(null)}
       />
-
-      {/* Fixed alarm banners — slide in from top when alarm fires */}
-      {babies.some(b => napBanners[b.id]) && (
-        <div className={styles.alarmBanners}>
-          {babies.map(baby =>
-            napBanners[baby.id] ? (
-              <div key={baby.id} className={styles.alarmBanner}>
-                <span className={styles.alarmBannerText}>
-                  {babies.length > 1
-                    ? `${baby.name} — ${t('home.nap_banner_still_sleeping')}`
-                    : t('home.nap_banner_still_sleeping')}
-                </span>
-                <div className={styles.alarmBannerActions}>
-                  <button
-                    className={styles.alarmBannerBtn}
-                    onClick={() => handleNapStillSleeping(baby.id)}
-                  >
-                    {t('home.nap_banner_yes')}
-                  </button>
-                  <button
-                    className={`${styles.alarmBannerBtn} ${styles.alarmBannerBtnDismiss}`}
-                    onClick={() => handleNapNotAsleep(baby.id)}
-                  >
-                    {t('home.nap_banner_cancel_nap')}
-                  </button>
-                </div>
-              </div>
-            ) : null,
-          )}
-        </div>
-      )}
 
       {logToast && <div className={styles.logToast}>{logToast}</div>}
 

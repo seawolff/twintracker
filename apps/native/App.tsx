@@ -27,29 +27,13 @@ import {
   syncAndroidLockScreenNotifications,
 } from './androidLockScreenBridge';
 
-// Tell Expo how to display notifications while the app is foregrounded.
-// Must be set before any notification is delivered.
-// Alarm notifications are intercepted in-app (via addNotificationReceivedListener) so we
-// suppress the banner for them — showing an Alert instead is less disruptive.
 Notifications.setNotificationHandler({
-  handleNotification: async notification => {
-    const data = notification.request.content.data as { alarmId?: string };
-    if (data?.alarmId) {
-      // Handled in-app when foregrounded; keep in notification centre but skip banner/sound
-      return {
-        shouldShowBanner: false,
-        shouldShowList: true,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      };
-    }
-    return {
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    };
-  },
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
 });
 import {
   ActivityIndicator,
@@ -76,14 +60,13 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Line, Path, Polyline, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 import { DateTimePickerSheet } from './DateTimePickerSheet';
 import {
   configure,
   useAuth,
   useEventStore,
   usePreferences,
-  useAlarms,
   setNightBoundaries,
   setSleepThemeAnchors,
   getSleepThemeAnchors,
@@ -104,7 +87,6 @@ import {
   useThemeContext,
   initI18n,
   useTranslation,
-  NAP_CHECK_MINUTES,
   BEDTIME_HOURS,
   WAKE_HOURS,
   hourLabel,
@@ -138,8 +120,10 @@ import type {
   HistoryFilters,
   LogEventPayload,
   SyncableEventType,
+  TimeFormat,
   TrackerEvent,
   TrendPoint,
+  WeaningCrossoverPoint,
 } from '@tt/core';
 import * as Localization from 'expo-localization';
 
@@ -160,6 +144,7 @@ import {
   SettingsIcon,
   FilterIcon,
   PersonIcon,
+  babyColorHex,
 } from '@tt/ui';
 import { asyncStorage } from './storage';
 import { clearLiveActivities, syncLiveActivities } from './liveActivityBridge';
@@ -627,13 +612,14 @@ function HomeScreen({
   setBabies,
   babiesLoading,
   resetHour,
-  napCheckMinutes,
   twinSync,
   setTwinSync,
   bedtimeHour,
   setBedtimeHour,
   wakeHour,
   setWakeHour,
+  timeFormat,
+  units,
   sleepTraining,
   setSleepTraining,
   latest,
@@ -649,13 +635,14 @@ function HomeScreen({
   setBabies: (b: Baby[]) => void;
   babiesLoading: boolean;
   resetHour: number;
-  napCheckMinutes: number;
   twinSync: boolean;
   setTwinSync: (v: boolean) => void;
   bedtimeHour: number;
   setBedtimeHour: (h: number) => void;
   wakeHour: number;
   setWakeHour: (h: number) => void;
+  timeFormat: TimeFormat;
+  units: 'metric' | 'imperial';
   sleepTraining: boolean;
   setSleepTraining: (v: boolean) => void;
   latest: ReturnType<typeof useEventStore>['latest'];
@@ -670,8 +657,6 @@ function HomeScreen({
   const theme = useThemeContext();
   const { t } = useTranslation();
   const [refreshing, setRefreshing] = useState(false);
-  // maps alarmId → local notification identifier (for cancellation on dismiss/wake)
-  const alarmNotifIds = useRef<Map<string, string>>(new Map());
   // maps babyId → "wake to feed" notification for newborns sleeping > 4h (< 4 weeks old)
   const newbornFeedNotifIds = useRef<Map<string, string>>(new Map());
   // tracks last-seen latest snapshot to detect new events from polling (cross-device logs)
@@ -699,32 +684,12 @@ function HomeScreen({
     }
   }
 
-  /**
-   * Cancel the local notification for a given alarm ID.
-   * Uses the in-memory map first (same session), then falls back to scanning
-   * all OS-scheduled notifications by data.alarmId (survives app restarts).
-   */
-  async function cancelAlarmNotification(alarmId: string): Promise<void> {
-    const notifId = alarmNotifIds.current.get(alarmId);
-    if (notifId) {
-      await Notifications.cancelScheduledNotificationAsync(notifId).catch(console.error);
-      alarmNotifIds.current.delete(alarmId);
-      return;
-    }
-    // In-memory map was cleared (app restarted) — scan OS-scheduled notifications.
-    const pending = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
-    for (const n of pending) {
-      if ((n.content.data as Record<string, unknown>)?.alarmId === alarmId) {
-        await Notifications.cancelScheduledNotificationAsync(n.identifier).catch(console.error);
-        break;
-      }
-    }
-  }
-
-  const { alarms, createAlarm, dismissAlarm, rescheduleAlarm, getAlarmForBaby } = useAlarms();
-
   const sleepThemeAnchors = useMemo(
-    () => getSleepThemeAnchors(babies.map(baby => baby.id), latest),
+    () =>
+      getSleepThemeAnchors(
+        babies.map(baby => baby.id),
+        latest,
+      ),
     [babies, latest],
   );
   const sleepThemeOverride = useMemo(
@@ -744,15 +709,6 @@ function HomeScreen({
     setupNotificationChannel().catch(console.error);
     requestNotificationPermission().catch(console.error);
   }, []);
-
-  // Cancel local notifications for alarms that were dismissed on another device
-  useEffect(() => {
-    alarmNotifIds.current.forEach((_notifId, alarmId) => {
-      if (!alarms.find(a => a.id === alarmId)) {
-        cancelAlarmNotification(alarmId);
-      }
-    });
-  }, [alarms]);
 
   // Schedule/cancel newborn feed wake alert (AAP: wake to feed if sleeping > 4h, < 4 weeks old).
   useEffect(() => {
@@ -800,34 +756,6 @@ function HomeScreen({
     });
   }, [latest, babies, t]);
 
-  // Creates a server-side alarm and schedules a local notification for it.
-  async function handleSetAlarm(baby: Baby, durationMs: number, isCustomTimer: boolean) {
-    const minutes = Math.round(durationMs / 60_000);
-    const label = isCustomTimer
-      ? t('notifications.alarm_timer', { minutes })
-      : t('notifications.alarm_nap_check', { minutes, name: baby.name });
-    const firesAt = new Date(Date.now() + durationMs).toISOString();
-    const granted = await requestNotificationPermission();
-    if (!granted) {
-      Alert.alert('Permission required', 'Allow notifications in Settings to set alarms.');
-      return;
-    }
-    try {
-      const alarm = await createAlarm(baby.id, firesAt, durationMs, label);
-      const notifId = await scheduleAlarmAt(firesAt, 'TwinTracker', label, {
-        alarmId: alarm.id,
-        babyId: baby.id,
-        isCustomTimer,
-      });
-      if (notifId) {
-        alarmNotifIds.current.set(alarm.id, notifId);
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Could not set alarm', 'There was a problem creating the alarm.');
-    }
-  }
-
   const [entries, setEntries] = useState<
     { name: string; birthDate: string; weightKg: string; heightCm: string }[]
   >([{ name: '', birthDate: '', weightKg: '', heightCm: '' }]);
@@ -847,13 +775,17 @@ function HomeScreen({
   // Single atomic state — eliminates the split-update race where sheetBaby/sheetType turned
   // visible=true one render before sheetSuggestedOz arrived, making the init useEffect in
   // LogSheet capture suggestedOz=undefined and default the oz input to 4.
-  const [sheet, setSheet] = useState<{ baby: Baby; type: EventType; suggestedOz?: number } | null>(
-    null,
-  );
+  const [sheet, setSheet] = useState<{
+    baby: Baby;
+    type: EventType;
+    suggestedOz?: number;
+    suggestedNotes?: string;
+  } | null>(null);
   const [syncSuggestion, setSyncSuggestion] = useState<{
     type: SyncableEventType;
     forBabyId: string;
     suggestedOz?: number;
+    suggestedNotes?: string;
   } | null>(null);
 
   // Creates babies from the dynamic entries list then advances to the schedule-preferences step.
@@ -898,18 +830,12 @@ function HomeScreen({
   };
 
   // Main action handler from BabyCard buttons.
-  // - nap/sleep while active → close the event (wake up) + dismiss any active alarm
+  // - nap/sleep while active → close the event (wake up)
   // - anything else → open the log sheet
   const handleLog = (baby: Baby, type: EventType, suggestedOz?: number) => {
     if (type === 'nap' || type === 'sleep') {
       const active = getActiveEvent(baby.id, type, latest);
       if (active) {
-        // Dismiss server-side alarm and cancel local notification
-        const existingAlarm = getAlarmForBaby(baby.id);
-        if (existingAlarm) {
-          dismissAlarm(existingAlarm.id).catch(console.error);
-          cancelAlarmNotification(existingAlarm.id);
-        }
         const endedAt = new Date().toISOString();
         closeNap(active, endedAt).catch(console.error);
         // If twinSync is on, offer to wake the other baby if their nap started around the same time
@@ -929,11 +855,6 @@ function HomeScreen({
                     text: 'Yes, wake both',
                     onPress: () => {
                       closeNap(otherActive, endedAt).catch(console.error);
-                      const otherAlarm = getAlarmForBaby(syncedBaby.id);
-                      if (otherAlarm) {
-                        dismissAlarm(otherAlarm.id).catch(console.error);
-                        cancelAlarmNotification(otherAlarm.id);
-                      }
                     },
                   },
                 ],
@@ -978,7 +899,12 @@ function HomeScreen({
         const type = payload.type as SyncableEventType;
         const unsynced = findUnsyncedBaby(type, baby.id, babies, latest);
         if (unsynced) {
-          setSyncSuggestion({ type, forBabyId: unsynced.id, suggestedOz });
+          setSyncSuggestion({
+            type,
+            forBabyId: unsynced.id,
+            suggestedOz,
+            suggestedNotes: payload.notes ?? undefined,
+          });
         }
       }
     } catch (err) {
@@ -1139,7 +1065,7 @@ function HomeScreen({
                         <Pressable
                           key={h}
                           onPress={() => setBedtimeHour(h)}
-                          accessibilityLabel={hourLabel(h)}
+                          accessibilityLabel={hourLabel(h, timeFormat)}
                           accessibilityRole="radio"
                           accessibilityState={{ checked: active }}
                           style={[
@@ -1154,7 +1080,7 @@ function HomeScreen({
                               { color: active ? theme.bg : theme.text },
                             ]}
                           >
-                            {hourLabel(h)}
+                            {hourLabel(h, timeFormat)}
                           </Text>
                         </Pressable>
                       );
@@ -1174,7 +1100,7 @@ function HomeScreen({
                         <Pressable
                           key={h}
                           onPress={() => setWakeHour(h)}
-                          accessibilityLabel={hourLabel(h)}
+                          accessibilityLabel={hourLabel(h, timeFormat)}
                           accessibilityRole="radio"
                           accessibilityState={{ checked: active }}
                           style={[
@@ -1189,7 +1115,7 @@ function HomeScreen({
                               { color: active ? theme.bg : theme.text },
                             ]}
                           >
-                            {hourLabel(h)}
+                            {hourLabel(h, timeFormat)}
                           </Text>
                         </Pressable>
                       );
@@ -1347,6 +1273,7 @@ function HomeScreen({
                       onPress={() => {
                         const type = syncSuggestion.type;
                         const oz = syncSuggestion.suggestedOz;
+                        const notes = syncSuggestion.suggestedNotes;
                         setSyncSuggestion(null);
                         if (
                           type === 'bottle' ||
@@ -1360,6 +1287,7 @@ function HomeScreen({
                             baby: syncBaby,
                             type,
                             suggestedOz: type === 'bottle' ? oz : undefined,
+                            suggestedNotes: notes,
                           });
                         } else {
                           // nap / sleep: no variable input, safe to log directly
@@ -1401,41 +1329,9 @@ function HomeScreen({
                 resetHour={resetHour}
                 bedtimeHour={bedtimeHour}
                 wakeHour={wakeHour}
+                timeFormat={timeFormat}
                 sleepTraining={sleepTraining}
-                napCheckMinutes={napCheckMinutes}
                 householdNightMode={householdNightMode}
-                activeAlarm={getAlarmForBaby(baby.id)}
-                onSetAlarm={(durationMs, isCustomTimer) =>
-                  handleSetAlarm(baby, durationMs, isCustomTimer)
-                }
-                onDismissAlarm={() => {
-                  const alarm = getAlarmForBaby(baby.id);
-                  if (alarm) {
-                    dismissAlarm(alarm.id).catch(console.error);
-                    cancelAlarmNotification(alarm.id);
-                  }
-                }}
-                onRescheduleAlarm={(firesAt, durationMs) => {
-                  const alarm = getAlarmForBaby(baby.id);
-                  if (alarm) {
-                    rescheduleAlarm(alarm.id, firesAt, durationMs).catch(console.error);
-                    cancelAlarmNotification(alarm.id);
-                    scheduleAlarmAt(
-                      firesAt,
-                      'TwinTracker',
-                      t('notifications.alarm_wake', { name: baby.name }),
-                      {
-                        alarmId: alarm.id,
-                      },
-                    )
-                      .then(notifId => {
-                        if (notifId) {
-                          alarmNotifIds.current.set(alarm.id, notifId);
-                        }
-                      })
-                      .catch(console.error);
-                  }
-                }}
               />
             ))}
           </View>
@@ -1447,6 +1343,8 @@ function HomeScreen({
         baby={sheet?.baby ?? null}
         eventType={sheet?.type ?? null}
         suggestedOz={sheet?.suggestedOz}
+        suggestedNotes={sheet?.suggestedNotes}
+        defaultVolumeUnit={units === 'metric' ? 'ml' : 'oz'}
         suggestedBreast={
           sheet?.baby
             ? latest[`${sheet.baby.id}:nursing`]?.notes === 'left'
@@ -1454,6 +1352,7 @@ function HomeScreen({
               : 'left'
             : 'left'
         }
+        timeFormat={timeFormat}
         onSubmit={handleSheetSubmit}
         onClose={() => setSheet(null)}
       />
@@ -1596,6 +1495,8 @@ function HistoryScreen({
   babies,
   events,
   loading,
+  timeFormat,
+  showLoggerAvatar,
   deleteEvent,
   editEvent,
   logEvent,
@@ -1604,6 +1505,8 @@ function HistoryScreen({
   babies: Baby[];
   events: ReturnType<typeof useEventStore>['events'];
   loading: ReturnType<typeof useEventStore>['loading'];
+  timeFormat: TimeFormat;
+  showLoggerAvatar: boolean;
   deleteEvent: ReturnType<typeof useEventStore>['deleteEvent'];
   editEvent: ReturnType<typeof useEventStore>['editEvent'];
   logEvent: ReturnType<typeof useEventStore>['logEvent'];
@@ -1823,6 +1726,8 @@ function HistoryScreen({
       <HistoryFeed
         events={filteredEvents}
         babies={babies}
+        timeFormat={timeFormat}
+        showLoggerAvatar={showLoggerAvatar}
         onDelete={id => deleteEvent(id).catch(console.error)}
         onEdit={setEditingEvent}
         onAddForDay={handleAddForDay}
@@ -1835,6 +1740,7 @@ function HistoryScreen({
         baby={babies.find(b => b.id === editingEvent?.babyId) ?? null}
         eventType={editingEvent?.type ?? null}
         initialEvent={editingEvent ?? undefined}
+        timeFormat={timeFormat}
         onEdit={(id, payload) => {
           editEvent(id, payload).catch(console.error);
           setEditingEvent(null);
@@ -1903,6 +1809,7 @@ function HistoryScreen({
         baby={quickBaby}
         eventType={quickType}
         initialStartedAt={quickAddDate?.toISOString()}
+        timeFormat={timeFormat}
         onSubmit={handleQuickSubmit}
         onClose={() => {
           setQuickAddDate(null);
@@ -2232,6 +2139,88 @@ function NativeTrendBars({
   );
 }
 
+function NativeWeaningCrossoverChart({
+  data,
+  height = 82,
+  bottleColor,
+  solidsColor,
+}: {
+  data: WeaningCrossoverPoint[];
+  height?: number;
+  bottleColor: string;
+  solidsColor: string;
+}) {
+  const WIDTH = 300;
+  const topPad = 6;
+  const bottomPad = 4;
+  const drawH = height - topPad - bottomPad;
+  const count = data.length;
+  const xFor = (index: number) => (count <= 1 ? WIDTH / 2 : (index / (count - 1)) * WIDTH);
+  const yFor = (share: number) => topPad + (1 - share) * drawH;
+  const bottlePoints = data
+    .map((point, i) =>
+      point.bottleShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.bottleShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+  const solidsPoints = data
+    .map((point, i) =>
+      point.solidsShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.solidsShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <Svg width="100%" height={height} viewBox={`0 0 ${WIDTH} ${height}`} preserveAspectRatio="none">
+      <Line
+        x1={0}
+        y1={yFor(0.5)}
+        x2={WIDTH}
+        y2={yFor(0.5)}
+        stroke={bottleColor}
+        strokeWidth={1}
+        strokeDasharray="3 3"
+        opacity={0.22}
+      />
+      <Polyline
+        points={bottlePoints}
+        fill="none"
+        stroke={bottleColor}
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.82}
+      />
+      <Polyline
+        points={solidsPoints}
+        fill="none"
+        stroke={solidsColor}
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="5 4"
+        opacity={0.95}
+      />
+      {data.map((point, i) => {
+        if (point.bottleShare == null || point.solidsShare == null) {
+          return null;
+        }
+        const x = xFor(i);
+        return (
+          <G key={point.dayMs}>
+            <Circle cx={x} cy={yFor(point.bottleShare)} r={3.4} fill={bottleColor} />
+            <Circle cx={x} cy={yFor(point.solidsShare)} r={3.4} fill={solidsColor} />
+          </G>
+        );
+      })}
+    </Svg>
+  );
+}
+
 function NativeTrendSparkline({
   data,
   height = 48,
@@ -2504,6 +2493,11 @@ function AnalyticsScreen({
 
   // Trend summaries, delta pills and signals are only meaningful over multiple days.
   const showTrends = period !== 'day';
+  const hasWeaningCrossover =
+    showTrends &&
+    trend.weaningCrossoverByDay.filter(p => p.bottleShare !== null && p.solidsShare !== null)
+      .length >= 3 &&
+    trend.solidMealsByDay.some(p => p.value !== null);
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
 
@@ -2592,9 +2586,14 @@ function AnalyticsScreen({
           {t('common.back')}
         </Text>
       </Pressable>
-      <Text style={[analyticsStyles.heading, { color: theme.text }]}>
-        {t('analytics.heading', { name: baby.name })}
-      </Text>
+      <View style={analyticsStyles.headingRow}>
+        <View
+          style={[analyticsStyles.babyColorDot, { backgroundColor: babyColorHex(baby.color) }]}
+        />
+        <Text style={[analyticsStyles.heading, { color: theme.text }]}>
+          {t('analytics.heading', { name: baby.name })}
+        </Text>
+      </View>
       <Text style={[analyticsStyles.subheading, { color: theme.textMuted }]}>{periodHeader}</Text>
       {stageAge && (
         <Text style={[analyticsStyles.stageIndicator, { color: theme.textMuted }]}>
@@ -2846,6 +2845,52 @@ function AnalyticsScreen({
         </Card>
       )}
 
+      {hasWeaningCrossover && (
+        <Card
+          icon={<FoodIcon size={14} color={theme.textMuted} />}
+          title={t('analytics.weaning_crossover')}
+        >
+          <Text style={[analyticsStyles.trendBlockLabel, { color: theme.textDim }]}>
+            {t('analytics.weaning_crossover_label')}
+          </Text>
+          <Text style={[analyticsStyles.trendNote, { color: theme.textMuted, marginBottom: 6 }]}>
+            {t('analytics.weaning_crossover_sublabel')}
+          </Text>
+          <NativeWeaningCrossoverChart
+            data={trend.weaningCrossoverByDay}
+            bottleColor={theme.text}
+            solidsColor={theme.accent}
+          />
+          <View style={analyticsStyles.crossoverLegend}>
+            <View style={analyticsStyles.crossoverLegendItem}>
+              <View
+                style={[
+                  analyticsStyles.crossoverLegendDot,
+                  { borderTopColor: theme.text, opacity: 0.82 },
+                ]}
+              />
+              <Text style={[analyticsStyles.trendNote, { color: theme.textMuted }]}>
+                {t('analytics.weaning_bottles')}
+              </Text>
+            </View>
+            <View style={analyticsStyles.crossoverLegendItem}>
+              <View
+                style={[
+                  analyticsStyles.crossoverLegendDot,
+                  { borderStyle: 'dashed', borderTopColor: theme.accent, opacity: 0.95 },
+                ]}
+              />
+              <Text style={[analyticsStyles.trendNote, { color: theme.textMuted }]}>
+                {t('analytics.weaning_solids')}
+              </Text>
+            </View>
+          </View>
+          <Text style={[analyticsStyles.benchmark, { color: theme.textMuted }]}>
+            {t('analytics.weaning_crossover_note')}
+          </Text>
+        </Card>
+      )}
+
       {showTrends && trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3 && (
         <Card
           icon={<PumpIcon size={14} color={theme.textMuted} />}
@@ -3087,8 +3132,6 @@ function AnalyticsScreen({
 // visible to admin accounts.
 // ---------------------------------------------------------------------------
 function SettingsScreen({
-  napCheckMinutes,
-  setNapCheckMinutes,
   twinSync,
   setTwinSync,
   bedtimeHour,
@@ -3103,6 +3146,8 @@ function SettingsScreen({
   setAndroidLockScreenNotificationsEnabled,
   units,
   setUnits,
+  timeFormat,
+  setTimeFormat,
   babiesCount,
   isAdmin,
   clearAllEvents,
@@ -3117,8 +3162,6 @@ function SettingsScreen({
   allStage1,
   members,
 }: {
-  napCheckMinutes: number;
-  setNapCheckMinutes: (m: number) => void;
   twinSync: boolean;
   setTwinSync: (v: boolean) => void;
   bedtimeHour: number;
@@ -3133,6 +3176,8 @@ function SettingsScreen({
   setAndroidLockScreenNotificationsEnabled: (v: boolean) => void;
   units: 'metric' | 'imperial';
   setUnits: (u: 'metric' | 'imperial') => void;
+  timeFormat: TimeFormat;
+  setTimeFormat: (format: TimeFormat) => void;
   babiesCount: number;
   isAdmin: boolean;
   clearAllEvents: () => Promise<void>;
@@ -3181,42 +3226,6 @@ function SettingsScreen({
   return (
     <ScrollView style={{ backgroundColor: theme.bg }} contentContainerStyle={homeStyles.scroll}>
       <Text style={[homeStyles.onboardTitle, { color: theme.text }]}>{t('settings.heading')}</Text>
-
-      {!sleepTraining && (
-        <>
-          <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
-            {t('settings.nap_check_title').toUpperCase()}
-          </Text>
-          <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
-            {t('settings.nap_check_hint')}
-          </Text>
-          <View style={settingsStyles.pillGrid}>
-            {NAP_CHECK_MINUTES.map(m => {
-              const active = napCheckMinutes === m;
-              return (
-                <Pressable
-                  key={m}
-                  onPress={() => setNapCheckMinutes(m)}
-                  accessibilityLabel={t('settings.nap_check_minutes', { n: m })}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: active }}
-                  style={[
-                    settingsStyles.pill,
-                    { borderColor: active ? theme.accent : theme.border },
-                    active && { backgroundColor: theme.accent },
-                  ]}
-                >
-                  <Text
-                    style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}
-                  >
-                    {t('settings.nap_check_minutes', { n: m })}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      )}
 
       {babiesCount >= 2 && (
         <View style={section}>
@@ -3405,6 +3414,40 @@ function SettingsScreen({
         </View>
       </View>
 
+      <View style={section}>
+        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+          {t('settings.time_format_title').toUpperCase()}
+        </Text>
+        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+          {t('settings.time_format_hint')}
+        </Text>
+        <View style={settingsStyles.pillGrid}>
+          {(['12h', '24h'] as const).map(format => {
+            const active = timeFormat === format;
+            return (
+              <Pressable
+                key={format}
+                onPress={() => setTimeFormat(format)}
+                accessibilityLabel={t(`settings.time_format_${format}`)}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                style={[
+                  settingsStyles.pill,
+                  { borderColor: active ? theme.accent : theme.border },
+                  active && { backgroundColor: theme.accent },
+                ]}
+              >
+                <Text
+                  style={[settingsStyles.pillText, { color: active ? theme.bg : theme.textMuted }]}
+                >
+                  {t(`settings.time_format_${format}`)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       {allStage1 ? (
         <View style={section}>
           <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
@@ -3430,7 +3473,7 @@ function SettingsScreen({
                   <Pressable
                     key={h}
                     onPress={() => setWakeHour(h)}
-                    accessibilityLabel={hourLabel(h)}
+                    accessibilityLabel={hourLabel(h, timeFormat)}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: active }}
                     style={[
@@ -3442,7 +3485,7 @@ function SettingsScreen({
                     <Text
                       style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}
                     >
-                      {hourLabel(h)}
+                      {hourLabel(h, timeFormat)}
                     </Text>
                   </Pressable>
                 );
@@ -3464,7 +3507,7 @@ function SettingsScreen({
                   <Pressable
                     key={h}
                     onPress={() => setBedtimeHour(h)}
-                    accessibilityLabel={hourLabel(h)}
+                    accessibilityLabel={hourLabel(h, timeFormat)}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: active }}
                     style={[
@@ -3476,7 +3519,7 @@ function SettingsScreen({
                     <Text
                       style={[settingsStyles.pillText, { color: active ? theme.bg : theme.text }]}
                     >
-                      {hourLabel(h)}
+                      {hourLabel(h, timeFormat)}
                     </Text>
                   </Pressable>
                 );
@@ -3623,15 +3666,6 @@ function SettingsScreen({
             {t('settings.export_data_web_link')}
           </Text>
         </Pressable>
-        <Pressable
-          onPress={() => Linking.openURL('https://www.twintracker.app/settings')}
-          style={[settingsStyles.dangerBtn, { borderColor: theme.border, marginTop: 8 }]}
-          accessibilityLabel={t('settings.delete_account_web_link')}
-        >
-          <Text style={[settingsStyles.dangerText, { color: theme.textMuted }]}>
-            {t('settings.delete_account_web_link')}
-          </Text>
-        </Pressable>
       </View>
 
       {isAdmin && (
@@ -3684,6 +3718,24 @@ function SettingsScreen({
           </Pressable>
         </View>
       )}
+
+      <View style={section}>
+        <Text style={[settingsStyles.sectionTitle, { color: theme.textMuted }]}>
+          {t('settings.danger_zone_title').toUpperCase()}
+        </Text>
+        <Text style={[settingsStyles.hint, { color: theme.textMuted }]}>
+          {t('settings.danger_zone_hint')}
+        </Text>
+        <Pressable
+          onPress={() => Linking.openURL('https://www.twintracker.app/settings')}
+          style={[settingsStyles.dangerBtn, settingsStyles.dangerBtnFilled]}
+          accessibilityLabel={t('settings.delete_account_web_link')}
+        >
+          <Text style={settingsStyles.dangerTextFilled}>
+            {t('settings.delete_account_web_link')}
+          </Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -3706,9 +3758,7 @@ function TabBar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (tab:
       {textTabs.map(tab => {
         const active = activeTab === tab.key;
         const historyIconStyle =
-          Platform.OS === 'android' && tab.key === 'history'
-            ? tabStyles.historyIconAndroid
-            : null;
+          Platform.OS === 'android' && tab.key === 'history' ? tabStyles.historyIconAndroid : null;
         return (
           <Pressable
             key={tab.key}
@@ -3872,7 +3922,6 @@ function AppContent() {
   }
   const {
     prefs,
-    setNapCheckMinutes,
     setTwinSync,
     setBedtimeHour,
     setWakeHour,
@@ -3880,6 +3929,7 @@ function AppContent() {
     setLiveActivitiesEnabled,
     setAndroidLockScreenNotificationsEnabled,
     setUnits,
+    setTimeFormat,
   } = usePreferences(asyncStorage, !authLoading && isAuthenticated);
 
   const { t } = useTranslation();
@@ -3935,7 +3985,10 @@ function AppContent() {
   const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
 
   useEffect(() => {
-    const anchors = getSleepThemeAnchors(babies.map(baby => baby.id), latest);
+    const anchors = getSleepThemeAnchors(
+      babies.map(baby => baby.id),
+      latest,
+    );
     setSleepThemeAnchors(anchors.latestSleepStartMs, anchors.latestSleepEndMs);
   }, [babies, latest]);
 
@@ -3976,9 +4029,7 @@ function AppContent() {
         const parsed = new URL(url);
         const shouldOpenHome =
           parsed.protocol === 'twintracker:' &&
-          (parsed.hostname === 'home' ||
-            parsed.pathname === '/home' ||
-            parsed.pathname === '');
+          (parsed.hostname === 'home' || parsed.pathname === '/home' || parsed.pathname === '');
         if (shouldOpenHome) {
           setActiveTab('home');
           setAnalyticsBabyId(null);
@@ -4101,6 +4152,7 @@ function AppContent() {
     const snapshots = buildLiveActivitySnapshots(babies, latest, events, {
       wakeHour: prefs.wakeHour,
       bedtimeHour: prefs.bedtimeHour,
+      timeFormat: prefs.timeFormat,
     });
     const payload = JSON.stringify(snapshots);
     if (payload === lastLiveActivitiesPayloadRef.current) {
@@ -4122,6 +4174,7 @@ function AppContent() {
     events,
     prefs.wakeHour,
     prefs.bedtimeHour,
+    prefs.timeFormat,
     prefs.liveActivitiesEnabled,
   ]);
 
@@ -4156,6 +4209,7 @@ function AppContent() {
     const snapshots = buildLiveActivitySnapshots(babies, latest, events, {
       wakeHour: prefs.wakeHour,
       bedtimeHour: prefs.bedtimeHour,
+      timeFormat: prefs.timeFormat,
     });
     const payload = buildAndroidLockScreenNotificationPayload(snapshots);
     const payloadJson = JSON.stringify(payload);
@@ -4192,6 +4246,7 @@ function AppContent() {
     events,
     prefs.wakeHour,
     prefs.bedtimeHour,
+    prefs.timeFormat,
     prefs.androidLockScreenNotificationsEnabled,
   ]);
 
@@ -4432,13 +4487,14 @@ function AppContent() {
                     setBabies={setBabies}
                     babiesLoading={babiesLoading}
                     resetHour={prefs.wakeHour}
-                    napCheckMinutes={prefs.napCheckMinutes}
                     twinSync={prefs.twinSync}
                     setTwinSync={setTwinSync}
                     bedtimeHour={prefs.bedtimeHour}
                     setBedtimeHour={setBedtimeHour}
                     wakeHour={prefs.wakeHour}
                     setWakeHour={setWakeHour}
+                    timeFormat={prefs.timeFormat}
+                    units={prefs.units}
                     sleepTraining={prefs.sleepTraining}
                     setSleepTraining={setSleepTraining}
                     latest={latest}
@@ -4472,6 +4528,8 @@ function AppContent() {
                   babies={babies}
                   events={events}
                   loading={eventsLoading}
+                  timeFormat={prefs.timeFormat}
+                  showLoggerAvatar={members.length > 1}
                   deleteEvent={deleteEvent}
                   editEvent={editEvent}
                   logEvent={logEvent}
@@ -4501,24 +4559,28 @@ function AppContent() {
                   ]}
                   pointerEvents={activeTab === 'settings' ? 'auto' : 'none'}
                 >
-        <SettingsScreen
-          napCheckMinutes={prefs.napCheckMinutes}
-          setNapCheckMinutes={setNapCheckMinutes}
-          twinSync={prefs.twinSync}
-          setTwinSync={setTwinSync}
-          bedtimeHour={prefs.bedtimeHour}
-          setBedtimeHour={setBedtimeHour}
-          wakeHour={prefs.wakeHour}
-          setWakeHour={setWakeHour}
-          sleepTraining={prefs.sleepTraining}
-          setSleepTraining={setSleepTraining}
-          liveActivitiesEnabled={prefs.liveActivitiesEnabled}
-          setLiveActivitiesEnabled={setLiveActivitiesEnabled}
-          androidLockScreenNotificationsEnabled={prefs.androidLockScreenNotificationsEnabled}
-          setAndroidLockScreenNotificationsEnabled={setAndroidLockScreenNotificationsEnabled}
-          units={prefs.units}
-          setUnits={setUnits}
-          babiesCount={babies.length}
+                  <SettingsScreen
+                    twinSync={prefs.twinSync}
+                    setTwinSync={setTwinSync}
+                    bedtimeHour={prefs.bedtimeHour}
+                    setBedtimeHour={setBedtimeHour}
+                    wakeHour={prefs.wakeHour}
+                    setWakeHour={setWakeHour}
+                    sleepTraining={prefs.sleepTraining}
+                    setSleepTraining={setSleepTraining}
+                    liveActivitiesEnabled={prefs.liveActivitiesEnabled}
+                    setLiveActivitiesEnabled={setLiveActivitiesEnabled}
+                    androidLockScreenNotificationsEnabled={
+                      prefs.androidLockScreenNotificationsEnabled
+                    }
+                    setAndroidLockScreenNotificationsEnabled={
+                      setAndroidLockScreenNotificationsEnabled
+                    }
+                    units={prefs.units}
+                    setUnits={setUnits}
+                    timeFormat={prefs.timeFormat}
+                    setTimeFormat={setTimeFormat}
+                    babiesCount={babies.length}
                     isAdmin={isAdmin}
                     clearAllEvents={clearAllEvents}
                     onLogout={() => {
@@ -4555,6 +4617,7 @@ function AppContent() {
           await api.babies.update(id, {
             name: data.name,
             birthDate: data.birthDate ?? null,
+            adjustedBirthDate: data.adjustedBirthDate,
             sex: data.sex,
             weightKg: data.weightKg,
             heightCm: data.heightCm,
@@ -5114,7 +5177,9 @@ const analyticsStyles = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 40 },
   backBtn: { minHeight: 44, justifyContent: 'center', marginBottom: 8 },
   backText: { fontSize: 15 },
-  heading: { fontSize: 26, fontWeight: '700', marginBottom: 4 },
+  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  heading: { fontSize: 26, fontWeight: '700', flexShrink: 1 },
+  babyColorDot: { width: 11, height: 11, borderRadius: 6, flexShrink: 0 },
   subheading: { fontSize: 13, marginBottom: 16 },
   periodTabs: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   periodTab: {
@@ -5167,6 +5232,9 @@ const analyticsStyles = StyleSheet.create({
   trendBlockLabel: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
   // Trend note — date range caption below charts
   trendNote: { fontSize: 11, marginTop: 4, lineHeight: 16 },
+  crossoverLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 },
+  crossoverLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  crossoverLegendDot: { width: 16, height: 0, borderTopWidth: 2 },
   // Transition signal rows
   signalRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 8 },
   signalDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },

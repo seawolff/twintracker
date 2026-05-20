@@ -9,7 +9,7 @@ import {
   api,
   generateMockEvents,
   useTranslation,
-  NAP_CHECK_MINUTES,
+  FEEDBACK_MAX_MESSAGE_LENGTH,
   BEDTIME_HOURS,
   WAKE_HOURS,
   hourLabel,
@@ -27,12 +27,12 @@ export default function SettingsPage() {
   const router = useRouter();
   const {
     prefs,
-    setNapCheckMinutes,
     setTwinSync,
     setBedtimeHour,
     setWakeHour,
     setSleepTraining,
     setUnits,
+    setTimeFormat,
   } = usePreferences();
   const {
     isAdmin,
@@ -68,6 +68,10 @@ export default function SettingsPage() {
   const [exportTo, setExportTo] = useState('');
   const [exportBabyId, setExportBabyId] = useState('');
   const [exportFormat, setExportFormat] = useState<'csv' | 'pdf'>('csv');
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackDone, setFeedbackDone] = useState(false);
   const [babies, setBabies] = useState<Baby[]>([]);
   const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
   const [mockMode, setMockMode] = useState(
@@ -213,6 +217,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleFeedbackSubmit() {
+    if (!feedbackRating) {
+      return;
+    }
+    setFeedbackSubmitting(true);
+    try {
+      await api.feedback.submit({
+        rating: feedbackRating,
+        message: feedbackMessage.trim() || undefined,
+      });
+      setFeedbackDone(true);
+      setFeedbackRating(null);
+      setFeedbackMessage('');
+    } catch {
+      /* silent — success state not shown on error, user can retry */
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  }
+
   async function handleClearConfirmed() {
     setClearConfirm(false);
     setClearing(true);
@@ -236,26 +260,18 @@ export default function SettingsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.scroll}>
-        <h1 className={styles.heading}>{t('settings.heading')}</h1>
-
-        {!prefs.sleepTraining && (
-          <section className={styles.section}>
-            <p className={styles.sectionTitle}>{t('settings.nap_check_title')}</p>
-            <p className={styles.sectionHint}>{t('settings.nap_check_hint')}</p>
-            <div className={styles.pillGrid}>
-              {NAP_CHECK_MINUTES.map(m => (
-                <button
-                  key={m}
-                  className={`${styles.pill} ${prefs.napCheckMinutes === m ? styles.pillActive : ''}`}
-                  onClick={() => setNapCheckMinutes(m)}
-                  aria-pressed={prefs.napCheckMinutes === m}
-                >
-                  {t('settings.nap_check_minutes', { n: m })}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+        <div className={styles.headingRow}>
+          <h1 className={styles.heading}>{t('settings.heading')}</h1>
+          <button
+            className={styles.signOutBtn}
+            onClick={async () => {
+              await logout();
+              router.replace('/login');
+            }}
+          >
+            {t('settings.sign_out')}
+          </button>
+        </div>
 
         {babies.length >= 2 && (
           <section className={styles.section}>
@@ -297,6 +313,24 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <section className={styles.section}>
+          <p className={styles.sectionTitle}>{t('settings.time_format_title')}</p>
+          <p className={styles.sectionHint}>{t('settings.time_format_hint')}</p>
+          <div className={styles.pillGrid}>
+            {(['12h', '24h'] as const).map(format => (
+              <button
+                key={format}
+                className={`${styles.pill} ${prefs.timeFormat === format ? styles.pillActive : ''}`}
+                onClick={() => setTimeFormat(format)}
+                type="button"
+                aria-pressed={prefs.timeFormat === format}
+              >
+                {t(`settings.time_format_${format}`)}
+              </button>
+            ))}
+          </div>
+        </section>
+
         {allStage1 ? (
           <section className={styles.section}>
             <p className={styles.sectionTitle}>{t('settings.wake_title')}</p>
@@ -315,7 +349,7 @@ export default function SettingsPage() {
                     onClick={() => setWakeHour(h)}
                     aria-pressed={prefs.wakeHour === h}
                   >
-                    {hourLabel(h)}
+                    {hourLabel(h, prefs.timeFormat)}
                   </button>
                 ))}
               </div>
@@ -332,7 +366,7 @@ export default function SettingsPage() {
                     onClick={() => setBedtimeHour(h)}
                     aria-pressed={prefs.bedtimeHour === h}
                   >
-                    {hourLabel(h)}
+                    {hourLabel(h, prefs.timeFormat)}
                   </button>
                 ))}
               </div>
@@ -446,19 +480,6 @@ export default function SettingsPage() {
         </section>
 
         <section className={styles.section}>
-          <p className={styles.sectionTitle}>{t('settings.account_title')}</p>
-          <button
-            className={`${styles.pill} ${styles.pillFull}`}
-            onClick={async () => {
-              await logout();
-              router.replace('/login');
-            }}
-          >
-            {t('settings.sign_out')}
-          </button>
-        </section>
-
-        <section className={styles.section}>
           <p className={styles.sectionTitle}>{t('settings.your_data_title')}</p>
           <p className={styles.sectionHint}>{t('settings.export_data_hint')}</p>
           <div className={styles.exportFilters}>
@@ -528,49 +549,6 @@ export default function SettingsPage() {
           >
             {exporting ? t('settings.exporting_data') : t('settings.export_data')}
           </button>
-          <div style={{ marginTop: 8 }}>
-            {!deleteConfirm ? (
-              <button
-                className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
-                onClick={() => setDeleteConfirm(true)}
-                disabled={deleting}
-              >
-                {t('settings.delete_account')}
-              </button>
-            ) : (
-              <>
-                <p className={styles.sectionHint} style={{ marginBottom: 8 }}>
-                  {t('settings.delete_account_hint')}
-                </p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
-                    onClick={handleDeleteAccount}
-                    disabled={deleting}
-                  >
-                    {deleting
-                      ? t('settings.deleting_account')
-                      : t('settings.delete_account_confirm')}
-                  </button>
-                  <button
-                    className={`${styles.pill} ${styles.pillFull}`}
-                    onClick={() => setDeleteConfirm(false)}
-                    disabled={deleting}
-                  >
-                    {t('common.cancel')}
-                  </button>
-                </div>
-              </>
-            )}
-            {deleteError && (
-              <p
-                className={styles.sectionHint}
-                style={{ color: 'var(--tt-urgency-overdue)', marginTop: 8 }}
-              >
-                {deleteError}
-              </p>
-            )}
-          </div>
         </section>
 
         {isAdmin && (
@@ -638,6 +616,94 @@ export default function SettingsPage() {
             )}
           </section>
         )}
+
+        <section className={styles.section}>
+          <p className={styles.sectionTitle}>{t('settings.feedback_title')}</p>
+          <p className={styles.sectionHint}>{t('settings.feedback_hint')}</p>
+          {feedbackDone ? (
+            <p className={styles.feedbackSuccess}>{t('settings.feedback_success')}</p>
+          ) : (
+            <>
+              <div className={styles.feedbackEmoji}>
+                {(['😞', '😐', '🙂', '😃', '🤩'] as const).map((emoji, i) => {
+                  const rating = i + 1;
+                  return (
+                    <button
+                      key={rating}
+                      type="button"
+                      aria-label={t('settings.feedback_rating_label', { n: rating })}
+                      aria-pressed={feedbackRating === rating}
+                      className={`${styles.emojiBtn} ${feedbackRating === rating ? styles.emojiBtnActive : ''}`}
+                      onClick={() => setFeedbackRating(rating)}
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+              </div>
+              <textarea
+                className={styles.feedbackTextarea}
+                placeholder={t('settings.feedback_placeholder')}
+                value={feedbackMessage}
+                onChange={e => setFeedbackMessage(e.target.value)}
+                rows={3}
+                maxLength={FEEDBACK_MAX_MESSAGE_LENGTH}
+              />
+              <button
+                className={`${styles.pill} ${styles.pillFull}`}
+                onClick={handleFeedbackSubmit}
+                disabled={feedbackSubmitting || !feedbackRating}
+                style={{ marginTop: 8 }}
+              >
+                {t('settings.feedback_submit')}
+              </button>
+            </>
+          )}
+        </section>
+
+        <section className={`${styles.section} ${styles.dangerZone}`}>
+          <p className={styles.sectionTitle}>{t('settings.danger_zone_title')}</p>
+          <p className={styles.sectionHint}>{t('settings.danger_zone_hint')}</p>
+          {!deleteConfirm ? (
+            <button
+              className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
+              onClick={() => setDeleteConfirm(true)}
+              disabled={deleting}
+            >
+              {t('settings.delete_account')}
+            </button>
+          ) : (
+            <>
+              <p className={styles.sectionHint} style={{ marginBottom: 8 }}>
+                {t('settings.delete_account_hint')}
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className={`${styles.pill} ${styles.pillFull} ${styles.pillDanger}`}
+                  onClick={handleDeleteAccount}
+                  disabled={deleting}
+                >
+                  {deleting ? t('settings.deleting_account') : t('settings.delete_account_confirm')}
+                </button>
+                <button
+                  className={`${styles.pill} ${styles.pillFull}`}
+                  onClick={() => setDeleteConfirm(false)}
+                  disabled={deleting}
+                >
+                  {t('common.cancel')}
+                </button>
+              </div>
+            </>
+          )}
+          {deleteError && (
+            <p
+              className={styles.sectionHint}
+              style={{ color: 'var(--tt-urgency-overdue)', marginTop: 8 }}
+            >
+              {deleteError}
+            </p>
+          )}
+        </section>
       </div>
 
       <BottomTabBar />

@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import type { Baby, TrackerEvent } from '@tt/core';
+import type { Baby, TimeFormat, TrackerEvent } from '@tt/core';
 import {
   groupEventsByDay,
   eventLabel,
@@ -17,6 +17,7 @@ import { useThemeContext } from '@tt/core';
 import { spacing, fonts } from '../theme/tokens';
 import { CloseIcon } from './icons/BabyIcons';
 import { rowBgHex } from '../rowTextColor';
+import { babyColorHex } from '../babyColors';
 
 /**
  * Alpha increment per row within a group — produces a smooth, infinite greyscale gradient (Clear app style).
@@ -33,6 +34,8 @@ interface HistoryFeedProps {
   events: TrackerEvent[];
   babies: Baby[];
   now?: Date;
+  timeFormat?: TimeFormat;
+  showLoggerAvatar?: boolean;
   onDelete: (id: string) => void;
   onEdit: (event: TrackerEvent) => void;
   onAddForDay: (date: Date) => void;
@@ -46,11 +49,13 @@ function getBaby(babies: Baby[], babyId: string): Baby | undefined {
 interface SwipeRowProps {
   event: TrackerEvent;
   babyName: string;
+  babyColor?: Baby['color'];
   label: string;
   /** Parenthetical duration for nap/sleep rows, rendered smaller so long values don't truncate. */
   durationDetail?: string;
   displayTime: string;
   rowIndex: number;
+  showLoggerAvatar: boolean;
   onDelete: (id: string) => void;
   onEdit: (event: TrackerEvent) => void;
   loggedByName?: string;
@@ -59,10 +64,12 @@ interface SwipeRowProps {
 function SwipeRow({
   event,
   babyName,
+  babyColor,
   label,
   durationDetail,
   displayTime,
   rowIndex,
+  showLoggerAvatar,
   onDelete,
   onEdit,
   loggedByName,
@@ -121,17 +128,15 @@ function SwipeRow({
           { borderBottomColor: theme.border, backgroundColor: pressed ? theme.surface : rowBg },
         ]}
       >
-        {/* Author avatar — always rendered so columns stay aligned */}
-        {loggedByName ? (
-          <View style={[styles.authorAvatar, { backgroundColor: authorColor(loggedByName) }]}>
-            <Text style={styles.authorInitial}>{loggedByName.charAt(0).toUpperCase()}</Text>
-          </View>
-        ) : (
-          <View style={styles.authorAvatar} />
-        )}
+        <View style={[styles.babyColorDot, { backgroundColor: babyColorHex(babyColor) }]} />
         <Text style={[styles.babyName, { color: textColor, fontFamily: fonts.mono }]}>
           {babyName}
         </Text>
+        {showLoggerAvatar && loggedByName ? (
+          <View style={[styles.authorAvatar, { backgroundColor: authorColor(loggedByName) }]}>
+            <Text style={styles.authorInitial}>{loggedByName.charAt(0).toUpperCase()}</Text>
+          </View>
+        ) : null}
         <Text
           style={[styles.eventLabel, { color: textColor, fontFamily: fonts.mono }]}
           numberOfLines={1}
@@ -153,6 +158,8 @@ export function HistoryFeed({
   events,
   babies,
   now: nowProp,
+  timeFormat = '12h',
+  showLoggerAvatar = false,
   onDelete,
   onEdit,
   onAddForDay,
@@ -284,10 +291,12 @@ export function HistoryFeed({
                     key={event.id}
                     event={event}
                     babyName={baby?.name ?? '—'}
+                    babyColor={baby?.color}
                     label={labelBase}
                     durationDetail={durationDetail}
-                    displayTime={formatEventTime(event.startedAt, now)}
+                    displayTime={formatEventTime(event.startedAt, now, timeFormat)}
                     rowIndex={idx}
+                    showLoggerAvatar={showLoggerAvatar}
                     onDelete={onDelete}
                     onEdit={onEdit}
                     loggedByName={event.loggedByName}
@@ -318,6 +327,7 @@ HistoryFeed.propTypes = {
       color: PropTypes.string.isRequired,
     }).isRequired,
   ).isRequired,
+  showLoggerAvatar: PropTypes.bool,
   onDelete: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onAddForDay: PropTypes.func.isRequired,
@@ -394,10 +404,17 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  babyColorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
   babyName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    minWidth: 64,
+    flexShrink: 0,
+    marginRight: 6,
   },
   eventLabel: {
     fontSize: 16,
@@ -423,6 +440,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
     lineHeight: 12,
+  },
+  authorName: {
+    fontSize: 14,
+    fontWeight: '600',
+    flexShrink: 0,
   },
   swipeHint: {
     fontSize: 18,

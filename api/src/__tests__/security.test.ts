@@ -74,13 +74,6 @@ describe('Unauthenticated requests → 401', () => {
     ['DELETE', '/api/events/some-id', undefined],
     ['GET', '/api/auth/me', undefined],
     ['PUT', '/api/auth/me', { name: 'Mom' }],
-    ['GET', '/api/alarms/active', undefined],
-    [
-      'POST',
-      '/api/alarms',
-      { babyId: 'x', firesAt: new Date().toISOString(), durationMs: 60000, label: 'nap' },
-    ],
-    ['PATCH', '/api/alarms/some-id', { dismissedAt: new Date().toISOString() }],
   ];
 
   for (const [method, path, body] of protectedEndpoints) {
@@ -754,6 +747,24 @@ describe('Input validation', () => {
         .send({ units: 'cups' });
       expect(res.status).toBe(400);
       expect(res.body.message).toMatch(/units must be/i);
+    });
+
+    it('accepts timeFormat: 24h → 200', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ data: { timeFormat: '24h' } }] });
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ timeFormat: '24h' });
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects invalid timeFormat value → 400', async () => {
+      const res = await request(app)
+        .put('/api/preferences')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ timeFormat: 'military' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/timeFormat must be/i);
     });
   });
 });
@@ -1584,158 +1595,5 @@ describe('PATCH /api/babies/:id', () => {
   it('→ 401 without token', async () => {
     const res = await request(app).patch('/api/babies/b1').send({ name: 'X' });
     expect(res.status).toBe(401);
-  });
-});
-
-// ── 12. Alarms endpoints ──────────────────────────────────────────────────────
-
-describe('Alarms endpoints', () => {
-  const token = makeToken('user-a', 'hh-a');
-  const firesAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-  it('GET /api/alarms/active returns undismissed alarms scoped to household', async () => {
-    const alarm = {
-      id: 'alarm-1',
-      babyId: 'baby-1',
-      householdId: 'hh-a',
-      firesAt,
-      durationMs: 1800000,
-      label: 'nap',
-      dismissedAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    mockQuery.mockResolvedValueOnce({ rows: [alarm] });
-
-    const res = await request(app)
-      .get('/api/alarms/active')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].id).toBe('alarm-1');
-
-    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/household_id/);
-    expect(params[0]).toBe('hh-a');
-  });
-
-  it('POST /api/alarms creates alarm and auto-dismisses existing ones', async () => {
-    // First query: UPDATE to dismiss existing alarms
-    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    // Second query: INSERT new alarm
-    mockQuery.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'alarm-new',
-          babyId: 'baby-1',
-          householdId: 'hh-a',
-          firesAt,
-          durationMs: 1800000,
-          label: 'nap',
-          dismissedAt: null,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    });
-
-    const res = await request(app)
-      .post('/api/alarms')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ babyId: 'baby-1', firesAt, durationMs: 1800000, label: 'nap' });
-
-    expect(res.status).toBe(201);
-    expect(res.body.id).toBe('alarm-new');
-
-    // Confirm the dismiss UPDATE ran first, scoped to the baby + household
-    const dismissCall = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(dismissCall[0]).toMatch(/dismissed_at\s*=\s*NOW/i);
-    expect(dismissCall[1]).toContain('baby-1');
-    expect(dismissCall[1]).toContain('hh-a');
-  });
-
-  it('PATCH /api/alarms/:id dismisses an alarm', async () => {
-    const dismissedAt = new Date().toISOString();
-    mockQuery.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'alarm-1',
-          babyId: 'baby-1',
-          householdId: 'hh-a',
-          firesAt,
-          durationMs: 1800000,
-          label: 'nap',
-          dismissedAt,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      rowCount: 1,
-    });
-
-    const res = await request(app)
-      .patch('/api/alarms/alarm-1')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ dismissedAt });
-
-    expect(res.status).toBe(200);
-    expect(res.body.dismissedAt).toBe(dismissedAt);
-
-    // Confirm household scoping in UPDATE
-    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/UPDATE nap_alarms/i);
-    expect(params[1]).toBe('hh-a');
-  });
-
-  it('PATCH /api/alarms/:id reschedules an alarm', async () => {
-    const newFiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    mockQuery.mockResolvedValueOnce({
-      rows: [
-        {
-          id: 'alarm-1',
-          babyId: 'baby-1',
-          householdId: 'hh-a',
-          firesAt: newFiresAt,
-          durationMs: 3600000,
-          label: 'nap',
-          dismissedAt: null,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      rowCount: 1,
-    });
-
-    const res = await request(app)
-      .patch('/api/alarms/alarm-1')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ firesAt: newFiresAt, durationMs: 3600000 });
-
-    expect(res.status).toBe(200);
-    expect(res.body.firesAt).toBe(newFiresAt);
-  });
-
-  it('PATCH /api/alarms/:id → 404 when alarm does not exist', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-
-    const res = await request(app)
-      .patch('/api/alarms/nonexistent')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ dismissedAt: new Date().toISOString() });
-
-    expect(res.status).toBe(404);
-    expect(res.body.message).toMatch(/alarm not found/i);
-  });
-
-  it('PATCH /api/alarms/:id from a different household → 404', async () => {
-    const otherToken = makeToken('user-other', 'hh-other');
-    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-
-    const res = await request(app)
-      .patch('/api/alarms/alarm-owned-by-hh-a')
-      .set('Authorization', `Bearer ${otherToken}`)
-      .send({ dismissedAt: new Date().toISOString() });
-
-    expect(res.status).toBe(404);
-    // Confirm the query used the other household's ID, not hh-a
-    const [, params] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(params[1]).toBe('hh-other');
   });
 });

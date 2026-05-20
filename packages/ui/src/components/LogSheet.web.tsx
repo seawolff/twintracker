@@ -5,9 +5,14 @@ import type { Baby, EventType, LogEventPayload, TrackerEvent } from '@tt/core';
 import {
   useThemeContext,
   BOTTLE_OZ,
+  BOTTLE_ML,
   BOTTLE_SOURCE_OPTIONS,
   MAX_BOTTLE_OZ,
   MAX_PUMP_OZ,
+  MAX_BOTTLE_ML,
+  MAX_PUMP_ML,
+  ozToMl,
+  mlToOz,
   NURSING_MINUTES,
   NURSING_BREAST_OPTIONS,
   PUMP_MINUTES,
@@ -25,9 +30,18 @@ import {
   serializeMilestoneNotes,
   serializeBottleNotes,
   serializePumpNotes,
+  summarizeStashInventory,
 } from '@tt/core';
-import type { BottleSource, DiaperOption, NursingBreast, PumpSide, StashLocation } from '@tt/core';
+import type {
+  BottleSource,
+  DiaperOption,
+  NursingBreast,
+  PumpSide,
+  StashLocation,
+  TimeFormat,
+} from '@tt/core';
 import { spacing, radius, fonts } from '../theme/tokens';
+import { babyColorHex } from '../babyColors';
 import { CloseIcon } from './icons/BabyIcons';
 
 interface LogSheetProps {
@@ -44,6 +58,13 @@ interface LogSheetProps {
   suggestedOz?: number;
   /** Pre-select this breast side when opening a nursing log. */
   suggestedBreast?: NursingBreast;
+  /** Pre-fill the free-text notes field (food description, etc.) for twin sync. */
+  suggestedNotes?: string;
+  timeFormat?: TimeFormat;
+  /** Default unit for bottle/pump volume entry. Follows prefs.units when not set. */
+  defaultVolumeUnit?: 'oz' | 'ml';
+  /** Household events used to compute stash availability for bottle source filtering. */
+  events?: TrackerEvent[];
 }
 
 function nowLocal(): string {
@@ -77,11 +98,22 @@ export function LogSheet({
   initialStartedAt,
   suggestedOz,
   suggestedBreast,
+  suggestedNotes,
+  timeFormat: _timeFormat = '12h',
+  defaultVolumeUnit = 'oz',
+  events = [],
 }: LogSheetProps) {
   const theme = useThemeContext();
   const isEditing = !!initialEvent;
+  const [volumeUnit, setVolumeUnit] = useState<'oz' | 'ml'>(
+    initialEvent?.unit === 'ml' ? 'ml' : initialEvent?.unit === 'oz' ? 'oz' : defaultVolumeUnit,
+  );
   const [selectedOz, setSelectedOz] = useState<number>(4);
-  const [selectedBottleSource, setSelectedBottleSource] = useState<BottleSource>('formula');
+  const [selectedBottleSource, setSelectedBottleSource] = useState<BottleSource>(
+    initialEvent?.type === 'bottle'
+      ? (parseBottleNotes(initialEvent.notes).source ?? 'formula')
+      : 'formula',
+  );
   const [ozInput, setOzInput] = useState<string>('4');
   const [selectedNursingMinutes, setSelectedNursingMinutes] = useState<number>(15);
   const [selectedBreast, setSelectedBreast] = useState<NursingBreast>('left');
@@ -96,7 +128,9 @@ export function LogSheet({
       ? ((parseMilestoneNotes(initialEvent.notes).detail ??
           parseMilestoneNotes(initialEvent.notes).legacyText ??
           '') as string)
-      : '',
+      : initialEvent?.type === 'food' || initialEvent?.type === 'medicine'
+        ? (initialEvent.notes ?? suggestedNotes ?? '')
+        : (suggestedNotes ?? ''),
   );
   const [selectedMilestoneKey, setSelectedMilestoneKey] = useState<string | null>(null);
   const [startTime, setStartTime] = useState(nowLocal);
@@ -118,6 +152,9 @@ export function LogSheet({
   useEffect(() => {
     if (visible) {
       if (initialEvent) {
+        setVolumeUnit(
+          initialEvent.unit === 'ml' ? 'ml' : initialEvent.unit === 'oz' ? 'oz' : defaultVolumeUnit,
+        );
         setStartTime(toDatetimeLocal(initialEvent.startedAt));
         setEndTime(initialEvent.endedAt ? toDatetimeLocal(initialEvent.endedAt) : '');
         if (initialEvent.type === 'bottle') {
@@ -172,8 +209,11 @@ export function LogSheet({
         const initStart = initialStartedAt ? toDatetimeLocal(initialStartedAt) : nowLocal();
         setStartTime(initStart);
         setEndTime('');
-        setSelectedOz(suggestedOz ?? 4);
-        setOzInput(String(suggestedOz ?? 4));
+        setVolumeUnit(defaultVolumeUnit);
+        const initOz = suggestedOz ?? 4;
+        const initVal = defaultVolumeUnit === 'ml' ? ozToMl(initOz) : initOz;
+        setSelectedOz(initVal);
+        setOzInput(String(initVal));
         setSelectedBottleSource('formula');
         setSelectedNursingMinutes(15);
         setSelectedBreast(suggestedBreast ?? 'left');
@@ -184,11 +224,26 @@ export function LogSheet({
         setSelectedStashLocation('fridge');
         setSelectedDiaper('wet');
         setSelectedMilestoneKey(null);
-        setNotesText('');
+        setNotesText(suggestedNotes ?? '');
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, initialEvent]);
+
+  const stashInventory = useMemo(() => summarizeStashInventory(events), [events]);
+  const availableBottleSources = useMemo(
+    () =>
+      BOTTLE_SOURCE_OPTIONS.filter(source => {
+        if (source === 'fridge') {
+          return stashInventory.fridgeBottles > 0 || selectedBottleSource === 'fridge';
+        }
+        if (source === 'freezer') {
+          return stashInventory.freezerBottles > 0 || selectedBottleSource === 'freezer';
+        }
+        return true;
+      }),
+    [selectedBottleSource, stashInventory.fridgeBottles, stashInventory.freezerBottles],
+  );
 
   const timePickerStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -212,7 +267,8 @@ export function LogSheet({
   }
 
   const typeLabel = i18n.t(`log_sheet.types.${eventType}`);
-  const suggestedMilestones = eventType === 'milestone' ? getSuggestedMilestones(baby.birthDate) : [];
+  const suggestedMilestones =
+    eventType === 'milestone' ? getSuggestedMilestones(baby.birthDate) : [];
 
   function handleSubmit() {
     if (!baby || !eventType) {
@@ -224,16 +280,22 @@ export function LogSheet({
       startedAt: new Date(startTime).toISOString(),
     };
     if (eventType === 'bottle') {
-      payload.value = Math.min(parseFloat(ozInput) || selectedOz, MAX_BOTTLE_OZ);
-      payload.unit = 'oz';
+      payload.value = Math.min(
+        parseFloat(ozInput) || selectedOz,
+        volumeUnit === 'ml' ? MAX_BOTTLE_ML : MAX_BOTTLE_OZ,
+      );
+      payload.unit = volumeUnit;
       payload.notes = serializeBottleNotes({ source: selectedBottleSource });
     } else if (eventType === 'nursing') {
       payload.value = selectedNursingMinutes;
       payload.unit = 'min';
       payload.notes = selectedBreast;
     } else if (eventType === 'pump') {
-      payload.value = Math.min(parseFloat(ozInput) || selectedOz, MAX_PUMP_OZ);
-      payload.unit = 'oz';
+      payload.value = Math.min(
+        parseFloat(ozInput) || selectedOz,
+        volumeUnit === 'ml' ? MAX_PUMP_ML : MAX_PUMP_OZ,
+      );
+      payload.unit = volumeUnit;
       payload.notes = serializePumpNotes({
         side: selectedPumpSide,
         stashCount: selectedStashCount,
@@ -310,9 +372,14 @@ export function LogSheet({
                   {i18n.t('log_sheet.edit_label')}
                 </Text>
               )}
-              <Text style={[styles.babyName, { color: theme.text, fontFamily: fonts.display }]}>
-                {baby.name}
-              </Text>
+              <View style={styles.babyNameRow}>
+                <View
+                  style={[styles.babyColorDot, { backgroundColor: babyColorHex(baby.color) }]}
+                />
+                <Text style={[styles.babyName, { color: theme.text, fontFamily: fonts.display }]}>
+                  {baby.name}
+                </Text>
+              </View>
               {isEditing && initialEvent?.loggedByName && (
                 <View style={styles.loggedByRow}>
                   <View
@@ -380,22 +447,27 @@ export function LogSheet({
 
             {eventType === 'bottle' && (
               <View style={{ marginTop: spacing.md }}>
-                <Text
-                  style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
-                >
-                  {i18n.t('log_sheet.amount_oz')}
-                </Text>
-                <View style={styles.pillRow}>
-                  {BOTTLE_OZ.map(oz => {
-                    const active = selectedOz === oz;
+                {/* oz / ml unit toggle */}
+                <View style={[styles.pillRow, { marginBottom: spacing.xs }]}>
+                  {(['oz', 'ml'] as const).map(u => {
+                    const active = volumeUnit === u;
                     return (
                       <Pressable
-                        key={oz}
+                        key={u}
                         onPress={() => {
-                          setSelectedOz(oz);
-                          setOzInput(String(oz));
+                          if (u === volumeUnit) {
+                            return;
+                          }
+                          const cur = parseFloat(ozInput) || selectedOz;
+                          const converted =
+                            u === 'ml' ? ozToMl(cur) : parseFloat(mlToOz(cur).toFixed(1));
+                          setVolumeUnit(u);
+                          setSelectedOz(converted);
+                          setOzInput(String(converted));
                         }}
-                        accessibilityLabel={`${oz} oz`}
+                        accessibilityLabel={i18n.t(
+                          u === 'oz' ? 'log_sheet.volume_unit_oz' : 'log_sheet.volume_unit_ml',
+                        )}
                         style={[
                           styles.pill,
                           { borderColor: theme.border },
@@ -408,7 +480,43 @@ export function LogSheet({
                             { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
                           ]}
                         >
-                          {oz}
+                          {i18n.t(
+                            u === 'oz' ? 'log_sheet.volume_unit_oz' : 'log_sheet.volume_unit_ml',
+                          )}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t(volumeUnit === 'ml' ? 'log_sheet.amount_ml' : 'log_sheet.amount_oz')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {(volumeUnit === 'ml' ? BOTTLE_ML : BOTTLE_OZ).map(val => {
+                    const active = selectedOz === val;
+                    return (
+                      <Pressable
+                        key={val}
+                        onPress={() => {
+                          setSelectedOz(val);
+                          setOzInput(String(val));
+                        }}
+                        accessibilityLabel={`${val} ${volumeUnit}`}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {val}
                         </Text>
                       </Pressable>
                     );
@@ -418,19 +526,24 @@ export function LogSheet({
                   <Text
                     style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
                   >
-                    {i18n.t('log_sheet.custom_amount_oz')}
+                    {i18n.t(
+                      volumeUnit === 'ml'
+                        ? 'log_sheet.custom_amount_ml'
+                        : 'log_sheet.custom_amount_oz',
+                    )}
                   </Text>
                   <input
                     type="number"
                     min="0"
-                    max={MAX_BOTTLE_OZ}
-                    step="0.5"
+                    max={volumeUnit === 'ml' ? MAX_BOTTLE_ML : MAX_BOTTLE_OZ}
+                    step={volumeUnit === 'ml' ? 5 : 0.5}
                     value={ozInput}
                     onChange={e => {
+                      const maxVol = volumeUnit === 'ml' ? MAX_BOTTLE_ML : MAX_BOTTLE_OZ;
                       const n = parseFloat(e.target.value);
-                      if (!isNaN(n) && n > MAX_BOTTLE_OZ) {
-                        setOzInput(String(MAX_BOTTLE_OZ));
-                        setSelectedOz(MAX_BOTTLE_OZ);
+                      if (!isNaN(n) && n > maxVol) {
+                        setOzInput(String(maxVol));
+                        setSelectedOz(maxVol);
                       } else {
                         setOzInput(e.target.value);
                         if (!isNaN(n) && n > 0) {
@@ -450,7 +563,7 @@ export function LogSheet({
                   {i18n.t('log_sheet.bottle_source')}
                 </Text>
                 <View style={styles.pillRow}>
-                  {BOTTLE_SOURCE_OPTIONS.map(source => {
+                  {availableBottleSources.map(source => {
                     const active = selectedBottleSource === source;
                     return (
                       <Pressable
@@ -583,25 +696,27 @@ export function LogSheet({
                     );
                   })}
                 </View>
-                <Text
-                  style={[
-                    styles.contentLabel,
-                    { color: theme.textDim, fontFamily: fonts.mono, marginTop: spacing.md },
-                  ]}
-                >
-                  {i18n.t('log_sheet.amount_oz')}
-                </Text>
-                <View style={styles.pillRow}>
-                  {BOTTLE_OZ.map(oz => {
-                    const active = selectedOz === oz;
+                {/* oz / ml unit toggle for pump */}
+                <View style={[styles.pillRow, { marginTop: spacing.md, marginBottom: spacing.xs }]}>
+                  {(['oz', 'ml'] as const).map(u => {
+                    const active = volumeUnit === u;
                     return (
                       <Pressable
-                        key={oz}
+                        key={u}
                         onPress={() => {
-                          setSelectedOz(oz);
-                          setOzInput(String(oz));
+                          if (u === volumeUnit) {
+                            return;
+                          }
+                          const cur = parseFloat(ozInput) || selectedOz;
+                          const converted =
+                            u === 'ml' ? ozToMl(cur) : parseFloat(mlToOz(cur).toFixed(1));
+                          setVolumeUnit(u);
+                          setSelectedOz(converted);
+                          setOzInput(String(converted));
                         }}
-                        accessibilityLabel={`${oz} oz`}
+                        accessibilityLabel={i18n.t(
+                          u === 'oz' ? 'log_sheet.volume_unit_oz' : 'log_sheet.volume_unit_ml',
+                        )}
                         style={[
                           styles.pill,
                           { borderColor: theme.border },
@@ -614,7 +729,43 @@ export function LogSheet({
                             { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
                           ]}
                         >
-                          {oz}
+                          {i18n.t(
+                            u === 'oz' ? 'log_sheet.volume_unit_oz' : 'log_sheet.volume_unit_ml',
+                          )}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
+                >
+                  {i18n.t(volumeUnit === 'ml' ? 'log_sheet.amount_ml' : 'log_sheet.amount_oz')}
+                </Text>
+                <View style={styles.pillRow}>
+                  {(volumeUnit === 'ml' ? BOTTLE_ML : BOTTLE_OZ).map(val => {
+                    const active = selectedOz === val;
+                    return (
+                      <Pressable
+                        key={val}
+                        onPress={() => {
+                          setSelectedOz(val);
+                          setOzInput(String(val));
+                        }}
+                        accessibilityLabel={`${val} ${volumeUnit}`}
+                        style={[
+                          styles.pill,
+                          { borderColor: theme.border },
+                          active && { backgroundColor: theme.accent, borderColor: theme.accent },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.pillText,
+                            { color: active ? theme.bg : theme.text, fontFamily: fonts.mono },
+                          ]}
+                        >
+                          {val}
                         </Text>
                       </Pressable>
                     );
@@ -624,19 +775,24 @@ export function LogSheet({
                   <Text
                     style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
                   >
-                    {i18n.t('log_sheet.custom_amount_oz')}
+                    {i18n.t(
+                      volumeUnit === 'ml'
+                        ? 'log_sheet.custom_amount_ml'
+                        : 'log_sheet.custom_amount_oz',
+                    )}
                   </Text>
                   <input
                     type="number"
                     min="0"
-                    max={MAX_PUMP_OZ}
-                    step="0.5"
+                    max={volumeUnit === 'ml' ? MAX_PUMP_ML : MAX_PUMP_OZ}
+                    step={volumeUnit === 'ml' ? 5 : 0.5}
                     value={ozInput}
                     onChange={e => {
+                      const maxVol = volumeUnit === 'ml' ? MAX_PUMP_ML : MAX_PUMP_OZ;
                       const n = parseFloat(e.target.value);
-                      if (!isNaN(n) && n > MAX_PUMP_OZ) {
-                        setOzInput(String(MAX_PUMP_OZ));
-                        setSelectedOz(MAX_PUMP_OZ);
+                      if (!isNaN(n) && n > maxVol) {
+                        setOzInput(String(maxVol));
+                        setSelectedOz(maxVol);
                       } else {
                         setOzInput(e.target.value);
                         if (!isNaN(n) && n > 0) {
@@ -831,7 +987,10 @@ export function LogSheet({
                 {eventType === 'milestone' && suggestedMilestones.length > 0 && (
                   <View style={{ marginBottom: spacing.md }}>
                     <Text
-                      style={[styles.contentLabel, { color: theme.textDim, fontFamily: fonts.mono }]}
+                      style={[
+                        styles.contentLabel,
+                        { color: theme.textDim, fontFamily: fonts.mono },
+                      ]}
                     >
                       {i18n.t('log_sheet.milestone_suggestions')}
                     </Text>
@@ -992,6 +1151,17 @@ const styles = StyleSheet.create({
   babyName: {
     fontSize: 24,
     fontWeight: '700',
+  },
+  babyNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  babyColorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: spacing.sm,
+    flexShrink: 0,
   },
   closeBtn: {
     width: 44,

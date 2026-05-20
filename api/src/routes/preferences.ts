@@ -16,6 +16,7 @@ const VALID_PREF_KEYS = new Set([
   'liveActivitiesEnabled',
   'androidLockScreenNotificationsEnabled',
   'units',
+  'timeFormat',
 ]);
 const HOUR_KEYS = new Set(['resetHour', 'bedtimeHour', 'wakeHour']);
 const BOOLEAN_KEYS = new Set([
@@ -25,6 +26,7 @@ const BOOLEAN_KEYS = new Set([
   'androidLockScreenNotificationsEnabled',
 ]);
 const VALID_UNITS = new Set(['metric', 'imperial']);
+const VALID_TIME_FORMATS = new Set(['12h', '24h']);
 
 function validatePrefs(body: Record<string, unknown>): { message: string } | null {
   for (const key of Object.keys(body)) {
@@ -53,6 +55,9 @@ function validatePrefs(body: Record<string, unknown>): { message: string } | nul
   }
   if ('units' in body && !VALID_UNITS.has(body.units as string)) {
     return { message: 'units must be "metric" or "imperial"' };
+  }
+  if ('timeFormat' in body && !VALID_TIME_FORMATS.has(body.timeFormat as string)) {
+    return { message: 'timeFormat must be "12h" or "24h"' };
   }
   return null;
 }

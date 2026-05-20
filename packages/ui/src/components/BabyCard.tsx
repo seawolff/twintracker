@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { Baby, EventType, LatestEventMap, NapAlarm, TrackerEvent } from '@tt/core';
+import type { Baby, EventType, LatestEventMap, TimeFormat, TrackerEvent } from '@tt/core';
 import {
   getBabyInsight,
   computeLearnedStats,
@@ -18,15 +18,13 @@ import {
   DiaperIcon,
   MoreVertIcon,
   BarChartIcon,
-  TimerIcon,
   PersonIcon,
 } from './icons/BabyIcons';
 import { TriageStrip } from './TriageStrip';
-import { NapTimerModal } from './NapTimerModal';
 import { FeedPickerModal } from './FeedPickerModal';
 import { MoreMenuSheet } from './MoreMenuSheet';
 import { SleepTrainingInfoSheet } from './SleepTrainingInfoSheet';
-import { TimerPickerModal } from './TimerPickerModal';
+import { babyColorHex } from '../babyColors';
 
 interface BabyCardProps {
   baby: Baby;
@@ -39,26 +37,14 @@ interface BabyCardProps {
   resetHour?: number;
   bedtimeHour?: number;
   wakeHour?: number;
+  timeFormat?: TimeFormat;
   sleepTraining?: boolean;
   napCheckMinutes?: number;
   // True when the household theme has been forced into night mode by a real sleep event.
   householdNightMode?: boolean;
-  // Alarm props
-  activeAlarm?: NapAlarm;
-  onSetAlarm?: (durationMs: number, isCustomTimer: boolean) => void;
-  onDismissAlarm?: () => void;
-  onRescheduleAlarm?: (firesAt: string, durationMs: number) => void;
 }
 
 const ICON_SIZE = 16;
-
-function badgeCountdown(firesAt: string): string {
-  const ms = Math.max(0, new Date(firesAt).getTime() - Date.now());
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}m ${String(s).padStart(2, '0')}s`;
-}
 
 export function BabyCard({
   baby,
@@ -71,23 +57,16 @@ export function BabyCard({
   resetHour = 0,
   bedtimeHour = 19,
   wakeHour = 7,
+  timeFormat = '12h',
   sleepTraining = false,
-  napCheckMinutes = 15,
   householdNightMode = false,
-  activeAlarm,
-  onSetAlarm,
-  onDismissAlarm,
-  onRescheduleAlarm,
 }: BabyCardProps) {
   const theme = useThemeContext();
   const [now, setNow] = useState(() => nowProp ?? new Date());
   const [feedPickerOpen, setFeedPickerOpen] = useState(false);
-  const [timerOpen, setTimerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [timerPickerOpen, setTimerPickerOpen] = useState(false);
   const [sleepTrainingInfoOpen, setSleepTrainingInfoOpen] = useState(false);
   const [pressedBtn, setPressedBtn] = useState('');
-  const [, tick] = useState(0); // 1s re-render for badge countdown
 
   useEffect(() => {
     if (nowProp) {
@@ -103,37 +82,29 @@ export function BabyCard({
     }
   }, [nowProp]);
 
-  // 1s tick for badge countdown — only runs when an alarm is active
-  useEffect(() => {
-    if (!activeAlarm) {
-      return;
-    }
-    const id = setInterval(() => tick(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [activeAlarm]);
-
   const babyEvents = useMemo(() => events.filter(e => e.babyId === baby.id), [events, baby.id]);
   const ageWeeks = useMemo(() => getAgeWeeks(baby.birthDate), [baby.birthDate]);
   const learnedStats = useMemo(() => computeLearnedStats(babyEvents, now), [babyEvents, now]);
   const insight = useMemo(
-    () => getBabyInsight(baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour),
-    [baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour],
+    () =>
+      getBabyInsight(
+        baby,
+        latest,
+        events,
+        now,
+        resetHour,
+        learnedStats,
+        bedtimeHour,
+        wakeHour,
+        timeFormat,
+      ),
+    [baby, latest, events, now, resetHour, learnedStats, bedtimeHour, wakeHour, timeFormat],
   );
 
   const napEvent = latest[`${baby.id}:nap`];
   const sleepEvent = latest[`${baby.id}:sleep`];
   const napIsActive = napEvent != null && !napEvent.endedAt;
   const sleepIsActive = sleepEvent != null && !sleepEvent.endedAt;
-
-  // Active nap/sleep event (for alarm window calculation)
-  const activeNapEvent = napIsActive ? napEvent : sleepIsActive ? sleepEvent : null;
-  const napAgeMs = activeNapEvent
-    ? now.getTime() - new Date(activeNapEvent.startedAt).getTime()
-    : 0;
-  const windowMs = sleepTraining ? insight.selfSoothingMinutes * 60_000 : napCheckMinutes * 60_000;
-
-  // Show "Set alarm" only while within the check window and no alarm is already active
-  const showAlarmButton = !!activeNapEvent && napAgeMs <= windowMs && !activeAlarm && !!onSetAlarm;
 
   const headlineColor =
     insight.urgency === 'overdue'
@@ -159,21 +130,12 @@ export function BabyCard({
       ? i18n.t('log_sheet.types.sleep')
       : i18n.t('log_sheet.types.nap');
 
-  const handleAlarmPress = useCallback(() => {
-    if (!onSetAlarm) {
-      return;
-    }
-    const durationMs = sleepTraining
-      ? insight.selfSoothingMinutes * 60_000
-      : napCheckMinutes * 60_000;
-    onSetAlarm(durationMs, false);
-  }, [onSetAlarm, sleepTraining, insight.selfSoothingMinutes, napCheckMinutes]);
-
   return (
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       {/* ── Header ── */}
       <View style={styles.header}>
         <View style={styles.nameRow}>
+          <View style={[styles.babyColorDot, { backgroundColor: babyColorHex(baby.color) }]} />
           <Text style={[styles.babyName, { color: theme.text, fontFamily: fonts.display }]}>
             {baby.name}
           </Text>
@@ -254,34 +216,6 @@ export function BabyCard({
         <Text style={[styles.narrative, { color: theme.text }]}>{insight.narrative}</Text>
       </View>
 
-      {/* ── Alarm badge (active alarm) or Set alarm button ── */}
-      {activeAlarm && (
-        <Pressable
-          onPress={() => setTimerOpen(true)}
-          accessibilityLabel={`Nap alarm for ${baby.name} — tap to view`}
-          style={[styles.alarmBadge, { borderColor: theme.border }]}
-        >
-          <View style={styles.alarmBadgeRow}>
-            <TimerIcon size={12} color={theme.text} />
-            <Text style={[styles.alarmBadgeText, { color: theme.text, fontFamily: fonts.mono }]}>
-              {badgeCountdown(activeAlarm.firesAt)}
-            </Text>
-          </View>
-        </Pressable>
-      )}
-
-      {showAlarmButton && (
-        <Pressable
-          onPress={handleAlarmPress}
-          accessibilityLabel={`Set alarm for ${baby.name}`}
-          style={[styles.alarmBadge, { borderColor: theme.border }]}
-        >
-          <Text style={[styles.alarmBadgeText, { color: theme.textDim, fontFamily: fonts.mono }]}>
-            {i18n.t('home.action_set_alarm')}
-          </Text>
-        </Pressable>
-      )}
-
       {/* ── Sleep training badge — shown while nap/sleep is active ── */}
       {sleepTraining && napWaking && (
         <Pressable
@@ -322,13 +256,13 @@ export function BabyCard({
                   ? due
                     ? i18n.t('home.pred_sleep_due')
                     : i18n.t('home.pred_sleep_in', { time: formatMs(p.remainingMs) })
-                : p.type === 'diaper'
-                  ? due
-                    ? i18n.t('home.pred_change_due')
-                    : i18n.t('home.pred_change_in', { time: formatMs(p.remainingMs) })
-                  : due
-                    ? i18n.t('home.pred_nap_due')
-                    : i18n.t('home.pred_nap_in', { time: formatMs(p.remainingMs) });
+                  : p.type === 'diaper'
+                    ? due
+                      ? i18n.t('home.pred_change_due')
+                      : i18n.t('home.pred_change_in', { time: formatMs(p.remainingMs) })
+                    : due
+                      ? i18n.t('home.pred_nap_due')
+                      : i18n.t('home.pred_nap_in', { time: formatMs(p.remainingMs) });
             return (
               <View key={p.type} style={[styles.chip, { borderColor: color }]}>
                 <Text
@@ -447,9 +381,7 @@ export function BabyCard({
       <MoreMenuSheet
         visible={moreOpen}
         babyName={baby.name}
-        showTimer={!!onSetAlarm}
         onLog={type => onLog(type)}
-        onOpenTimer={() => setTimerPickerOpen(true)}
         onClose={() => setMoreOpen(false)}
       />
 
@@ -460,35 +392,6 @@ export function BabyCard({
         ageWeeks={ageWeeks}
         onClose={() => setSleepTrainingInfoOpen(false)}
       />
-
-      {/* ── Custom timer picker ── */}
-      {onSetAlarm && (
-        <TimerPickerModal
-          visible={timerPickerOpen}
-          babyName={baby.name}
-          onSetAlarm={ms => {
-            setTimerPickerOpen(false);
-            onSetAlarm(ms, true);
-          }}
-          onClose={() => setTimerPickerOpen(false)}
-        />
-      )}
-
-      {/* ── Full-screen timer modal ── */}
-      {activeAlarm && (
-        <NapTimerModal
-          alarm={activeAlarm}
-          visible={timerOpen}
-          onDismiss={() => setTimerOpen(false)}
-          onCancel={() => {
-            setTimerOpen(false);
-            onDismissAlarm?.();
-          }}
-          onReschedule={(firesAt, durationMs) => {
-            onRescheduleAlarm?.(firesAt, durationMs);
-          }}
-        />
-      )}
     </View>
   );
 }
@@ -521,6 +424,13 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     lineHeight: 32,
+  },
+  babyColorDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    marginRight: spacing.sm,
+    flexShrink: 0,
   },
   iconBtn: {
     paddingHorizontal: spacing.sm,

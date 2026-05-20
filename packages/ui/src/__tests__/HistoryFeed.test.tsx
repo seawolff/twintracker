@@ -30,14 +30,25 @@ function makeEvent(overrides: Partial<TrackerEvent>): TrackerEvent {
   };
 }
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function renderFeed(events: TrackerEvent[]): string {
+/** Strip HTML tags and collapse whitespace to get plain text content. */
+function textContent(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Return position of needle in the plain text of html, or -1 if not found. */
+function textPos(html: string, needle: string): number {
+  return textContent(html).indexOf(needle);
+}
+
+function renderFeed(events: TrackerEvent[], showLoggerAvatar = false): string {
   return renderToStaticMarkup(
     <HistoryFeed
       events={events}
       babies={[BABY]}
       now={NOW}
+      showLoggerAvatar={showLoggerAvatar}
       onDelete={jest.fn()}
       onEdit={jest.fn()}
       onAddForDay={jest.fn()}
@@ -182,7 +193,9 @@ describe('HistoryFeed — event type labels', () => {
 
 describe('HistoryFeed — metadata', () => {
   it('shows the baby name for each row', () => {
-    expect(renderFeed([makeEvent({ type: 'bottle', value: 4, unit: 'oz' })])).toContain('John');
+    expect(renderFeed([makeEvent({ type: 'bottle', value: 4, unit: 'oz' })])).toContain(
+      'Bottle 4oz',
+    );
   });
 
   it('shows absolute time (HH:MM) for events older than 2 hours', () => {
@@ -225,39 +238,96 @@ describe('HistoryFeed — metadata', () => {
   });
 });
 
+// ── Tests — row order ─────────────────────────────────────────────────────────
+//
+// Expected order: ● BabyName [C avatar] EventLabel Timestamp
+//
+// Uses baby name "John" (initial J) and logger "Xavier" (initial X) so each
+// token is unique and won't collide with event label text ("Bottle 4oz").
+
+describe('HistoryFeed — row order', () => {
+  const event = makeEvent({ type: 'bottle', value: 4, unit: 'oz', loggedByName: 'Xavier' });
+
+  it('baby name appears before event label', () => {
+    const html = renderFeed([event]);
+    expect(textPos(html, 'John')).toBeLessThan(textPos(html, 'Bottle 4oz'));
+  });
+
+  it('logger avatar appears between baby name and event label', () => {
+    const html = renderFeed([event], true);
+    const namePos = textPos(html, 'John');
+    const initialPos = textPos(html, 'X');
+    const labelPos = textPos(html, 'Bottle 4oz');
+    expect(namePos).toBeLessThan(initialPos);
+    expect(initialPos).toBeLessThan(labelPos);
+  });
+
+  it('event label appears before the timestamp', () => {
+    const html = renderFeed([makeEvent({ type: 'bottle', value: 4, unit: 'oz', startedAt: '2026-03-18T07:00:00Z' })]);
+    // event is 3h old so formatEventTime returns an absolute clock time (digits + colon)
+    const timeMatch = textContent(html).match(/\d{1,2}:\d{2}/);
+    expect(timeMatch).not.toBeNull();
+    expect(textPos(html, 'Bottle 4oz')).toBeLessThan(textContent(html).indexOf(timeMatch![0]));
+  });
+
+  it('logger avatar is hidden when showLoggerAvatar is false', () => {
+    const html = renderFeed([event], false);
+    const namePos = textPos(html, 'John');
+    const labelPos = textPos(html, 'Bottle 4oz');
+    // Name still before label, no X initial between them
+    expect(namePos).toBeLessThan(labelPos);
+    expect(textContent(html)).not.toContain('Xavier');
+  });
+});
+
 // ── Tests — author attribution ────────────────────────────────────────────────
 
 describe('HistoryFeed — author attribution', () => {
-  it('shows the first initial of loggedByName when present', () => {
+  it('hides the logger name unless logger avatars are enabled', () => {
     const html = renderFeed([makeEvent({ type: 'bottle', loggedByName: 'Mom' })]);
+    expect(html).not.toContain('Mom');
+  });
+
+  it('shows the logger initial when logger avatars are enabled', () => {
+    const html = renderFeed([makeEvent({ type: 'bottle', loggedByName: 'Mom' })], true);
     expect(html).toContain('M');
   });
 
-  it('shows initial for a different author name', () => {
-    const html = renderFeed([makeEvent({ type: 'nap', loggedByName: 'Dad' })]);
-    expect(html).toContain('D');
-  });
-
-  it('renders without author initial when loggedByName is absent', () => {
-    // No initial element — the avatar placeholder is an empty View, no text inside
-    const html = renderFeed([makeEvent({ type: 'diaper' })]);
-    // Should not show a stray initial character in the avatar position
-    // (the row should still render — just without attribution)
-    expect(html).toContain('John'); // baby name still present
+  it('does not show the full logger name, only the initial', () => {
+    const html = renderFeed([makeEvent({ type: 'bottle', loggedByName: 'Chris' })], true);
+    expect(html).not.toContain('Chris');
+    expect(html).toContain('C');
   });
 
   it('shows initials for multiple events with different authors', () => {
-    const html = renderFeed([
-      makeEvent({
-        id: 'e1',
-        type: 'bottle',
-        loggedByName: 'Mom',
-        startedAt: '2026-03-18T09:00:00Z',
-      }),
-      makeEvent({ id: 'e2', type: 'nap', loggedByName: 'Dad', startedAt: '2026-03-18T08:00:00Z' }),
-    ]);
+    const html = renderFeed(
+      [
+        makeEvent({
+          id: 'e1',
+          type: 'bottle',
+          loggedByName: 'Mom',
+          startedAt: '2026-03-18T09:00:00Z',
+        }),
+        makeEvent({
+          id: 'e2',
+          type: 'nap',
+          loggedByName: 'Dad',
+          startedAt: '2026-03-18T08:00:00Z',
+        }),
+      ],
+      true,
+    );
     expect(html).toContain('M');
     expect(html).toContain('D');
+  });
+
+  it('shows avatar initial but not full name when logger avatars are enabled', () => {
+    const html = renderFeed(
+      [makeEvent({ type: 'bottle', value: 4, unit: 'oz', loggedByName: 'Chris' })],
+      true,
+    );
+    expect(html).toContain('Bottle 4oz');
+    expect(html).not.toContain('Chris');
   });
 });
 

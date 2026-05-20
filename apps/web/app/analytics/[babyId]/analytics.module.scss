@@ -121,6 +121,24 @@
   letter-spacing: -0.5px;
 }
 
+.headingRow {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  margin-bottom: $space-xs;
+}
+
+.headingRow .heading {
+  margin-bottom: 0;
+}
+
+.babyColorDot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  flex: 0 0 11px;
+}
+
 .subheading {
   font-family: $font-mono;
   font-size: 12px;
@@ -390,6 +408,81 @@
   font-family: $font-mono;
   font-size: 9px;
   color: var(--tt-text-muted);
+}
+
+.crossoverMidline {
+  stroke: var(--tt-border);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.crossoverBottleLine,
+.crossoverSolidsLine {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.crossoverBottleLine {
+  stroke: var(--tt-text);
+  opacity: 0.82;
+}
+
+.crossoverSolidsLine {
+  stroke: var(--tt-accent);
+  stroke-dasharray: 5 4;
+  opacity: 0.95;
+}
+
+.crossoverBottleDot,
+.crossoverSolidsDot {
+  stroke: var(--tt-bg);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.crossoverBottleDot {
+  fill: var(--tt-text);
+}
+
+.crossoverSolidsDot {
+  fill: var(--tt-accent);
+}
+
+.crossoverLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  margin-top: $space-xs;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: $font-mono;
+    font-size: 10px;
+    color: var(--tt-text-muted);
+  }
+}
+
+.crossoverBottleKey,
+.crossoverSolidsKey {
+  width: 16px;
+  height: 0;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.crossoverBottleKey {
+  border-top: 2px solid var(--tt-text);
+  opacity: 0.82;
+}
+
+.crossoverSolidsKey {
+  border-top: 2px dashed var(--tt-accent);
+  opacity: 0.95;
 }
 
 // ── Transition signal rows ────────────────────────────────────────────────────

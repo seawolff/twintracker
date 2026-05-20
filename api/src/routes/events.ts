@@ -13,9 +13,33 @@ const FONT_NUNITO = path.join(ASSETS_DIR, 'Nunito-wght.ttf');
 const FONT_DM_MONO = path.join(ASSETS_DIR, 'DMMono-Regular.ttf');
 const FONT_DM_MONO_MEDIUM = path.join(ASSETS_DIR, 'DMMono-Medium.ttf');
 const LOGO_PATH = path.join(ASSETS_DIR, 'icon-192.png');
+type TimeFormat = '12h' | '24h';
 
 const router = Router();
 router.use(requireAuth);
+
+function formatExportTime(date: Date, timeFormat: TimeFormat): string {
+  if (timeFormat === '24h') {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+async function getHouseholdTimeFormat(householdId?: string): Promise<TimeFormat> {
+  const { rows } = await pool.query(
+    'SELECT data->>\'timeFormat\' AS "timeFormat" FROM household_preferences WHERE household_id = $1',
+    [householdId],
+  );
+  return rows[0]?.timeFormat === '24h' ? '24h' : '12h';
+}
 
 // Keep in sync with EventType / EVENT_TYPES in packages/core/src/types/index.ts
 const VALID_EVENT_TYPES = new Set([
@@ -112,6 +136,7 @@ router.get('/export', async (req: AuthRequest, res) => {
      ORDER BY e.started_at DESC`,
     params,
   );
+  const timeFormat = await getHouseholdTimeFormat(req.householdId);
 
   const csvEscape = (v: unknown): string => {
     if (v == null) {
@@ -134,11 +159,7 @@ router.get('/export', async (req: AuthRequest, res) => {
   const lines = rows.map(r => {
     const d = new Date(r.started_at);
     const date = d.toISOString().slice(0, 10);
-    const time = d.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const time = formatExportTime(d, timeFormat);
     return [
       date,
       time,
@@ -286,6 +307,7 @@ router.get('/export/pdf', async (req: AuthRequest, res) => {
      ORDER BY e.started_at ASC`,
     params,
   );
+  const timeFormat = await getHouseholdTimeFormat(req.householdId);
 
   // ── Build PDF ─────────────────────────────────────────────────────────────
   // Design: clean black-and-white A4 document — matches TwinTracker's design system.
@@ -518,11 +540,7 @@ router.get('/export/pdf', async (req: AuthRequest, res) => {
 
     const d = new Date(r.started_at);
     const date = d.toISOString().slice(0, 10);
-    const time = d.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const time = formatExportTime(d, timeFormat);
     const durationMs = r.ended_at ? new Date(r.ended_at).getTime() - d.getTime() : null;
     const valueStr = r.value != null ? `${r.value}${r.unit ? ' ' + r.unit : ''}` : '';
 

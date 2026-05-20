@@ -9,7 +9,13 @@ import {
   getTargetDailySleepMs,
   getSelfSoothingMinutes,
 } from './schedule';
-import { AAP_MAX_DAILY_OZ } from '../config';
+import { AAP_MAX_DAILY_OZ, ML_PER_OZ } from '../config';
+
+/** Convert a raw event value to oz, handling ml-unit entries. */
+function toOz(value: number | undefined | null, unit: string | undefined | null): number {
+  const v = Number(value ?? 0);
+  return unit === 'ml' ? v / ML_PER_OZ : v;
+}
 import { isBottleBreastMilk, parseBottleNotes } from './pumpHelpers';
 
 const MS_PER_DAY = 24 * 60 * 60_000;
@@ -34,6 +40,8 @@ const SIGNAL_NAP_DROP_THRESHOLD = 0.5;
 const SIGNAL_OZ_DROP_PCT = 0.15;
 /** Age in weeks at which Stage 2 begins — oz dropping signal only relevant from here on. */
 const STAGE2_START_WEEKS = 16;
+/** Mature solids rhythm benchmark used to normalize the weaning crossover chart. */
+const TARGET_SOLID_MEALS_PER_DAY = 3;
 /** Night sleep milestone thresholds (ms). A new all-time record crossing one of these is flagged. */
 const SLEEP_MILESTONE_THRESHOLDS_MS = [5, 6, 7, 8].map(h => h * 60 * 60_000);
 
@@ -153,7 +161,7 @@ export function computeAnalytics(
   for (const e of thisWeek) {
     const t = new Date(e.startedAt).getTime();
     if (e.type === 'bottle') {
-      const oz = Number(e.value ?? 0);
+      const oz = toOz(e.value, e.unit);
       totalOzThisWeek += oz;
       if (oz > 0) {
         ozValues.push(oz);
@@ -164,7 +172,7 @@ export function computeAnalytics(
       feedTimes.push(t);
       totalFeeds++;
     } else if (e.type === 'pump') {
-      totalPumpedOzThisWeek += Number(e.value ?? 0);
+      totalPumpedOzThisWeek += toOz(e.value, e.unit);
     } else if (e.type === 'nap' && e.endedAt != null) {
       const endMs = new Date(e.endedAt).getTime();
       const dur = endMs - t; // full duration for avg/longest
@@ -260,7 +268,7 @@ export function computeAnalytics(
   const avgPumpedOzPerDay = daysInPeriod > 0 ? totalPumpedOzThisWeek / daysInPeriod : 0;
   const breastMilkBottleOzThisWeek = thisWeek
     .filter(e => e.type === 'bottle' && isBottleBreastMilk(parseBottleNotes(e.notes)))
-    .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+    .reduce((sum, e) => sum + toOz(e.value, e.unit), 0);
   const lactationBalanceOzThisWeek = totalPumpedOzThisWeek - breastMilkBottleOzThisWeek;
   const avgFeedsPerDay = daysInPeriod > 0 ? totalFeeds / daysInPeriod : 0;
   const avgDailySleepMs = daysInPeriod > 0 ? totalSleepMsThisWeek / daysInPeriod : 0;
@@ -336,6 +344,19 @@ export interface TrendPoint {
   value: number | null;
 }
 
+export interface WeaningCrossoverPoint {
+  /** Unix ms of the start of this day slot. */
+  dayMs: number;
+  /** Total bottle oz logged in this day slot. */
+  bottleOz: number;
+  /** Solid-food meal logs in this day slot. */
+  solidMeals: number;
+  /** Bottle share of normalized bottle + solids intake signal, 0–1. */
+  bottleShare: number | null;
+  /** Solids share of normalized bottle + solids intake signal, 0–1. */
+  solidsShare: number | null;
+}
+
 /**
  * Per-day time-series data for the last TREND_DAYS days.
  * All arrays are ordered oldest → newest (index 0 = TREND_DAYS−1 days ago).
@@ -349,6 +370,10 @@ export interface TrendData {
   ozPerDayByDay: TrendPoint[];
   /** Total oz pumped per day. */
   pumpedOzPerDay: TrendPoint[];
+  /** Solid-food meal count per day. */
+  solidMealsByDay: TrendPoint[];
+  /** Normalized bottle-vs-solids crossover series for weaning visualization. */
+  weaningCrossoverByDay: WeaningCrossoverPoint[];
   /** Pumped oz minus bottle oz per day. */
   milkBalanceByDay: TrendPoint[];
   /** Completed daytime nap count per day. */
@@ -398,11 +423,18 @@ export function computeTrendData(
   // Pre-filter events to the trend window (plus one feed-gap buffer for interval calc).
   const windowStart = slots[0].start - MAX_FEED_GAP_MS;
   const windowEvents = events.filter(e => new Date(e.startedAt).getTime() >= windowStart);
+  const ageWeeks = getAgeWeeks(birthDate);
+  const schedule = getScheduleForAge(ageWeeks);
+  const targetOzPerFeed = getDefaultOzForAge(ageWeeks);
+  const targetFeedsPerDay = Math.round(MS_PER_DAY / schedule.feedMs);
+  const targetOzPerDay = Math.min(targetOzPerFeed * targetFeedsPerDay, AAP_MAX_DAILY_OZ);
 
   const feedIntervalByDay: TrendPoint[] = [];
   const ozPerFeedByDay: TrendPoint[] = [];
   const ozPerDayByDay: TrendPoint[] = [];
   const pumpedOzPerDay: TrendPoint[] = [];
+  const solidMealsByDay: TrendPoint[] = [];
+  const weaningCrossoverByDay: WeaningCrossoverPoint[] = [];
   const milkBalanceByDay: TrendPoint[] = [];
   const napCountByDay: TrendPoint[] = [];
   const longestNightByDay: TrendPoint[] = [];
@@ -434,8 +466,8 @@ export function computeTrendData(
 
     // Oz per feed and oz total.
     const bottleOzValues = inSlot
-      .filter(e => e.type === 'bottle' && Number(e.value ?? 0) > 0)
-      .map(e => Number(e.value));
+      .filter(e => e.type === 'bottle' && toOz(e.value, e.unit) > 0)
+      .map(e => toOz(e.value, e.unit));
     ozPerFeedByDay.push({
       dayMs: slot.start,
       value:
@@ -447,18 +479,34 @@ export function computeTrendData(
       dayMs: slot.start,
       value: bottleOzValues.length > 0 ? bottleOzValues.reduce((s, v) => s + v, 0) : null,
     });
+    const bottleOzTotal = bottleOzValues.reduce((s, v) => s + v, 0);
+    const solidMeals = inSlot.filter(e => e.type === 'food').length;
+    solidMealsByDay.push({
+      dayMs: slot.start,
+      value: solidMeals > 0 ? solidMeals : null,
+    });
+    const bottleProgress = targetOzPerDay > 0 ? Math.min(bottleOzTotal / targetOzPerDay, 1) : 0;
+    const solidsProgress = Math.min(solidMeals / TARGET_SOLID_MEALS_PER_DAY, 1);
+    const crossoverTotal = bottleProgress + solidsProgress;
+    weaningCrossoverByDay.push({
+      dayMs: slot.start,
+      bottleOz: bottleOzTotal,
+      solidMeals,
+      bottleShare: crossoverTotal > 0 ? bottleProgress / crossoverTotal : null,
+      solidsShare: crossoverTotal > 0 ? solidsProgress / crossoverTotal : null,
+    });
     const pumpOzValues = inSlot
-      .filter(e => e.type === 'pump' && Number(e.value ?? 0) > 0)
-      .map(e => Number(e.value));
+      .filter(e => e.type === 'pump' && toOz(e.value, e.unit) > 0)
+      .map(e => toOz(e.value, e.unit));
     const pumpTotal = pumpOzValues.reduce((s, v) => s + v, 0);
     const breastMilkBottleTotal = inSlot
       .filter(
         e =>
           e.type === 'bottle' &&
-          Number(e.value ?? 0) > 0 &&
+          toOz(e.value, e.unit) > 0 &&
           isBottleBreastMilk(parseBottleNotes(e.notes)),
       )
-      .reduce((sum, e) => sum + Number(e.value ?? 0), 0);
+      .reduce((sum, e) => sum + toOz(e.value, e.unit), 0);
     pumpedOzPerDay.push({
       dayMs: slot.start,
       value: pumpOzValues.length > 0 ? pumpTotal : null,
@@ -494,17 +542,13 @@ export function computeTrendData(
     });
   }
 
-  const ageWeeks = getAgeWeeks(birthDate);
-  const schedule = getScheduleForAge(ageWeeks);
-  const targetOzPerFeed = getDefaultOzForAge(ageWeeks);
-  const targetFeedsPerDay = Math.round(MS_PER_DAY / schedule.feedMs);
-  const targetOzPerDay = Math.min(targetOzPerFeed * targetFeedsPerDay, AAP_MAX_DAILY_OZ);
-
   return {
     feedIntervalByDay,
     ozPerFeedByDay,
     ozPerDayByDay,
     pumpedOzPerDay,
+    solidMealsByDay,
+    weaningCrossoverByDay,
     milkBalanceByDay,
     napCountByDay,
     longestNightByDay,

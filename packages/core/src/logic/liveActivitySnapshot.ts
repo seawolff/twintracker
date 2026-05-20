@@ -1,4 +1,5 @@
 import type { Baby, LatestEventMap, PredictedAction, TrackerEvent, Urgency } from '../types';
+import type { TimeFormat } from '../config';
 import i18n from '../i18n';
 import type { BabyInsight } from './schedule';
 import { getBabyInsight } from './schedule';
@@ -41,6 +42,7 @@ export interface LiveActivitySnapshot {
 interface PreferencesLike {
   wakeHour: number;
   bedtimeHour: number;
+  timeFormat?: TimeFormat;
 }
 
 function getMostRecentEvent(events: TrackerEvent[], babyId: string): TrackerEvent | null {
@@ -95,7 +97,10 @@ function getPrimaryLiveActivityPrediction(
     return (
       priorityOrder
         .map(type => predictions.find(prediction => prediction.type === type))
-        .find((prediction): prediction is PredictedAction => !!prediction && prediction.type !== 'diaper') ??
+        .find(
+          (prediction): prediction is PredictedAction =>
+            !!prediction && prediction.type !== 'diaper',
+        ) ??
       predictions.find(prediction => prediction.type !== 'diaper') ??
       null
     );
@@ -198,6 +203,7 @@ function buildBabySnapshot(
     undefined,
     prefs.bedtimeHour,
     prefs.wakeHour,
+    prefs.timeFormat ?? '12h',
   );
   const nextPrediction = getPrimaryLiveActivityPrediction(
     insight.predictions,
@@ -227,7 +233,7 @@ function buildBabySnapshot(
     nextTargetAt: nextPrediction
       ? new Date(now.getTime() + nextPrediction.remainingMs).toISOString()
       : null,
-    nextSummary: shouldHideNextAction ? null : nextPrediction?.label ?? insight.narrative ?? null,
+    nextSummary: shouldHideNextAction ? null : (nextPrediction?.label ?? insight.narrative ?? null),
     feedSummary: buildFeedSummary(insight),
     feedUrgency: feedPrediction?.urgency ?? 'ok',
     feedMode: insight.feedTriageMode,

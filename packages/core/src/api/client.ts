@@ -5,7 +5,6 @@ import type {
   JoinRequest,
   LogEventPayload,
   LoginRequest,
-  NapAlarm,
   RegisterRequest,
   StorageInterface,
   TrackerEvent,
@@ -17,6 +16,43 @@ let refreshToken: string | null = null;
 let clientPlatform: 'web' | 'ios' | 'android' = 'web';
 let clientAppVersion: string | null = null;
 let tokenStorage: StorageInterface | null = null;
+
+// Thrown only when the server definitively rejects the refresh token (401/403).
+// Network failures do NOT produce this error — tokens are preserved so the
+// next foreground resume can retry once connectivity returns.
+export class AuthFailedError extends Error {
+  constructor() {
+    super('Authentication failed');
+    this.name = 'AuthFailedError';
+  }
+}
+
+/** Decode the `exp` Unix timestamp from a JWT payload. Returns null on malformed input. */
+export function decodeTokenExpiry(token: string): number | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) {
+      return null;
+    }
+    const payload = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true when the token has expired or will expire within `bufferMs`.
+ * The 30-second buffer avoids races where a valid token expires between check
+ * and the server receiving the request.
+ */
+export function isTokenExpired(token: string, bufferMs = 30_000): boolean {
+  const exp = decodeTokenExpiry(token);
+  if (exp === null) {
+    return true;
+  }
+  return Date.now() >= exp * 1000 - bufferMs;
+}
 
 export function configure(
   url: string,
@@ -79,15 +115,22 @@ let refreshPromise: Promise<void> | null = null;
 
 async function refreshAccessToken(): Promise<void> {
   if (!refreshToken) {
-    throw new Error('No refresh token');
+    throw new AuthFailedError();
   }
-  const res = await fetch(`${baseUrl}/api/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // Network error — propagate as a plain Error so callers can distinguish it
+    // from a definitive server rejection. Tokens must NOT be cleared here.
+    throw new Error('Network error during token refresh');
+  }
   if (!res.ok) {
-    throw new Error('Refresh failed');
+    throw new AuthFailedError();
   }
   const tokens = (await res.json()) as { accessToken: string; refreshToken: string };
   accessToken = tokens.accessToken;
@@ -95,7 +138,45 @@ async function refreshAccessToken(): Promise<void> {
   await persistTokens(tokens.accessToken, tokens.refreshToken);
 }
 
+/** Clear in-memory tokens and persisted storage. Only call on definitive auth failure. */
+async function invalidateSession(): Promise<void> {
+  accessToken = null;
+  refreshToken = null;
+  await clearPersistedTokens();
+}
+
+/**
+ * Proactively refresh the access token before it expires so API calls on
+ * app resume don't waste a round-trip hitting a 401 then retrying.
+ * Network errors are swallowed — the request proceeds with the stale token
+ * and the 401 handler catches it if needed.
+ */
+async function proactiveRefreshIfExpired(path: string): Promise<void> {
+  if (!accessToken || !refreshToken || path.includes('/auth/')) {
+    return;
+  }
+  if (!isTokenExpired(accessToken)) {
+    return;
+  }
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  try {
+    await refreshPromise;
+  } catch (err) {
+    if (err instanceof AuthFailedError) {
+      await invalidateSession();
+      throw err;
+    }
+    // Network error — continue with the stale token; server 401 will trigger a retry
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  await proactiveRefreshIfExpired(path);
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Platform': clientPlatform,
@@ -129,13 +210,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
     try {
       await refreshPromise;
-      // Retry with new token
       headers['Authorization'] = `Bearer ${accessToken}`;
       res = await fetch(`${baseUrl}${path}`, { ...options, headers });
-    } catch {
-      accessToken = null;
-      refreshToken = null;
-      await clearPersistedTokens();
+    } catch (err) {
+      if (err instanceof AuthFailedError) {
+        await invalidateSession();
+      }
+      // Network errors: tokens preserved so the next resume can retry.
+      throw err;
     }
   }
 
@@ -152,6 +234,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function requestText(path: string): Promise<string> {
+  await proactiveRefreshIfExpired(path);
+
   const headers: Record<string, string> = {};
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
@@ -178,10 +262,11 @@ async function requestText(path: string): Promise<string> {
       await refreshPromise;
       headers['Authorization'] = `Bearer ${accessToken}`;
       res = await fetch(`${baseUrl}${path}`, { headers });
-    } catch {
-      accessToken = null;
-      refreshToken = null;
-      await clearPersistedTokens();
+    } catch (err) {
+      if (err instanceof AuthFailedError) {
+        await invalidateSession();
+      }
+      throw err;
     }
   }
   if (!res.ok) {
@@ -191,6 +276,8 @@ async function requestText(path: string): Promise<string> {
 }
 
 async function requestBlob(path: string): Promise<Blob> {
+  await proactiveRefreshIfExpired(path);
+
   const headers: Record<string, string> = {};
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
@@ -217,10 +304,11 @@ async function requestBlob(path: string): Promise<Blob> {
       await refreshPromise;
       headers['Authorization'] = `Bearer ${accessToken}`;
       res = await fetch(`${baseUrl}${path}`, { headers });
-    } catch {
-      accessToken = null;
-      refreshToken = null;
-      await clearPersistedTokens();
+    } catch (err) {
+      if (err instanceof AuthFailedError) {
+        await invalidateSession();
+      }
+      throw err;
     }
   }
   if (!res.ok) {
@@ -274,6 +362,7 @@ export const api = {
     create: (data: {
       name: string;
       birthDate?: string;
+      adjustedBirthDate?: string | null;
       weightKg?: number | null;
       heightCm?: number | null;
       sex?: 'male' | 'female' | null;
@@ -283,18 +372,16 @@ export const api = {
       data: {
         name?: string;
         birthDate?: string | null;
+        adjustedBirthDate?: string | null;
         weightKg?: number | null;
         heightCm?: number | null;
         sex?: 'male' | 'female' | null;
       },
     ) => request<Baby>(`/api/babies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
-  alarms: {
-    active: () => request<NapAlarm[]>('/api/alarms/active'),
-    create: (data: { babyId: string; firesAt: string; durationMs: number; label: string }) =>
-      request<NapAlarm>('/api/alarms', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: { firesAt?: string; durationMs?: number; dismissedAt?: string }) =>
-      request<NapAlarm>(`/api/alarms/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  feedback: {
+    submit: (data: { rating: number; message?: string }) =>
+      request<{ ok: boolean }>('/api/feedback', { method: 'POST', body: JSON.stringify(data) }),
   },
   preferences: {
     get: () => request<Record<string, unknown>>('/api/preferences'),

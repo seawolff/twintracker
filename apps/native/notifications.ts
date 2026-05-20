@@ -24,61 +24,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 /**
- * Schedule a one-shot alarm notification in `ms` milliseconds.
- * Returns true if scheduled, false if skipped (too soon).
- * Throws if permission is denied or scheduling fails.
- */
-export async function scheduleAlarm(ms: number, title: string, body: string): Promise<boolean> {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 30) {
-    return false;
-  }
-  await Notifications.scheduleNotificationAsync({
-    content: { title, body, sound: true },
-    trigger: {
-      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds,
-      repeats: false,
-      ...(Platform.OS === 'android' ? { channelId: ALARM_CHANNEL_ID } : {}),
-    },
-  });
-  return true;
-}
-
-/**
- * Schedule a nap-check notification with napId in data so the response
- * listener can delete or dismiss the event.
- */
-export async function scheduleNapCheck(
-  napId: string,
-  babyName: string,
-  napCheckMinutes: number,
-): Promise<string> {
-  const seconds = napCheckMinutes * 60;
-  const identifier = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: 'TwinTracker',
-      body: `You put ${babyName} to bed ${napCheckMinutes} min ago. Are they asleep?`,
-      sound: true,
-      data: { napId, babyName },
-    },
-    trigger: {
-      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds,
-      repeats: false,
-      ...(Platform.OS === 'android' ? { channelId: ALARM_CHANNEL_ID } : {}),
-    },
-  });
-  return identifier;
-}
-
-/** Cancel a previously scheduled nap check notification. */
-export async function cancelNapCheck(identifier: string): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync(identifier);
-}
-
-/**
- * Schedule an alarm notification to fire at a specific ISO timestamp.
+ * Schedule a notification to fire at a specific ISO timestamp.
  * Returns the notification identifier, or null if the fire time is too soon (<30s).
  */
 export async function scheduleAlarmAt(

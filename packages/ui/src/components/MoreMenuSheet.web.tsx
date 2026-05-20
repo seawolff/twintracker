@@ -1,10 +1,10 @@
-/** Web bottom-sheet for "more" actions: Medicine, Milestone, Set Timer. Uses createPortal. */
+/** Web bottom-sheet for "more" actions: Medicine, Milestone. Uses createPortal. */
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import type { EventType } from '@tt/core';
 import { useThemeContext } from '@tt/core';
 import { fonts, spacing, radius } from '../theme/tokens';
-import { MedicineIcon, MilestoneIcon, TimerIcon, CloseIcon } from './icons/BabyIcons';
+import { MedicineIcon, MilestoneIcon, CloseIcon } from './icons/BabyIcons';
 
 const DISMISS_THRESHOLD_Y = 80;
 const ICON_SIZE = 24;
@@ -12,9 +12,7 @@ const ICON_SIZE = 24;
 interface Props {
   visible: boolean;
   babyName: string;
-  showTimer: boolean;
   onLog: (type: EventType) => void;
-  onOpenTimer: () => void;
   onClose: () => void;
 }
 
@@ -31,14 +29,7 @@ const BASE_OPTIONS: Option[] = [
   { type: 'milestone', label: 'Milestone', Icon: MilestoneIcon },
 ];
 
-export function MoreMenuSheet({
-  visible,
-  babyName,
-  showTimer,
-  onLog,
-  onOpenTimer,
-  onClose,
-}: Props) {
+export function MoreMenuSheet({ visible, babyName, onLog, onClose }: Props) {
   const theme = useThemeContext();
   const [activeIndex, setActiveIndex] = useState(-1);
   const sl = theme.mode === 'day' ? 'rgba(0,0,0,' : 'rgba(255,255,255,';
@@ -89,11 +80,6 @@ export function MoreMenuSheet({
       sheetRef.current.style.transform = 'translateY(0)';
     }
   };
-
-  const allOptions: Option[] = [
-    ...BASE_OPTIONS,
-    ...(showTimer ? [{ type: null as null, label: 'Set timer', Icon: TimerIcon }] : []),
-  ];
 
   const content = (
     <div
@@ -175,15 +161,13 @@ export function MoreMenuSheet({
           {babyName}
         </p>
 
-        {allOptions.map((opt, i) => (
+        {BASE_OPTIONS.map((opt, i) => (
           <button
             key={opt.label}
             onClick={() => {
               onClose();
               if (opt.type) {
                 onLog(opt.type);
-              } else {
-                onOpenTimer();
               }
             }}
             onMouseEnter={() => setActiveIndex(i)}

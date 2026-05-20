@@ -21,8 +21,11 @@ export { getNapActionType } from '../../core/src/logic/twinSync';
 export { computeLearnedStats } from '../../core/src/logic/learnedSchedule';
 export {
   parsePumpNotes,
+  parseBottleNotes,
   serializePumpNotes,
+  serializeBottleNotes,
   formatPumpStash,
+  summarizeStashInventory,
 } from '../../core/src/logic/pumpHelpers';
 export const parseMilestoneNotes = parseMilestoneNotesImpl;
 export const serializeMilestoneNotes = serializeMilestoneNotesImpl;
@@ -71,6 +74,17 @@ export const useTranslation = () => ({
     return Object.entries(opts).reduce((s, [k, v]) => s.replace(`{{${k}}}`, v), key);
   },
 });
+
+export {
+  formatLocalDateInputValue,
+  isFutureLocalDateInputValue,
+  todayLocalDateInputValue,
+} from '../../core/src/logic/localDate';
+// Stub for parseLocalDateInputValue — not yet in core source; parses YYYY-MM-DD to Date
+export function parseLocalDateInputValue(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
 
 // All config constants — barrel so the mock stays in sync automatically
 export * from '../../core/src/config';

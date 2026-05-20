@@ -263,6 +263,30 @@ async function migrate() {
       ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS utm_campaign TEXT;
     `);
 
+    // Migration 17: adjusted birth date for preemie babies — corrected age for
+    // schedule stage and growth percentile calculations.
+    await client.query(`
+      ALTER TABLE babies ADD COLUMN IF NOT EXISTS adjusted_birth_date DATE;
+    `);
+
+    // Migration 18: child stage digest delivery dedupe + household membership role.
+    // Each verified active family member receives a child-stage digest once per child/stage.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_role TEXT NOT NULL DEFAULT 'active';
+
+      CREATE TABLE IF NOT EXISTS child_stage_digest_deliveries (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        baby_id      UUID NOT NULL REFERENCES babies(id) ON DELETE CASCADE,
+        user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        stage_key    TEXT NOT NULL,
+        delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (baby_id, user_id, stage_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS child_stage_digest_deliveries_user_id
+        ON child_stage_digest_deliveries(user_id);
+    `);
+
     console.log('Migration complete');
   } finally {
     client.release();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { StorageInterface } from '../types';
+import type { TimeFormat } from '../config';
 import { api } from '../api/client';
 
 const PREFS_KEY = 'tt_prefs';
@@ -13,6 +14,7 @@ export interface Preferences {
   liveActivitiesEnabled: boolean; // allow TwinTracker to start iOS Live Activities for active nap/sleep sessions, default false
   androidLockScreenNotificationsEnabled: boolean; // allow TwinTracker to show grouped household lock-screen notifications on Android, default false
   units: 'metric' | 'imperial'; // how weight and height are displayed; storage always kg/cm, default 'metric'
+  timeFormat: TimeFormat; // how clock times are displayed; default 12-hour
 }
 
 const DEFAULT: Preferences = {
@@ -24,6 +26,7 @@ const DEFAULT: Preferences = {
   liveActivitiesEnabled: false,
   androidLockScreenNotificationsEnabled: false,
   units: 'metric',
+  timeFormat: '12h',
 };
 
 export function normalizePreferences(
@@ -98,7 +101,8 @@ export function usePreferences(storage?: StorageInterface): {
   setLiveActivitiesEnabled: (enabled: boolean) => void;
   setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
   setUnits: (units: 'metric' | 'imperial') => void;
-}
+  setTimeFormat: (timeFormat: TimeFormat) => void;
+};
 export function usePreferences(
   storage?: StorageInterface,
   apiSyncEnabled?: boolean,
@@ -112,7 +116,8 @@ export function usePreferences(
   setLiveActivitiesEnabled: (enabled: boolean) => void;
   setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
   setUnits: (units: 'metric' | 'imperial') => void;
-}
+  setTimeFormat: (timeFormat: TimeFormat) => void;
+};
 export function usePreferences(
   storage?: StorageInterface,
   apiSyncEnabled = true,
@@ -126,6 +131,7 @@ export function usePreferences(
   setLiveActivitiesEnabled: (enabled: boolean) => void;
   setAndroidLockScreenNotificationsEnabled: (enabled: boolean) => void;
   setUnits: (units: 'metric' | 'imperial') => void;
+  setTimeFormat: (timeFormat: TimeFormat) => void;
 } {
   const [prefs, setPrefs] = useState<Preferences>(() => readSync(storage ?? webStorage()));
 
@@ -241,6 +247,11 @@ export function usePreferences(
     [prefs, save],
   );
 
+  const setTimeFormat = useCallback(
+    (timeFormat: TimeFormat) => save({ ...prefs, timeFormat }),
+    [prefs, save],
+  );
+
   return {
     prefs,
     setNapCheckMinutes,
@@ -251,5 +262,6 @@ export function usePreferences(
     setLiveActivitiesEnabled,
     setAndroidLockScreenNotificationsEnabled,
     setUnits,
+    setTimeFormat,
   };
 }

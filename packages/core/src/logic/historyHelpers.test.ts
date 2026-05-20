@@ -18,6 +18,13 @@ describe('formatTime', () => {
     // Just verify it looks like a time string (locale-dependent)
     expect(result).toMatch(/\d{1,2}:\d{2}/);
   });
+
+  it('uses 24-hour clock formatting when requested', () => {
+    const iso = '2026-03-14T10:30:00.000Z';
+    const result = formatTime(iso, '24h');
+    expect(result).toMatch(/^\d{2}:30$/);
+    expect(result).not.toMatch(/AM|PM/);
+  });
 });
 
 // ── formatDuration ────────────────────────────────────────────────────────────
@@ -171,7 +178,9 @@ describe('eventLabel', () => {
 
   it('milestone with structured key resolves to translated label', () => {
     expect(
-      eventLabel(makeEvent({ type: 'milestone', notes: 'milestone:key=first_word&detail=with+dada' })),
+      eventLabel(
+        makeEvent({ type: 'milestone', notes: 'milestone:key=first_word&detail=with+dada' }),
+      ),
     ).toBe('★ First word — with dada');
   });
 

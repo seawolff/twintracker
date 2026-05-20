@@ -23,7 +23,13 @@ import {
   getAgeWeeks,
   formatMilestoneText,
 } from '@tt/core';
-import type { Baby, BabyAnalytics, TrendData, TransitionSignal } from '@tt/core';
+import type {
+  Baby,
+  BabyAnalytics,
+  TrendData,
+  TransitionSignal,
+  WeaningCrossoverPoint,
+} from '@tt/core';
 import {
   BottleIcon,
   MoonIcon,
@@ -33,6 +39,7 @@ import {
   MilestoneIcon,
   PumpIcon,
   PersonIcon,
+  babyColorHex,
 } from '@tt/ui';
 import { BottomTabBar } from '../../../components/BottomTabBar';
 import TrendBars from '../../../components/TrendBars';
@@ -163,6 +170,75 @@ function SignalCard({ signal }: { signal: TransitionSignal }) {
   );
 }
 
+function WeaningCrossoverChart({
+  data,
+  ariaLabel,
+}: {
+  data: WeaningCrossoverPoint[];
+  ariaLabel: string;
+}) {
+  const height = 82;
+  const count = data.length;
+  const topPad = 6;
+  const bottomPad = 4;
+  const drawH = height - topPad - bottomPad;
+  const xFor = (index: number) => (count <= 1 ? 50 : (index / (count - 1)) * 100);
+  const yFor = (share: number) => topPad + (1 - share) * drawH;
+  const bottlePoints = data
+    .map((point, i) =>
+      point.bottleShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.bottleShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+  const solidsPoints = data
+    .map((point, i) =>
+      point.solidsShare == null
+        ? null
+        : `${xFor(i).toFixed(2)},${yFor(point.solidsShare).toFixed(2)}`,
+    )
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 100 ${height}`}
+      preserveAspectRatio="none"
+      aria-label={ariaLabel}
+      role="img"
+    >
+      <line x1="0" y1={yFor(0.5)} x2="100" y2={yFor(0.5)} className={styles.crossoverMidline} />
+      <polyline points={bottlePoints} className={styles.crossoverBottleLine} />
+      <polyline points={solidsPoints} className={styles.crossoverSolidsLine} />
+      {data.map((point, i) => {
+        if (point.bottleShare == null || point.solidsShare == null) {
+          return null;
+        }
+        const x = xFor(i);
+        return (
+          <g key={point.dayMs}>
+            <circle
+              cx={x}
+              cy={yFor(point.bottleShare)}
+              r={1.4}
+              className={styles.crossoverBottleDot}
+            />
+            <circle
+              cx={x}
+              cy={yFor(point.solidsShare)}
+              r={1.4}
+              className={styles.crossoverSolidsDot}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
@@ -245,31 +321,34 @@ export default function AnalyticsPage() {
 
   const babyEvents = events.filter(e => e.babyId === baby.id);
   const now = new Date();
-  const ageWeeks = getAgeWeeks(baby.birthDate);
+  // Use adjustedBirthDate for stage/age calculations when set (corrected age for preemies).
+  const effectiveBirthDate = baby.adjustedBirthDate ?? baby.birthDate;
+  const isAdjusted = !!baby.adjustedBirthDate && baby.adjustedBirthDate !== baby.birthDate;
+  const ageWeeks = getAgeWeeks(effectiveBirthDate);
   const isNewborn = ageWeeks < 15;
 
   // Schedule stage label shown in header (Stage 1 / 2 / 3 with age)
   const stage = ageWeeks < 15 ? 1 : ageWeeks < 78 ? 2 : 3;
   const stageAge = (() => {
-    if (!baby.birthDate) {
+    if (!effectiveBirthDate) {
       return null;
     }
     if (ageWeeks < 8) {
-      return `${ageWeeks}w`;
+      return `${ageWeeks}w${isAdjusted ? ' adj.' : ''}`;
     }
-    const months = Math.floor(ageInMonths(baby.birthDate, now) ?? 0);
+    const months = Math.floor(ageInMonths(effectiveBirthDate, now) ?? 0);
     if (months < 24) {
-      return `${months}mo`;
+      return `${months}mo${isAdjusted ? ' adj.' : ''}`;
     }
-    return `${Math.floor(months / 12)}y`;
+    return `${Math.floor(months / 12)}y${isAdjusted ? ' adj.' : ''}`;
   })();
 
-  const a: BabyAnalytics = computeAnalytics(babyEvents, now, period, baby.birthDate);
+  const a: BabyAnalytics = computeAnalytics(babyEvents, now, period, effectiveBirthDate);
 
   // Trend data uses 14 days for Day/Week, 30 days for Month.
   const trendDays = period === 'month' ? 30 : 14;
-  const trend: TrendData = computeTrendData(babyEvents, now, baby.birthDate, trendDays);
-  const signals: TransitionSignal[] = detectTransitionSignals(babyEvents, now, baby.birthDate);
+  const trend: TrendData = computeTrendData(babyEvents, now, effectiveBirthDate, trendDays);
+  const signals: TransitionSignal[] = detectTransitionSignals(babyEvents, now, effectiveBirthDate);
 
   const periodDays = period === 'day' ? 1 : period === 'month' ? 30 : 7;
   const subheading =
@@ -286,8 +365,8 @@ export default function AnalyticsPage() {
   // Learned stats for avg naps/day
   const learnedStats = computeLearnedStats(babyEvents, now);
 
-  // Growth percentiles — only computed when baby has required fields
-  const babyAgeMonths = ageInMonths(baby.birthDate, now);
+  // Growth percentiles — use adjusted age for preemies
+  const babyAgeMonths = ageInMonths(effectiveBirthDate, now);
   const weightPercentile =
     baby.weightKg != null && baby.sex != null && babyAgeMonths != null
       ? computeWeightPercentile(baby.weightKg, babyAgeMonths, baby.sex as 'male' | 'female')
@@ -319,6 +398,11 @@ export default function AnalyticsPage() {
   const hasSleepTrend =
     showTrends && trend.longestNightByDay.filter(p => p.value !== null).length >= 3;
   const hasOzTrend = showTrends && trend.ozPerDayByDay.filter(p => p.value !== null).length >= 3;
+  const hasWeaningCrossover =
+    showTrends &&
+    trend.weaningCrossoverByDay.filter(p => p.bottleShare !== null && p.solidsShare !== null)
+      .length >= 3 &&
+    trend.solidMealsByDay.some(p => p.value !== null);
   const hasPumpTrend = showTrends && trend.pumpedOzPerDay.filter(p => p.value !== null).length >= 3;
   const useSharedWeeklyPanel = period === 'week';
 
@@ -330,7 +414,14 @@ export default function AnalyticsPage() {
           <button className={styles.backBtn} onClick={() => router.back()} type="button">
             {t('common.back')}
           </button>
-          <h1 className={styles.heading}>{t('analytics.heading', { name: baby.name })}</h1>
+          <div className={styles.headingRow}>
+            <span
+              className={styles.babyColorDot}
+              style={{ backgroundColor: babyColorHex(baby.color) }}
+              aria-hidden="true"
+            />
+            <h1 className={styles.heading}>{t('analytics.heading', { name: baby.name })}</h1>
+          </div>
           <p className={styles.subheading}>{subheading}</p>
           {stageAge && (
             <p className={styles.stageIndicator}>
@@ -371,7 +462,9 @@ export default function AnalyticsPage() {
             <SectionCard icon={<BottleIcon size={14} />} title={t('analytics.feeding')}>
               {a.totalOzThisWeek > 0 ? (
                 <>
-                  <p className={styles.primaryStat}>{`${formatExactTotal(a.totalOzThisWeek)} oz`}</p>
+                  <p
+                    className={styles.primaryStat}
+                  >{`${formatExactTotal(a.totalOzThisWeek)} oz`}</p>
                   <div className={styles.statsGrid}>
                     {a.avgOzPerFeed != null && (
                       <StatRow
@@ -481,6 +574,41 @@ export default function AnalyticsPage() {
                     ariaLabel={t('analytics.oz_per_day_label')}
                   />
                 </TrendBlock>
+                <div className={styles.trendAxisRow}>
+                  {trendDayLabels
+                    .filter((_, i) => i % 2 === 0)
+                    .map((l, i) => (
+                      <span key={i} className={styles.axisLabel}>
+                        {l}
+                      </span>
+                    ))}
+                </div>
+              </SectionCard>
+            )}
+
+            {hasWeaningCrossover && (
+              <SectionCard icon={<FoodIcon size={14} />} title={t('analytics.weaning_crossover')}>
+                <p className={styles.trendSubhead}>{t('analytics.last_14_days')}</p>
+                <TrendBlock
+                  label={t('analytics.weaning_crossover_label')}
+                  sublabel={t('analytics.weaning_crossover_sublabel')}
+                >
+                  <WeaningCrossoverChart
+                    data={trend.weaningCrossoverByDay}
+                    ariaLabel={t('analytics.weaning_crossover')}
+                  />
+                </TrendBlock>
+                <div className={styles.crossoverLegend}>
+                  <span>
+                    <i className={styles.crossoverBottleKey} />
+                    {t('analytics.weaning_bottles')}
+                  </span>
+                  <span>
+                    <i className={styles.crossoverSolidsKey} />
+                    {t('analytics.weaning_solids')}
+                  </span>
+                </div>
+                <p className={styles.benchmark}>{t('analytics.weaning_crossover_note')}</p>
                 <div className={styles.trendAxisRow}>
                   {trendDayLabels
                     .filter((_, i) => i % 2 === 0)

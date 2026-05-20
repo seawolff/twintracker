@@ -20,21 +20,35 @@ function isFutureDate(date: string): boolean {
  */
 function validateBabyFields(fields: {
   birthDate?: string | null;
+  adjustedBirthDate?: string | null;
   weightKg?: number | null;
   heightCm?: number | null;
   sex?: string | null;
   allowNull?: boolean;
 }): string | null {
-  const { birthDate, weightKg, heightCm, sex, allowNull = false } = fields;
+  const { birthDate, adjustedBirthDate, weightKg, heightCm, sex, allowNull = false } = fields;
   const birthDatePresent = allowNull
     ? birthDate !== undefined && birthDate !== null
     : birthDate !== undefined;
+  const adjPresent = allowNull
+    ? adjustedBirthDate !== undefined && adjustedBirthDate !== null
+    : adjustedBirthDate !== undefined;
 
   if (birthDatePresent && typeof birthDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
     return 'birthDate must be YYYY-MM-DD';
   }
   if (birthDatePresent && typeof birthDate === 'string' && isFutureDate(birthDate)) {
     return 'birthDate cannot be in the future';
+  }
+  if (
+    adjPresent &&
+    typeof adjustedBirthDate === 'string' &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(adjustedBirthDate)
+  ) {
+    return 'adjustedBirthDate must be YYYY-MM-DD';
+  }
+  if (adjPresent && typeof adjustedBirthDate === 'string' && isFutureDate(adjustedBirthDate)) {
+    return 'adjustedBirthDate cannot be in the future';
   }
   if (
     weightKg !== undefined &&
@@ -59,11 +73,12 @@ function validateBabyFields(fields: {
 /** Columns returned by every baby query. */
 const BABY_RETURNING = `
   id, name, color,
-  birth_date  AS "birthDate",
-  weight_kg   AS "weightKg",
-  height_cm   AS "heightCm",
+  birth_date           AS "birthDate",
+  adjusted_birth_date  AS "adjustedBirthDate",
+  weight_kg            AS "weightKg",
+  height_cm            AS "heightCm",
   sex,
-  created_at  AS "createdAt"
+  created_at           AS "createdAt"
 `;
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -76,9 +91,10 @@ router.get('/', async (req: AuthRequest, res) => {
 });
 
 router.post('/', async (req: AuthRequest, res) => {
-  const { name, birthDate, weightKg, heightCm, sex } = req.body as {
+  const { name, birthDate, adjustedBirthDate, weightKg, heightCm, sex } = req.body as {
     name: string;
     birthDate?: string;
+    adjustedBirthDate?: string | null;
     weightKg?: number | null;
     heightCm?: number | null;
     sex?: string | null;
@@ -92,7 +108,7 @@ router.post('/', async (req: AuthRequest, res) => {
     res.status(400).json({ message: 'name must be 50 characters or fewer' });
     return;
   }
-  const fieldError = validateBabyFields({ birthDate, weightKg, heightCm, sex });
+  const fieldError = validateBabyFields({ birthDate, adjustedBirthDate, weightKg, heightCm, sex });
   if (fieldError) {
     res.status(400).json({ message: fieldError });
     return;
@@ -103,8 +119,8 @@ router.post('/', async (req: AuthRequest, res) => {
   ]);
   const color = COLORS[Number(existing[0].count) % COLORS.length];
   const { rows } = await pool.query(
-    `INSERT INTO babies (user_id, household_id, name, color, birth_date, weight_kg, height_cm, sex)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO babies (user_id, household_id, name, color, birth_date, adjusted_birth_date, weight_kg, height_cm, sex)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING ${BABY_RETURNING}`,
     [
       req.userId,
@@ -112,6 +128,7 @@ router.post('/', async (req: AuthRequest, res) => {
       name,
       color,
       birthDate ?? null,
+      adjustedBirthDate ?? null,
       weightKg ?? null,
       heightCm ?? null,
       sex ?? null,
@@ -122,9 +139,10 @@ router.post('/', async (req: AuthRequest, res) => {
 
 router.patch('/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const { name, birthDate, weightKg, heightCm, sex } = req.body as {
+  const { name, birthDate, adjustedBirthDate, weightKg, heightCm, sex } = req.body as {
     name?: string;
     birthDate?: string | null;
+    adjustedBirthDate?: string | null;
     weightKg?: number | null;
     heightCm?: number | null;
     sex?: string | null;
@@ -140,7 +158,14 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       return;
     }
   }
-  const fieldError = validateBabyFields({ birthDate, weightKg, heightCm, sex, allowNull: true });
+  const fieldError = validateBabyFields({
+    birthDate,
+    adjustedBirthDate,
+    weightKg,
+    heightCm,
+    sex,
+    allowNull: true,
+  });
   if (fieldError) {
     res.status(400).json({ message: fieldError });
     return;
@@ -158,6 +183,10 @@ router.patch('/:id', async (req: AuthRequest, res) => {
   if (birthDate !== undefined) {
     updates.push(`birth_date = $${idx++}`);
     values.push(birthDate ?? null);
+  }
+  if (adjustedBirthDate !== undefined) {
+    updates.push(`adjusted_birth_date = $${idx++}`);
+    values.push(adjustedBirthDate ?? null);
   }
   if (weightKg !== undefined) {
     updates.push(`weight_kg = $${idx++}`);

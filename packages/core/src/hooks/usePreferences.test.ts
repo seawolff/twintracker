@@ -7,6 +7,7 @@ describe('normalizePreferences', () => {
 
     expect(prefs.liveActivitiesEnabled).toBe(false);
     expect(prefs.androidLockScreenNotificationsEnabled).toBe(false);
+    expect(prefs.timeFormat).toBe('12h');
   });
 
   it('preserves a stored liveActivitiesEnabled value while keeping other defaults', () => {
@@ -15,6 +16,7 @@ describe('normalizePreferences', () => {
     expect(prefs.liveActivitiesEnabled).toBe(true);
     expect(prefs.sleepTraining).toBe(false);
     expect(prefs.units).toBe('metric');
+    expect(prefs.timeFormat).toBe('12h');
   });
 
   it('migrates the legacy widgetsEnabled value into liveActivitiesEnabled', () => {
@@ -59,6 +61,7 @@ describe('readStoredPreferences', () => {
       getItem: async () =>
         JSON.stringify({
           wakeHour: 6,
+          timeFormat: '24h',
           liveActivitiesEnabled: true,
           androidLockScreenNotificationsEnabled: true,
         }),
@@ -70,6 +73,7 @@ describe('readStoredPreferences', () => {
       exists: true,
       prefs: normalizePreferences({
         wakeHour: 6,
+        timeFormat: '24h',
         liveActivitiesEnabled: true,
         androidLockScreenNotificationsEnabled: true,
       }),

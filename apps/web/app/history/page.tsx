@@ -16,6 +16,7 @@ import {
   parseBottleNotes,
   summarizeStashInventory,
   defaultQuickAddDateForHistoryDay,
+  usePreferences,
 } from '@tt/core';
 import type { Baby, EventType, HistoryFilters, LogEventPayload, TrackerEvent } from '@tt/core';
 import { FilterIcon, HistoryFeed, LogSheet } from '@tt/ui';
@@ -35,6 +36,7 @@ interface QuickAdd {
 export default function HistoryPage() {
   const router = useRouter();
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const { prefs } = usePreferences();
   const {
     events,
     loading: eventsLoading,
@@ -49,6 +51,7 @@ export default function HistoryPage() {
   const [quickAdd, setQuickAdd] = useState<QuickAdd | null>(null);
   const [filters, setFilters] = useState<HistoryFilters>(emptyFilters());
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [members, setMembers] = useState<{ id: string; displayName?: string | null }[]>([]);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -61,6 +64,7 @@ export default function HistoryPage() {
       return;
     }
     api.babies.list().then(setBabies).catch(console.error);
+    api.auth.householdMembers().then(setMembers).catch(console.error);
   }, [authLoading, isAuthenticated]);
 
   // Derive unique authors from full unfiltered list so pills don't disappear mid-filter
@@ -195,7 +199,7 @@ export default function HistoryPage() {
       <EmailVerificationBanner />
 
       <div className={styles.scroll}>
-      {showStashInventory && (
+        {showStashInventory && (
           <section className={styles.stashCard}>
             <p className={styles.quickLabel}>{i18n.t('history.stash_inventory_title')}</p>
             <h2 className={styles.stashValue}>
@@ -246,6 +250,7 @@ export default function HistoryPage() {
         <HistoryFeed
           events={filteredEvents}
           babies={babies}
+          showLoggerAvatar={members.length > 1}
           onDelete={id => deleteEvent(id).catch(console.error)}
           onRestore={event =>
             logEvent({
@@ -261,6 +266,7 @@ export default function HistoryPage() {
           onEdit={setEditingEvent}
           onAddForDay={handleAddForDay}
           onRefresh={poll}
+          timeFormat={prefs.timeFormat}
         />
       </div>
 
@@ -392,6 +398,7 @@ export default function HistoryPage() {
         baby={editBaby}
         eventType={editingEvent?.type ?? null}
         initialEvent={editingEvent ?? undefined}
+        timeFormat={prefs.timeFormat}
         onEdit={(id, payload) => {
           editEvent(id, payload).catch(console.error);
           setEditingEvent(null);
@@ -447,6 +454,7 @@ export default function HistoryPage() {
         baby={quickAdd?.baby ?? null}
         eventType={quickAdd?.type ?? null}
         initialStartedAt={quickAdd?.date ? defaultTimeForDay(quickAdd.date) : undefined}
+        timeFormat={prefs.timeFormat}
         onSubmit={handleQuickSubmit}
         onClose={() => setQuickAdd(null)}
       />
