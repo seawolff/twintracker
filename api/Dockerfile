@@ -11,7 +11,7 @@ COPY . .
 RUN npm install
 RUN npm run build -w @tt/core && npm run build -w api
 # Copy non-TS assets (fonts, icons) that tsc doesn't include in the output
-RUN cp -r src/assets dist/assets
+RUN cp -r api/src/assets api/dist/assets
 ENV NODE_ENV=production
 # Run migrations then start — migrate.js is idempotent (all IF NOT EXISTS / safe UPDATEs)
-CMD ["sh", "-c", "node src/db/migrate.js && node dist/index.js"]
+CMD ["sh", "-c", "node api/src/db/migrate.js && node api/dist/index.js"]
