@@ -3,27 +3,32 @@ import { buildLiveActivitySnapshots } from './liveActivitySnapshot';
 
 const NOW = new Date('2026-04-20T14:00:00Z');
 
+// Birth dates are anchored to the real clock so getAgeWeeks() (which uses Date.now())
+// always returns a value in the expected stage range, regardless of when tests run.
+const STAGE1_BIRTH_DATE = new Date(Date.now() - 10 * 7 * 24 * 60 * 60 * 1000).toISOString();
+const STAGE2_BIRTH_DATE = new Date(Date.now() - 20 * 7 * 24 * 60 * 60 * 1000).toISOString();
+
 const BABY: Baby = {
   id: 'b1',
   name: 'Emma',
   color: 'amber',
-  birthDate: '2026-01-20T00:00:00Z',
-  createdAt: '2026-01-20T00:00:00Z',
+  birthDate: STAGE1_BIRTH_DATE,
+  createdAt: STAGE1_BIRTH_DATE,
 };
 
 const BABY_TWO: Baby = {
   id: 'b2',
   name: 'Lucas',
   color: 'sky',
-  birthDate: '2026-01-18T00:00:00Z',
-  createdAt: '2026-01-18T00:00:00Z',
+  birthDate: STAGE1_BIRTH_DATE,
+  createdAt: STAGE1_BIRTH_DATE,
 };
 
 const STAGE_TWO_BABY: Baby = {
   id: 'b3',
   name: 'Milo',
   color: 'emerald',
-  birthDate: '2025-10-20T00:00:00Z',
+  birthDate: STAGE2_BIRTH_DATE,
   createdAt: '2025-10-20T00:00:00Z',
 };
 

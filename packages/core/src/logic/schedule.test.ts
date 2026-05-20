@@ -397,6 +397,7 @@ describe('getBabyInsight', () => {
     createdAt: new Date().toISOString(),
   };
 
+  it('sleeping baby: headline contains "Sleeping", narrative mentions name', () => {
     const napStartedAt = msAgo(30 * 60_000);
     const latest: LatestEventMap = {
       [`${BABY_ID}:nap`]: makeEvent(BABY_ID, 'nap', napStartedAt),
@@ -407,6 +408,7 @@ describe('getBabyInsight', () => {
     expect(insight.urgency).toBe('ok');
   });
 
+  it('overdue nap: urgency overdue', () => {
     // 150 min elapsed — overdue for Stage 2 (120 min target) and Stage 1 (90 min target)
     const napStartedAt = msAgo(150 * 60_000);
     const latest: LatestEventMap = {
@@ -417,6 +419,7 @@ describe('getBabyInsight', () => {
     expect(insight.narrative).toContain('longer than usual');
   });
 
+  it('awake within window: headline contains "Awake", narrative mentions nap timing', () => {
     const testNow = new Date(2026, 2, 14, 10, 0, 0); // fixed daytime hour to avoid night-mode urgency
     const napEndedAt = new Date(testNow.getTime() - 30 * 60_000).toISOString();
     const latest: LatestEventMap = {
