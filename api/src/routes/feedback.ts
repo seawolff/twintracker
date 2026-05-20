@@ -2,11 +2,10 @@ import { Router } from 'express';
 import { pool } from '../db';
 import { requireAuth } from '../middleware/auth';
 import type { AuthRequest } from '../middleware/auth';
-import {
-  FEEDBACK_MAX_MESSAGE_LENGTH,
-  FEEDBACK_MIN_RATING,
-  FEEDBACK_MAX_RATING,
-} from '@tt/core/src/config';
+
+const FEEDBACK_MAX_MESSAGE_LENGTH = 2000;
+const FEEDBACK_MIN_RATING = 1;
+const FEEDBACK_MAX_RATING = 5;
 
 const router = Router();
 
